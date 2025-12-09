@@ -1,0 +1,14 @@
+{
+  "name": "stock-management-backend",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.7.5",
+    "hono": "^4.10.8",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
