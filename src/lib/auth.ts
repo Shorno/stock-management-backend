@@ -14,15 +14,9 @@ export const auth = betterAuth({
         autoSignIn : false,
     },
     advanced: {
-        cookies: {
-            sessionToken: {
-                attributes: {
-                    sameSite: "none",
-                    secure: true,
-                    partitioned: true
-                }
-            }
-        }
+        crossSubDomainCookies :{
+            enabled : true
+        },
     },
     basePath: "/api/auth",
 });
