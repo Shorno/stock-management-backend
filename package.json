@@ -2,8 +2,7 @@
   "name": "stock-management-backend",
   "type": "module",
   "scripts": {
-    "dev": "bun run --hot src/index.ts",
-    "build": "tsc"
+    "dev": "bun run --hot src/index.ts"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.5",

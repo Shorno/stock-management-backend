@@ -1,16 +1,12 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "node",
+    "module": "NodeNext",
     "strict": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    },
-    "outDir": "dist"
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "outDir": "./dist"
   },
-  "include": ["src"],
   "exclude": ["node_modules"]
 }

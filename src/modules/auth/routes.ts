@@ -1,6 +1,6 @@
 import {Hono} from "hono";
 import {zValidator} from "@hono/zod-validator";
-import {loginFormSchema} from "./authSchema";
+import {loginFormSchema} from "./authSchema.ts";
 
 const app = new Hono();
 
