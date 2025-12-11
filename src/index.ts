@@ -1,6 +1,6 @@
 import {Hono} from 'hono'
 import {cors} from "hono/cors"
-import {auth} from "./lib/auth.ts";
+import {auth} from "./lib/auth.js";
 
 const app = new Hono<{
     Variables: {
