@@ -1,10 +1,6 @@
 {
   "compilerOptions": {
-    "target": "es2017",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
-  }
+    "types": ["bun"],
+  },
+  "exclude": ["node_modules"]
 }
