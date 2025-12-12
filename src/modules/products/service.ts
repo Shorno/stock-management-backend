@@ -9,7 +9,6 @@ export const createProduct = async (
   userId: string
 ): Promise<Product> => {
   const newProduct: NewProduct = {
-    id: crypto.randomUUID(),
     name: data.name,
     category: data.category,
     brand: data.brand,
