@@ -1,6 +1,7 @@
 import {Hono} from 'hono'
 import {cors} from "hono/cors"
 import {auth} from "./lib/auth.js";
+import productRoutes from "./modules/products/routes.js";
 
 const app = new Hono<{
     Variables: {
@@ -43,6 +44,7 @@ app.on(["POST", "GET"], "/auth/**", (ctx) => {
     return auth.handler(ctx.req.raw);
 });
 
+app.route("/products", productRoutes);
 
 export default {
     port: 3000,
