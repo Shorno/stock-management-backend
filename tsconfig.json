@@ -6,6 +6,7 @@
     "lib": ["ESNext"],
     "verbatimModuleSyntax": true,
     "outDir": "dist",
+    "rootDir": "src",
     "strict": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
@@ -18,5 +19,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "types": ["bun"]
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
