@@ -1,19 +1,19 @@
-# Category API Documentation
+# Brand API Documentation
 
 ## Base URL
-All endpoints are prefixed with `/api/categories`
+All endpoints are prefixed with `/api/brands`
 
 ---
 
 ## Endpoints
 
-### 1. Create Category
-**POST** `/api/categories`
+### 1. Create Brand
+**POST** `/api/brands`
 
 **Request Body:**
 ```json
 {
-  "name": "Electronics"
+  "name": "Samsung"
 }
 ```
 
@@ -23,26 +23,26 @@ All endpoints are prefixed with `/api/categories`
   "success": true,
   "data": {
     "id": 1,
-    "name": "Electronics",
-    "slug": "electronics",
+    "name": "Samsung",
+    "slug": "samsung",
     "createdAt": "2025-12-13T10:00:00.000Z",
     "updatedAt": "2025-12-13T10:00:00.000Z"
   },
-  "message": "Category created successfully"
+  "message": "Brand created successfully"
 }
 ```
 
 ---
 
-### 2. Get All Categories
-**GET** `/api/categories`
+### 2. Get All Brands
+**GET** `/api/brands`
 
 **Query Parameters:**
-- `search` (optional): Search by category name
+- `search` (optional): Search by brand name
 - `limit` (optional): Number of results per page (default: 50)
 - `offset` (optional): Number of results to skip (default: 0)
 
-**Example:** `/api/categories?search=elect&limit=10&offset=0`
+**Example:** `/api/brands?search=sam&limit=10&offset=0`
 
 **Response:** (200 OK)
 ```json
@@ -51,8 +51,8 @@ All endpoints are prefixed with `/api/categories`
   "data": [
     {
       "id": 1,
-      "name": "Electronics",
-      "slug": "electronics",
+      "name": "Samsung",
+      "slug": "samsung",
       "createdAt": "2025-12-13T10:00:00.000Z",
       "updatedAt": "2025-12-13T10:00:00.000Z"
     }
@@ -63,10 +63,10 @@ All endpoints are prefixed with `/api/categories`
 
 ---
 
-### 3. Get Category by ID
-**GET** `/api/categories/:id`
+### 3. Get Brand by ID
+**GET** `/api/brands/:id`
 
-**Example:** `/api/categories/1`
+**Example:** `/api/brands/1`
 
 **Response:** (200 OK)
 ```json
@@ -74,8 +74,8 @@ All endpoints are prefixed with `/api/categories`
   "success": true,
   "data": {
     "id": 1,
-    "name": "Electronics",
-    "slug": "electronics",
+    "name": "Samsung",
+    "slug": "samsung",
     "createdAt": "2025-12-13T10:00:00.000Z",
     "updatedAt": "2025-12-13T10:00:00.000Z"
   }
@@ -84,13 +84,13 @@ All endpoints are prefixed with `/api/categories`
 
 ---
 
-### 4. Update Category
-**PUT** `/api/categories/:id`
+### 4. Update Brand
+**PUT** `/api/brands/:id`
 
 **Request Body:**
 ```json
 {
-  "name": "Consumer Electronics"
+  "name": "Samsung Electronics"
 }
 ```
 
@@ -100,25 +100,25 @@ All endpoints are prefixed with `/api/categories`
   "success": true,
   "data": {
     "id": 1,
-    "name": "Consumer Electronics",
-    "slug": "consumer-electronics",
+    "name": "Samsung Electronics",
+    "slug": "samsung-electronics",
     "createdAt": "2025-12-13T10:00:00.000Z",
     "updatedAt": "2025-12-13T10:30:00.000Z"
   },
-  "message": "Category updated successfully"
+  "message": "Brand updated successfully"
 }
 ```
 
 ---
 
-### 5. Delete Category
-**DELETE** `/api/categories/:id`
+### 5. Delete Brand
+**DELETE** `/api/brands/:id`
 
 **Response:** (200 OK)
 ```json
 {
   "success": true,
-  "message": "Category deleted successfully"
+  "message": "Brand deleted successfully"
 }
 ```
 
@@ -134,7 +134,7 @@ All endpoints are prefixed with `/api/categories`
   "errors": [
     {
       "path": "name",
-      "message": "Category name is required"
+      "message": "Brand name is required"
     }
   ]
 }
@@ -144,7 +144,7 @@ All endpoints are prefixed with `/api/categories`
 ```json
 {
   "success": false,
-  "message": "Category not found"
+  "message": "Brand not found"
 }
 ```
 
@@ -152,7 +152,7 @@ All endpoints are prefixed with `/api/categories`
 ```json
 {
   "success": false,
-  "message": "Failed to create category"
+  "message": "Failed to create brand"
 }
 ```
 
@@ -161,12 +161,12 @@ All endpoints are prefixed with `/api/categories`
 ## Features
 
 - ✅ **Automatic Slug Generation**: Slugs are automatically generated from names
-  - Example: "Consumer Electronics" → "consumer-electronics"
+  - Example: "Samsung Electronics" → "samsung-electronics"
 - ✅ **Validation**: Input validation using Zod
   - Name is required (1-100 characters)
-- ✅ **Search**: Full-text search on category names
+- ✅ **Search**: Full-text search on brand names
 - ✅ **Pagination**: Support for limit and offset parameters
-- ✅ **Cascade Delete**: Deleting a category will cascade to related products
+- ✅ **Cascade Delete**: Deleting a brand will cascade to related products
 - ✅ **Timestamps**: Automatic `createdAt` and `updatedAt` tracking
 
 ---
@@ -195,6 +195,6 @@ All endpoints are prefixed with `/api/categories`
 ---
 
 ## Related APIs
-- [Brand API](../brand/README.md)
+- [Category API](../category/CATEGORY_API.md)
 - [Product API](../products/README.md)
 

@@ -14,10 +14,12 @@ All endpoints are prefixed with `/api`
 
 | Module | Base Path | Documentation | Description |
 |--------|-----------|---------------|-------------|
-| **Category** | `/api/categories` | [View Docs](src/modules/category/README.md) | Manage product categories with CRUD operations |
-| **Brand** | `/api/brands` | [View Docs](src/modules/brand/README.md) | Manage product brands with CRUD operations |
-| **Product** | `/api/products` | [View Docs](src/modules/products/README.md) | Manage products with full inventory control |
-| **Auth** | `/api/auth` | [View Docs](src/modules/auth/README.md) | Authentication and authorization |
+| **Category** | `/api/categories` | [View Docs](src/modules/category/CATEGORY_API.md) | Manage product categories with CRUD operations |
+| **Brand** | `/api/brands` | [View Docs](src/modules/brand/BRAND_API.md) | Manage product brands with CRUD operations |
+| **Product** | `/api/products` | [View Docs](src/modules/products/PRODUCT_API.md) | Manage products with full inventory control |
+| **DSR** | `/api/dsrs` | [View Docs](src/modules/dsr/DSR_API.md) | Manage Distribution Sales Representatives |
+| **Route** | `/api/routes` | [View Docs](src/modules/route/ROUTE_API.md) | Manage sales/delivery routes |
+| **Auth** | `/api/auth` | [View Docs](src/modules/auth/AUTH_API.md) | Authentication and authorization |
 
 ---
 

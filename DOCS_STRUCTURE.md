@@ -37,8 +37,8 @@ stock-management-backend/
 - **[API_DOCS.md](../../API_DOCS.md)** - Main API documentation index with common patterns
 
 ### Module-Specific Documentation
-- **[Category API](src/modules/category/README.md)** - Complete CRUD documentation for categories
-- **[Brand API](src/modules/brand/README.md)** - Complete CRUD documentation for brands
+- **[Category API](src/modules/category/CATEGORY_API.md)** - Complete CRUD documentation for categories
+- **[Brand API](src/modules/brand/BRAND_API.md)** - Complete CRUD documentation for brands
 - **Products API** - Coming soon
 
 ### Quick References
@@ -58,10 +58,10 @@ stock-management-backend/
 When working on a module, refer to its local README.md:
 ```bash
 # Working on category module?
-cat src/modules/category/README.md
+cat src/modules/category/CATEGORY_API.md
 
 # Working on brand module?
-cat src/modules/brand/README.md
+cat src/modules/brand/CATEGORY_API.md
 ```
 
 ### For API Consumers
@@ -71,7 +71,7 @@ Start with the main [API_DOCS.md](../../API_DOCS.md) and navigate to specific mo
 When adding a new module, create its README.md following the same structure:
 ```bash
 # Create new module docs
-touch src/modules/your-module/README.md
+touch src/modules/your-module/CATEGORY_API.md
 ```
 
 Then add a link in the main API_DOCS.md.

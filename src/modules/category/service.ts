@@ -1,6 +1,6 @@
 import { db } from "../../db/config/index.js";
 import { category } from "../../db/schema/index.js";
-import { eq, ilike, sql } from "drizzle-orm";
+import {count, eq, ilike} from "drizzle-orm";
 import { generateSlug } from "../../lib/slug.js";
 import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } from "./validation.js";
 import type { Category, NewCategory } from "./types.js";

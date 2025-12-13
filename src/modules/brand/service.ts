@@ -53,7 +53,6 @@ export const updateBrand = async (
   id: number,
   data: UpdateBrandInput
 ): Promise<Brand | undefined> => {
-  // Since name is the only updateable field, auto-generate slug
   const updateData: Partial<NewBrand> = {
     name: data.name!,
     slug: generateSlug(data.name!),

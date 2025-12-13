@@ -1,12 +1,11 @@
 import { z } from "zod";
 
 const baseBrandSchema = z.object({
-  name: z.string().min(1, "Brand name is required").max(100, "Brand name is too long"),
+  name: z.string({error : "Brand name is required"}).min(1, "Brand name is required").max(100, "Brand name is too long"),
 });
 
 export const createBrandSchema = baseBrandSchema;
 
-// For brand updates, name is required since it's the only updateable field
 export const updateBrandSchema = baseBrandSchema;
 
 export const getBrandsQuerySchema = z.object({

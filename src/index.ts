@@ -4,6 +4,8 @@ import {auth} from "./lib/auth.js";
 import productRoutes from "./modules/products/routes.js";
 import categoryRoutes from "./modules/category/routes.js";
 import brandRoutes from "./modules/brand/routes.js";
+import dsrRoutes from "./modules/dsr/routes.js";
+import routeRoutes from "./modules/route/routes.js";
 
 const app = new Hono<{
     Variables: {
@@ -49,6 +51,8 @@ app.on(["POST", "GET"], "/auth/**", (ctx) => {
 app.route("/products", productRoutes);
 app.route("/categories", categoryRoutes);
 app.route("/brands", brandRoutes);
+app.route("/dsrs", dsrRoutes);
+app.route("/routes", routeRoutes);
 
 export default {
     port: 3000,
