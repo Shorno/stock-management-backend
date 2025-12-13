@@ -10,6 +10,7 @@ export const category = pgTable("category", {
   ...timestamps
 });
 
+
 export const brand = pgTable("brand", {
   id: serial("id").primaryKey(),
   name: varchar("name", {length: 100}).notNull(),
@@ -26,7 +27,8 @@ export const product = pgTable("product", {
   brandId: integer("brand_id")
     .notNull()
     .references(() => brand.id, { onDelete: "cascade" }),
-  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+  supplierPrice: numeric("supplier_price", { precision: 10, scale: 2 }).notNull(),
+  sellPrice: numeric("sell_price", { precision: 10, scale: 2 }).notNull(),
   quantity: integer("quantity").notNull().default(0),
   createdBy: text("created_by")
     .notNull()
@@ -34,7 +36,6 @@ export const product = pgTable("product", {
   ...timestamps
 });
 
-// Relations
 export const categoryRelations = relations(category, ({ many }) => ({
   products: many(product),
 }));

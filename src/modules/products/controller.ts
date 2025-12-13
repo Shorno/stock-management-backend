@@ -87,7 +87,19 @@ export const handleGetProducts = async (c: AppContext): Promise<Response> => {
 export const handleGetProductById = async (c: AppContext): Promise<Response> => {
   try {
     const { id } = c.req.param();
-    const product = await productService.getProductById(id);
+    const productId = Number(id);
+
+    if (isNaN(productId)) {
+      return c.json<ProductResponse>(
+        {
+          success: false,
+          message: "Invalid product ID",
+        },
+        400
+      );
+    }
+
+    const product = await productService.getProductById(productId);
 
     if (!product) {
       return c.json<ProductResponse>(
@@ -131,8 +143,20 @@ export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
     }
 
     const { id } = c.req.param();
+    const productId = Number(id);
+
+    if (isNaN(productId)) {
+      return c.json<ProductResponse>(
+        {
+          success: false,
+          message: "Invalid product ID",
+        },
+        400
+      );
+    }
+
     const validatedData = c.req.valid("json") as UpdateProductInput;
-    const updatedProduct = await productService.updateProduct(id, validatedData);
+    const updatedProduct = await productService.updateProduct(productId, validatedData);
 
     if (!updatedProduct) {
       return c.json<ProductResponse>(
@@ -177,7 +201,19 @@ export const handleDeleteProduct = async (c: AppContext): Promise<Response> => {
     }
 
     const { id } = c.req.param();
-    const deleted = await productService.deleteProduct(id);
+    const productId = Number(id);
+
+    if (isNaN(productId)) {
+      return c.json<ProductResponse>(
+        {
+          success: false,
+          message: "Invalid product ID",
+        },
+        400
+      );
+    }
+
+    const deleted = await productService.deleteProduct(productId);
 
     if (!deleted) {
       return c.json<ProductResponse>(
@@ -221,9 +257,21 @@ export const handleUpdateQuantity = async (c: AppContext): Promise<Response> => 
     }
 
     const { id } = c.req.param();
+    const productId = Number(id);
+
+    if (isNaN(productId)) {
+      return c.json<ProductResponse>(
+        {
+          success: false,
+          message: "Invalid product ID",
+        },
+        400
+      );
+    }
+
     const { quantity } = await c.req.json<{ quantity: number }>();
 
-    const updatedProduct = await productService.updateProductQuantity(id, quantity);
+    const updatedProduct = await productService.updateProductQuantity(productId, quantity);
 
     if (!updatedProduct) {
       return c.json<ProductResponse>(
