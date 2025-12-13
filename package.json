@@ -8,10 +8,12 @@
   "dependencies": {
     "@hono/zod-validator": "^0.7.5",
     "@neondatabase/serverless": "^1.0.2",
+    "@types/ws": "^8.18.1",
     "better-auth": "^1.4.6",
     "dotenv": "^17.2.3",
     "drizzle-orm": "0.45.0",
     "hono": "^4.10.8",
+    "ws": "^8.18.3",
     "zod": "^4.1.13"
   },
   "devDependencies": {
