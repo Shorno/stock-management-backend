@@ -1,4 +1,4 @@
 {
-  "buildCommand": "rm -rf node_modules .next && bun install --no-cache && bun run build",
-  "installCommand": "bun install --no-cache"
+  "buildCommand": "bun run build",
+  "installCommand": "bun install --frozen-lockfile"
 }
