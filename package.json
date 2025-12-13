@@ -3,10 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "build": "tsc",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "vercel-build": "npm run db:migrate && npm run build"
+    "build": "tsc"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.5",
