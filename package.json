@@ -5,7 +5,7 @@
     "dev": "bun run --hot src/index.ts",
     "build": "tsc",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-orm migrate",
+    "db:migrate": "drizzle-kit migrate",
     "vercel-build": "npm run db:migrate && npm run build"
   },
   "dependencies": {
