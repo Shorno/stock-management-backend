@@ -1,9 +1,9 @@
-import { db } from "../../db/config/index.js";
-import { route } from "../../db/schema/index.js";
 import { eq, ilike, count } from "drizzle-orm";
-import { generateSlug } from "../../lib/slug.js";
-import type { CreateRouteInput, UpdateRouteInput, GetRoutesQuery } from "./validation.js";
-import type { Route, NewRoute } from "./types.js";
+import { generateSlug } from "../../lib/slug";
+import type { CreateRouteInput, UpdateRouteInput, GetRoutesQuery } from "./validation";
+import type { Route, NewRoute } from "./types";
+import {db} from "../../db/config";
+import {route} from "../../db/schema";
 
 export const createRoute = async (data: CreateRouteInput): Promise<Route> => {
   const slug = generateSlug(data.name);
@@ -14,6 +14,9 @@ export const createRoute = async (data: CreateRouteInput): Promise<Route> => {
   };
 
   const [createdRoute] = await db.insert(route).values(newRoute).returning();
+  if (!createdRoute) {
+    throw new Error("Failed to create route");
+  }
   return createdRoute;
 };
 

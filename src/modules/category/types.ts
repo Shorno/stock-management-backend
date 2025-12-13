@@ -1,4 +1,4 @@
-import { category } from "../../db/schema/index.js";
+import { category } from "../../db/schema";
 
 export type Category = typeof category.$inferSelect;
 export type NewCategory = typeof category.$inferInsert;

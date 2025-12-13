@@ -1,4 +1,4 @@
-import { route } from "../../db/schema/index.js";
+import { route } from "../../db/schema";
 
 export type Route = typeof route.$inferSelect;
 export type NewRoute = typeof route.$inferInsert;

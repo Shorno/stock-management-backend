@@ -1,5 +1,5 @@
 import {pgTable, serial, varchar} from "drizzle-orm/pg-core";
-import {timestamps} from "../column.helpers.js";
+import {timestamps} from "../column.helpers";
 
 export const dsr = pgTable("dsr", {
     id: serial("id").primaryKey(),

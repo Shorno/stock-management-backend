@@ -1,9 +1,10 @@
-import { db } from "../../db/config/index.js";
-import { category } from "../../db/schema/index.js";
+
 import {count, eq, ilike} from "drizzle-orm";
-import { generateSlug } from "../../lib/slug.js";
-import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } from "./validation.js";
-import type { Category, NewCategory } from "./types.js";
+import { generateSlug } from "../../lib/slug";
+import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } from "./validation";
+import type { Category, NewCategory } from "./types";
+import {db} from "../../db/config";
+import {category} from "../../db/schema";
 
 export const createCategory = async (data: CreateCategoryInput): Promise<Category> => {
   const slug = generateSlug(data.name);
@@ -14,6 +15,9 @@ export const createCategory = async (data: CreateCategoryInput): Promise<Categor
   };
 
   const [createdCategory] = await db.insert(category).values(newCategory).returning();
+  if (!createdCategory) {
+    throw new Error("Failed to create category");
+  }
   return createdCategory;
 };
 
@@ -53,7 +57,6 @@ export const updateCategory = async (
   id: number,
   data: UpdateCategoryInput
 ): Promise<Category | undefined> => {
-  // Since name is the only updateable field, auto-generate slug
   const updateData: Partial<NewCategory> = {
     name: data.name!,
     slug: generateSlug(data.name!),

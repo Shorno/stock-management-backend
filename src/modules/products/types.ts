@@ -1,4 +1,4 @@
-import {brand, category, product} from "../../db/schema/index.js";
+import {brand, category, product} from "../../db/schema";
 
 export type Product = typeof product.$inferSelect;
 export type NewProduct = typeof product.$inferInsert;

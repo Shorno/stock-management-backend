@@ -1,7 +1,7 @@
 import type { Context } from "hono";
-import type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation.js";
-import type { ProductResponse } from "./types.js";
-import * as productService from "./service.js";
+import type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation";
+import type { ProductResponse } from "./types";
+import * as productService from "./service";
 
 type AppContext = Context<{
   Variables: {

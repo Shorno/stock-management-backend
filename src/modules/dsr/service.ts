@@ -1,9 +1,9 @@
-import { db } from "../../db/config/index.js";
-import { dsr } from "../../db/schema/index.js";
+import { db } from "../../db/config";
+import { dsr } from "../../db/schema";
 import { eq, ilike, count } from "drizzle-orm";
-import { generateSlug } from "../../lib/slug.js";
-import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery } from "./validation.js";
-import type { Dsr, NewDsr } from "./types.js";
+import { generateSlug } from "../../lib/slug";
+import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery } from "./validation";
+import type { Dsr, NewDsr } from "./types";
 
 export const createDsr = async (data: CreateDsrInput): Promise<Dsr> => {
   const slug = generateSlug(data.name);
@@ -14,6 +14,9 @@ export const createDsr = async (data: CreateDsrInput): Promise<Dsr> => {
   };
 
   const [createdDsr] = await db.insert(dsr).values(newDsr).returning();
+  if (!createdDsr) {
+    throw new Error("Failed to create dsr");
+  }
   return createdDsr;
 };
 

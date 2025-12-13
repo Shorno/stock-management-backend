@@ -1,7 +1,7 @@
-export { default } from "./routes.js";
+export { default } from "./routes";
 
-export type { Product, NewProduct, ProductResponse } from "./types.js";
-export type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation.js";
+export type { Product, NewProduct, ProductResponse } from "./types";
+export type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation";
 
 export {
   createProductSchema,

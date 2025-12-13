@@ -1,7 +1,7 @@
 import type { Context } from "hono";
-import type { CreateRouteInput, UpdateRouteInput, GetRoutesQuery } from "./validation.js";
-import type { RouteResponse } from "./types.js";
-import * as routeService from "./service.js";
+import type { CreateRouteInput, UpdateRouteInput, GetRoutesQuery } from "./validation";
+import type { RouteResponse } from "./types";
+import * as routeService from "./service";
 
 type AppContext = Context<
   {

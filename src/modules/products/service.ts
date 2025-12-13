@@ -1,8 +1,8 @@
-import { db } from "../../db/config/index.js";
-import { product } from "../../db/schema/index.js";
+import { db } from "../../db/config";
+import { product } from "../../db/schema";
 import { eq, and, or, ilike, sql } from "drizzle-orm";
-import type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation.js";
-import type { Product, NewProduct } from "./types.js";
+import type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation";
+import type { Product, NewProduct } from "./types";
 
 export const createProduct = async (
   data: CreateProductInput,
@@ -19,6 +19,9 @@ export const createProduct = async (
   };
 
   const [createdProduct] = await db.insert(product).values(newProduct).returning();
+  if (!createdProduct) {
+    throw new Error("Failed to create product");
+  }
   return createdProduct;
 };
 

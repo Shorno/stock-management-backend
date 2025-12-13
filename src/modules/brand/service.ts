@@ -1,9 +1,10 @@
-import { db } from "../../db/config/index.js";
-import { brand } from "../../db/schema/index.js";
+
 import { eq, ilike, count } from "drizzle-orm";
-import { generateSlug } from "../../lib/slug.js";
-import type { CreateBrandInput, UpdateBrandInput, GetBrandsQuery } from "./validation.js";
-import type { Brand, NewBrand } from "./types.js";
+import { generateSlug } from "../../lib/slug";
+import type { CreateBrandInput, UpdateBrandInput, GetBrandsQuery } from "./validation";
+import type { Brand, NewBrand } from "./types";
+import {db} from "../../db/config";
+import {brand} from "../../db/schema";
 
 export const createBrand = async (data: CreateBrandInput): Promise<Brand> => {
   const slug = generateSlug(data.name);
@@ -14,6 +15,9 @@ export const createBrand = async (data: CreateBrandInput): Promise<Brand> => {
   };
 
   const [createdBrand] = await db.insert(brand).values(newBrand).returning();
+  if (!createdBrand) {
+    throw new Error("Failed to create brand");
+  }
   return createdBrand;
 };
 

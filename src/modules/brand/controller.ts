@@ -1,7 +1,7 @@
 import type { Context } from "hono";
-import type { CreateBrandInput, UpdateBrandInput, GetBrandsQuery } from "./validation.js";
-import type { BrandResponse } from "./types.js";
-import * as brandService from "./service.js";
+import type { CreateBrandInput, UpdateBrandInput, GetBrandsQuery } from "./validation";
+import type { BrandResponse } from "./types";
+import * as brandService from "./service";
 
 type AppContext = Context<
   {

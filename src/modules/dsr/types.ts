@@ -1,4 +1,4 @@
-import { dsr } from "../../db/schema/index.js";
+import { dsr } from "../../db/schema";
 
 export type Dsr = typeof dsr.$inferSelect;
 export type NewDsr = typeof dsr.$inferInsert;

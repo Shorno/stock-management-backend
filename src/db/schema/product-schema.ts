@@ -1,7 +1,7 @@
 import {pgTable, text, numeric, integer, serial, varchar} from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
-import {timestamps} from "../column.helpers.js";
-import {user} from "./auth-schema.js";
+import {timestamps} from "../column.helpers";
+import {user} from "./auth-schema";
 
 export const category = pgTable("category", {
   id: serial("id").primaryKey(),

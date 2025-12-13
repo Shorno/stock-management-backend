@@ -4,8 +4,8 @@ import {
   createDsrSchema,
   updateDsrSchema,
   getDsrsQuerySchema,
-} from "./validation.js";
-import * as dsrController from "./controller.js";
+} from "./validation";
+import * as dsrController from "./controller";
 
 const app = new Hono();
 

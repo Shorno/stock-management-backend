@@ -1,7 +1,7 @@
 import type { Context } from "hono";
-import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } from "./validation.js";
-import type { CategoryResponse } from "./types.js";
-import * as categoryService from "./service.js";
+import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } from "./validation";
+import type { CategoryResponse } from "./types";
+import * as categoryService from "./service";
 
 type AppContext = Context<
   {

@@ -1,7 +1,7 @@
 import type { Context } from "hono";
-import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery } from "./validation.js";
-import type { DsrResponse } from "./types.js";
-import * as dsrService from "./service.js";
+import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery } from "./validation";
+import type { DsrResponse } from "./types";
+import * as dsrService from "./service";
 
 type AppContext = Context<
   {

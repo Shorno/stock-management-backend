@@ -1,7 +1,7 @@
 import {betterAuth} from "better-auth";
 import {drizzleAdapter} from "better-auth/adapters/drizzle";
 import 'dotenv/config';
-import {db} from "../db/config/index.js";
+import {db} from "../db/config";
 
 
 export const auth = betterAuth({

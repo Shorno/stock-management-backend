@@ -4,8 +4,8 @@ import {
   createBrandSchema,
   updateBrandSchema,
   getBrandsQuerySchema,
-} from "./validation.js";
-import * as brandController from "./controller.js";
+} from "./validation";
+import * as brandController from "./controller";
 
 const app = new Hono();
 

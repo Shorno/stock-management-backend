@@ -4,8 +4,8 @@ import {
   createRouteSchema,
   updateRouteSchema,
   getRoutesQuerySchema,
-} from "./validation.js";
-import * as routeController from "./controller.js";
+} from "./validation";
+import * as routeController from "./controller";
 
 const app = new Hono();
 

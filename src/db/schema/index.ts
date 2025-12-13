@@ -1,5 +1,5 @@
-export * from "./auth-schema.js"
-export * from "./product-schema.js"
-export * from "./wholesale-schema.js"
+export * from "./auth-schema"
+export * from "./product-schema"
+export * from "./wholesale-schema"
 
 

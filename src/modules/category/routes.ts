@@ -4,8 +4,8 @@ import {
   createCategorySchema,
   updateCategorySchema,
   getCategoriesQuerySchema,
-} from "./validation.js";
-import * as categoryController from "./controller.js";
+} from "./validation";
+import * as categoryController from "./controller";
 
 const app = new Hono();
 

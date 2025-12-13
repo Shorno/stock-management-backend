@@ -1,11 +1,11 @@
 import {Hono} from 'hono'
 import {cors} from "hono/cors"
-import {auth} from "./lib/auth.js";
-import productRoutes from "./modules/products/routes.js";
-import categoryRoutes from "./modules/category/routes.js";
-import brandRoutes from "./modules/brand/routes.js";
-import dsrRoutes from "./modules/dsr/routes.js";
-import routeRoutes from "./modules/route/routes.js";
+import {auth} from "./lib/auth";
+import productRoutes from "./modules/products/routes";
+import categoryRoutes from "./modules/category/routes";
+import brandRoutes from "./modules/brand/routes";
+import dsrRoutes from "./modules/dsr/routes";
+import routeRoutes from "./modules/route/routes";
 
 const app = new Hono<{
     Variables: {

@@ -4,8 +4,8 @@ import {
   createProductSchema,
   updateProductSchema,
   getProductsQuerySchema,
-} from "./validation.js";
-import * as productController from "./controller.js";
+} from "./validation";
+import * as productController from "./controller";
 
 const app = new Hono();
 
