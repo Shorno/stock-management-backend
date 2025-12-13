@@ -2,6 +2,8 @@ import {Hono} from 'hono'
 import {cors} from "hono/cors"
 import {auth} from "./lib/auth.js";
 import productRoutes from "./modules/products/routes.js";
+import categoryRoutes from "./modules/category/routes.js";
+import brandRoutes from "./modules/brand/routes.js";
 
 const app = new Hono<{
     Variables: {
@@ -15,7 +17,7 @@ app.use(
     cors({
         origin: [process.env.CLIENT_URL!],
         allowHeaders: ["Content-Type", "Authorization"],
-        allowMethods: ["POST", "GET", "OPTIONS"],
+        allowMethods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
         exposeHeaders: ["Content-Length"],
         maxAge: 600,
         credentials: true,
@@ -45,6 +47,8 @@ app.on(["POST", "GET"], "/auth/**", (ctx) => {
 });
 
 app.route("/products", productRoutes);
+app.route("/categories", categoryRoutes);
+app.route("/brands", brandRoutes);
 
 export default {
     port: 3000,

@@ -1,0 +1,200 @@
+import type { Context } from "hono";
+import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } from "./validation.js";
+import type { CategoryResponse } from "./types.js";
+import * as categoryService from "./service.js";
+
+type AppContext = Context<
+  {
+    Variables: {
+      user: { id: string; email: string } | null;
+      session: any | null;
+    };
+  },
+  any,
+  {
+    in: {
+      json?: CreateCategoryInput | UpdateCategoryInput;
+      query?: GetCategoriesQuery;
+    };
+    out: {
+      json?: CreateCategoryInput | UpdateCategoryInput;
+      query?: GetCategoriesQuery;
+    };
+  }
+>;
+
+export const handleCreateCategory = async (c: AppContext): Promise<Response> => {
+  try {
+    const validatedData = c.req.valid("json") as CreateCategoryInput;
+    const newCategory = await categoryService.createCategory(validatedData);
+
+    return c.json<CategoryResponse>(
+      {
+        success: true,
+        data: newCategory,
+        message: "Category created successfully",
+      },
+      201
+    );
+  } catch (error) {
+    console.error("Error creating category:", error);
+    return c.json<CategoryResponse>(
+      {
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to create category",
+      },
+      500
+    );
+  }
+};
+
+export const handleGetCategories = async (c: AppContext): Promise<Response> => {
+  try {
+    const validatedQuery = c.req.valid("query") as GetCategoriesQuery;
+    const { categories, total } = await categoryService.getCategories(validatedQuery);
+
+    return c.json<CategoryResponse>({
+      success: true,
+      data: categories,
+      total,
+    });
+  } catch (error) {
+    console.error("Error fetching categories:", error);
+    return c.json<CategoryResponse>(
+      {
+        success: false,
+        message: "Failed to fetch categories",
+      },
+      500
+    );
+  }
+};
+
+export const handleGetCategoryById = async (c: AppContext): Promise<Response> => {
+  try {
+    const id = Number(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json<CategoryResponse>(
+        {
+          success: false,
+          message: "Invalid category ID",
+        },
+        400
+      );
+    }
+
+    const category = await categoryService.getCategoryById(id);
+
+    if (!category) {
+      return c.json<CategoryResponse>(
+        {
+          success: false,
+          message: "Category not found",
+        },
+        404
+      );
+    }
+
+    return c.json<CategoryResponse>({
+      success: true,
+      data: category,
+    });
+  } catch (error) {
+    console.error("Error fetching category:", error);
+    return c.json<CategoryResponse>(
+      {
+        success: false,
+        message: "Failed to fetch category",
+      },
+      500
+    );
+  }
+};
+
+export const handleUpdateCategory = async (c: AppContext): Promise<Response> => {
+  try {
+    const id = Number(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json<CategoryResponse>(
+        {
+          success: false,
+          message: "Invalid category ID",
+        },
+        400
+      );
+    }
+
+    const validatedData = c.req.valid("json") as UpdateCategoryInput;
+    const updatedCategory = await categoryService.updateCategory(id, validatedData);
+
+    if (!updatedCategory) {
+      return c.json<CategoryResponse>(
+        {
+          success: false,
+          message: "Category not found",
+        },
+        404
+      );
+    }
+
+    return c.json<CategoryResponse>({
+      success: true,
+      data: updatedCategory,
+      message: "Category updated successfully",
+    });
+  } catch (error) {
+    console.error("Error updating category:", error);
+    return c.json<CategoryResponse>(
+      {
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to update category",
+      },
+      500
+    );
+  }
+};
+
+export const handleDeleteCategory = async (c: AppContext): Promise<Response> => {
+  try {
+    const id = Number(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json<CategoryResponse>(
+        {
+          success: false,
+          message: "Invalid category ID",
+        },
+        400
+      );
+    }
+
+    const deleted = await categoryService.deleteCategory(id);
+
+    if (!deleted) {
+      return c.json<CategoryResponse>(
+        {
+          success: false,
+          message: "Category not found",
+        },
+        404
+      );
+    }
+
+    return c.json<CategoryResponse>({
+      success: true,
+      message: "Category deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting category:", error);
+    return c.json<CategoryResponse>(
+      {
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to delete category",
+      },
+      500
+    );
+  }
+};
+
