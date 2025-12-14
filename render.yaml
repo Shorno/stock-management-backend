@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: stock-management-backend
+    runtime: node
+    buildCommand: bun install && bun run build
+    startCommand: bun run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+

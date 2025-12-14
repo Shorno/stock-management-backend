@@ -1,7 +1,6 @@
 import {pgTable, text, numeric, integer, serial, varchar} from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import {timestamps} from "../column.helpers";
-import {user} from "./auth-schema";
 
 export const category = pgTable("category", {
   id: serial("id").primaryKey(),
@@ -30,9 +29,6 @@ export const product = pgTable("product", {
   supplierPrice: numeric("supplier_price", { precision: 10, scale: 2 }).notNull(),
   sellPrice: numeric("sell_price", { precision: 10, scale: 2 }).notNull(),
   quantity: integer("quantity").notNull().default(0),
-  createdBy: text("created_by")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
   ...timestamps
 });
 
@@ -52,10 +48,6 @@ export const productRelations = relations(product, ({ one }) => ({
   brand: one(brand, {
     fields: [product.brandId],
     references: [brand.id],
-  }),
-  creator: one(user, {
-    fields: [product.createdBy],
-    references: [user.id],
   }),
 }));
 
