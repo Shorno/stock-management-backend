@@ -1,11 +1,12 @@
-import {Hono} from 'hono'
-import {cors} from "hono/cors"
-import {auth} from "./lib/auth";
+import { Hono } from 'hono'
+import { cors } from "hono/cors"
+import { auth } from "./lib/auth";
 import productRoutes from "./modules/products/routes";
 import categoryRoutes from "./modules/category/routes";
 import brandRoutes from "./modules/brand/routes";
 import dsrRoutes from "./modules/dsr/routes";
 import routeRoutes from "./modules/route/routes";
+import wholesaleRoutes from "./modules/wholesale/routes";
 
 const app = new Hono<{
     Variables: {
@@ -19,7 +20,7 @@ app.use(
     cors({
         origin: [process.env.CLIENT_URL!],
         allowHeaders: ["Content-Type", "Authorization"],
-        allowMethods: ["POST", "GET", "PUT","PATCH", "DELETE", "OPTIONS"],
+        allowMethods: ["POST", "GET", "PUT", "PATCH", "DELETE", "OPTIONS"],
         exposeHeaders: ["Content-Length"],
         maxAge: 600,
         credentials: true,
@@ -53,6 +54,7 @@ app.route("/categories", categoryRoutes);
 app.route("/brands", brandRoutes);
 app.route("/dsrs", dsrRoutes);
 app.route("/routes", routeRoutes);
+app.route("/wholesale-orders", wholesaleRoutes);
 
 const port = Number(process.env.PORT) || 3000;
 
