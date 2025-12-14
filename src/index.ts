@@ -54,7 +54,9 @@ app.route("/brands", brandRoutes);
 app.route("/dsrs", dsrRoutes);
 app.route("/routes", routeRoutes);
 
+const port = Number(process.env.PORT) || 3000;
+
 export default {
-    port: 3000,
+    port,
     fetch: app.fetch,
 }

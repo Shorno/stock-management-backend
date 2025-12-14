@@ -1,0 +1,12 @@
+node_modules
+bun.lockb
+dist
+.git
+.gitignore
+.env
+.env.*
+.vscode
+.idea
+*.log
+Dockerfile
+
