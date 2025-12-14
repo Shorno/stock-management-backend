@@ -55,7 +55,11 @@ app.get("/:id", productController.handleGetProductById);
 app.patch(
   "/:id",
   zValidator("json", updateProductSchema, (result, ctx) => {
+    console.log("=== VALIDATION MIDDLEWARE ===");
+    console.log("Validation result:", result.success ? "SUCCESS" : "FAILED");
+
     if (!result.success) {
+      console.log("Validation errors:", JSON.stringify(result.error.issues, null, 2));
       return ctx.json(
         {
           success: false,
@@ -68,6 +72,9 @@ app.patch(
         400
       );
     }
+
+    console.log("Validated data:", JSON.stringify(result.data, null, 2));
+    console.log("=== END VALIDATION MIDDLEWARE ===");
   }),
   productController.handleUpdateProduct
 );

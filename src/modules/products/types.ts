@@ -1,4 +1,4 @@
-import {brand, category, product} from "../../db/schema";
+import { brand, category, product } from "../../db/schema";
 
 export type Product = typeof product.$inferSelect;
 export type NewProduct = typeof product.$inferInsert;
@@ -6,15 +6,15 @@ export type Category = typeof category.$inferSelect
 export type Brand = typeof brand.$inferSelect
 
 
-export type ProductResponse = {
-  success: boolean;
-  data?: Product | Product[];
-  message?: string;
-  errors?: string[];
-  meta?: {
+export type ProductResponse =
+  | {
+    success: true;
+    data?: Product | Product[];
     total?: number;
-    limit?: number;
-    offset?: number;
+    message?: string;
+  }
+  | {
+    success: false;
+    message: string;
+    errors?: Array<{ path: string; message: string }>;
   };
-};
-

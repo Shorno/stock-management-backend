@@ -21,20 +21,8 @@ type AppContext = Context<{
 
 export const handleCreateProduct = async (c: AppContext): Promise<Response> => {
   try {
-    const user = c.get("user");
-
-    if (!user) {
-      return c.json<ProductResponse>(
-        {
-          success: false,
-          message: "Unauthorized. Please login to create products.",
-        },
-        401
-      );
-    }
-
     const validatedData = c.req.valid("json") as CreateProductInput;
-    const newProduct = await productService.createProduct(validatedData, user.id);
+    const newProduct = await productService.createProduct(validatedData);
 
     return c.json<ProductResponse>(
       {
@@ -49,8 +37,7 @@ export const handleCreateProduct = async (c: AppContext): Promise<Response> => {
     return c.json<ProductResponse>(
       {
         success: false,
-        message: "Failed to create product",
-        errors: [error instanceof Error ? error.message : "Unknown error"],
+        message: error instanceof Error ? error.message : "Failed to create product",
       },
       500
     );
@@ -59,17 +46,13 @@ export const handleCreateProduct = async (c: AppContext): Promise<Response> => {
 
 export const handleGetProducts = async (c: AppContext): Promise<Response> => {
   try {
-    const query = c.req.valid("query") as GetProductsQuery;
-    const { products, total } = await productService.getProducts(query);
+    const validatedQuery = c.req.valid("query") as GetProductsQuery;
+    const { products, total } = await productService.getProducts(validatedQuery);
 
     return c.json<ProductResponse>({
       success: true,
       data: products,
-      meta: {
-        total,
-        limit: query.limit,
-        offset: query.offset,
-      },
+      total,
     });
   } catch (error) {
     console.error("Error fetching products:", error);
@@ -77,7 +60,6 @@ export const handleGetProducts = async (c: AppContext): Promise<Response> => {
       {
         success: false,
         message: "Failed to fetch products",
-        errors: [error instanceof Error ? error.message : "Unknown error"],
       },
       500
     );
@@ -86,10 +68,9 @@ export const handleGetProducts = async (c: AppContext): Promise<Response> => {
 
 export const handleGetProductById = async (c: AppContext): Promise<Response> => {
   try {
-    const { id } = c.req.param();
-    const productId = Number(id);
+    const id = Number(c.req.param("id"));
 
-    if (isNaN(productId)) {
+    if (isNaN(id)) {
       return c.json<ProductResponse>(
         {
           success: false,
@@ -99,7 +80,7 @@ export const handleGetProductById = async (c: AppContext): Promise<Response> => 
       );
     }
 
-    const product = await productService.getProductById(productId);
+    const product = await productService.getProductById(id);
 
     if (!product) {
       return c.json<ProductResponse>(
@@ -121,7 +102,6 @@ export const handleGetProductById = async (c: AppContext): Promise<Response> => 
       {
         success: false,
         message: "Failed to fetch product",
-        errors: [error instanceof Error ? error.message : "Unknown error"],
       },
       500
     );
@@ -130,22 +110,12 @@ export const handleGetProductById = async (c: AppContext): Promise<Response> => 
 
 export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
   try {
-    const user = c.get("user");
+    console.log("=== UPDATE PRODUCT CONTROLLER ===");
+    const id = Number(c.req.param("id"));
+    console.log("Product ID from URL:", id);
 
-    if (!user) {
-      return c.json<ProductResponse>(
-        {
-          success: false,
-          message: "Unauthorized. Please login to update products.",
-        },
-        401
-      );
-    }
-
-    const { id } = c.req.param();
-    const productId = Number(id);
-
-    if (isNaN(productId)) {
+    if (isNaN(id)) {
+      console.log("Invalid product ID");
       return c.json<ProductResponse>(
         {
           success: false,
@@ -155,10 +125,17 @@ export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
       );
     }
 
+    const rawBody = await c.req.json();
+    console.log("Raw request body:", JSON.stringify(rawBody, null, 2));
+
     const validatedData = c.req.valid("json") as UpdateProductInput;
-    const updatedProduct = await productService.updateProduct(productId, validatedData);
+    console.log("Validated data:", JSON.stringify(validatedData, null, 2));
+
+    const updatedProduct = await productService.updateProduct(id, validatedData);
+    console.log("Update result:", updatedProduct ? "Success" : "Not found");
 
     if (!updatedProduct) {
+      console.log("Product not found with ID:", id);
       return c.json<ProductResponse>(
         {
           success: false,
@@ -168,18 +145,21 @@ export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
       );
     }
 
+    console.log("Returning success response");
+    console.log("=== END UPDATE PRODUCT CONTROLLER ===");
     return c.json<ProductResponse>({
       success: true,
       data: updatedProduct,
       message: "Product updated successfully",
     });
   } catch (error) {
+    console.error("=== UPDATE PRODUCT ERROR ===");
     console.error("Error updating product:", error);
+    console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
     return c.json<ProductResponse>(
       {
         success: false,
-        message: "Failed to update product",
-        errors: [error instanceof Error ? error.message : "Unknown error"],
+        message: error instanceof Error ? error.message : "Failed to update product",
       },
       500
     );
@@ -188,22 +168,9 @@ export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
 
 export const handleDeleteProduct = async (c: AppContext): Promise<Response> => {
   try {
-    const user = c.get("user");
+    const id = Number(c.req.param("id"));
 
-    if (!user) {
-      return c.json<ProductResponse>(
-        {
-          success: false,
-          message: "Unauthorized. Please login to delete products.",
-        },
-        401
-      );
-    }
-
-    const { id } = c.req.param();
-    const productId = Number(id);
-
-    if (isNaN(productId)) {
+    if (isNaN(id)) {
       return c.json<ProductResponse>(
         {
           success: false,
@@ -213,7 +180,7 @@ export const handleDeleteProduct = async (c: AppContext): Promise<Response> => {
       );
     }
 
-    const deleted = await productService.deleteProduct(productId);
+    const deleted = await productService.deleteProduct(id);
 
     if (!deleted) {
       return c.json<ProductResponse>(
@@ -234,8 +201,7 @@ export const handleDeleteProduct = async (c: AppContext): Promise<Response> => {
     return c.json<ProductResponse>(
       {
         success: false,
-        message: "Failed to delete product",
-        errors: [error instanceof Error ? error.message : "Unknown error"],
+        message: error instanceof Error ? error.message : "Failed to delete product",
       },
       500
     );
@@ -244,22 +210,9 @@ export const handleDeleteProduct = async (c: AppContext): Promise<Response> => {
 
 export const handleUpdateQuantity = async (c: AppContext): Promise<Response> => {
   try {
-    const user = c.get("user");
+    const id = Number(c.req.param("id"));
 
-    if (!user) {
-      return c.json<ProductResponse>(
-        {
-          success: false,
-          message: "Unauthorized. Please login to update quantity.",
-        },
-        401
-      );
-    }
-
-    const { id } = c.req.param();
-    const productId = Number(id);
-
-    if (isNaN(productId)) {
+    if (isNaN(id)) {
       return c.json<ProductResponse>(
         {
           success: false,
@@ -271,7 +224,7 @@ export const handleUpdateQuantity = async (c: AppContext): Promise<Response> => 
 
     const { quantity } = await c.req.json<{ quantity: number }>();
 
-    const updatedProduct = await productService.updateProductQuantity(productId, quantity);
+    const updatedProduct = await productService.updateProductQuantity(id, quantity);
 
     if (!updatedProduct) {
       return c.json<ProductResponse>(
@@ -293,8 +246,7 @@ export const handleUpdateQuantity = async (c: AppContext): Promise<Response> => 
     return c.json<ProductResponse>(
       {
         success: false,
-        message: "Failed to update product quantity",
-        errors: [error instanceof Error ? error.message : "Unknown error"],
+        message: error instanceof Error ? error.message : "Failed to update product quantity",
       },
       500
     );

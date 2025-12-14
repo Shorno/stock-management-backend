@@ -1,12 +1,12 @@
 import { db } from "../../db/config";
 import { product } from "../../db/schema";
-import { eq, and, or, ilike, sql } from "drizzle-orm";
+import { eq, and, or, ilike, count } from "drizzle-orm";
 import type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation";
 import type { Product, NewProduct } from "./types";
 
+
 export const createProduct = async (
-  data: CreateProductInput,
-  userId: string
+  data: CreateProductInput
 ): Promise<Product> => {
   const newProduct: NewProduct = {
     name: data.name,
@@ -15,7 +15,6 @@ export const createProduct = async (
     supplierPrice: data.supplierPrice.toString(),
     sellPrice: data.sellPrice.toString(),
     quantity: data.quantity,
-    createdBy: userId,
   };
 
   const [createdProduct] = await db.insert(product).values(newProduct).returning();
@@ -29,6 +28,7 @@ export const getProducts = async (
   query: GetProductsQuery
 ): Promise<{ products: Product[]; total: number }> => {
   const conditions = [];
+  console.log("Query parameters:", query);
 
   if (query.categoryId) {
     conditions.push(eq(product.categoryId, query.categoryId));
@@ -59,14 +59,14 @@ export const getProducts = async (
       },
     }),
     db
-      .select({ count: sql<number>`count(*)::int` })
+      .select({ count: count() })
       .from(product)
       .where(whereClause),
   ]);
 
   return {
     products,
-    total: Number(totalResult[0]?.count || 0),
+    total: totalResult[0]?.count || 0,
   };
 };
 
@@ -76,13 +76,6 @@ export const getProductById = async (id: number): Promise<Product | undefined> =
     with: {
       category: true,
       brand: true,
-      creator: {
-        columns: {
-          id: true,
-          name: true,
-          email: true,
-        },
-      },
     },
   });
 };
@@ -91,24 +84,53 @@ export const updateProduct = async (
   id: number,
   data: UpdateProductInput
 ): Promise<Product | undefined> => {
+  console.log("=== UPDATE PRODUCT SERVICE ===");
+  console.log("Product ID:", id);
+  console.log("Incoming data:", JSON.stringify(data, null, 2));
+
   const updateData: Partial<NewProduct> = {};
 
-  if (data.name !== undefined) updateData.name = data.name;
-  if (data.categoryId !== undefined) updateData.categoryId = data.categoryId;
-  if (data.brandId !== undefined) updateData.brandId = data.brandId;
-  if (data.supplierPrice !== undefined) updateData.supplierPrice = data.supplierPrice.toString();
-  if (data.sellPrice !== undefined) updateData.sellPrice = data.sellPrice.toString();
-  if (data.quantity !== undefined) updateData.quantity = data.quantity;
+  if (data.name !== undefined) {
+    console.log("Setting name:", data.name);
+    updateData.name = data.name;
+  }
+  if (data.categoryId !== undefined) {
+    console.log("Setting categoryId:", data.categoryId);
+    updateData.categoryId = data.categoryId;
+  }
+  if (data.brandId !== undefined) {
+    console.log("Setting brandId:", data.brandId);
+    updateData.brandId = data.brandId;
+  }
+  if (data.supplierPrice !== undefined) {
+    console.log("Setting supplierPrice:", data.supplierPrice);
+    updateData.supplierPrice = data.supplierPrice.toString();
+  }
+  if (data.sellPrice !== undefined) {
+    console.log("Setting sellPrice:", data.sellPrice);
+    updateData.sellPrice = data.sellPrice.toString();
+  }
+  if (data.quantity !== undefined) {
+    console.log("Setting quantity:", data.quantity);
+    updateData.quantity = data.quantity;
+  }
+
+  console.log("Update data object:", JSON.stringify(updateData, null, 2));
 
   if (Object.keys(updateData).length === 0) {
+    console.log("No fields to update, returning existing product");
     return getProductById(id);
   }
 
+  console.log("Executing update query...");
   const [updatedProduct] = await db
     .update(product)
     .set(updateData)
     .where(eq(product.id, id))
     .returning();
+
+  console.log("Updated product:", JSON.stringify(updatedProduct, null, 2));
+  console.log("=== END UPDATE PRODUCT SERVICE ===");
 
   return updatedProduct;
 };
@@ -122,10 +144,17 @@ export const updateProductQuantity = async (
   id: number,
   quantityChange: number
 ): Promise<Product | undefined> => {
+  // First get the current product
+  const currentProduct = await getProductById(id);
+  if (!currentProduct) {
+    return undefined;
+  }
+
+  // Update with the new quantity
   const [updatedProduct] = await db
     .update(product)
     .set({
-      quantity: sql`${product.quantity} + ${quantityChange}`,
+      quantity: currentProduct.quantity + quantityChange,
     })
     .where(eq(product.id, id))
     .returning();
