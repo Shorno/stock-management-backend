@@ -7,8 +7,8 @@ export {
   createProductSchema,
   updateProductSchema,
   getProductsQuerySchema,
-} from "./validation.js";
+} from "./validation";
 
-export * as productService from "./service.js";
-export * as productController from "./controller.js";
+export * as productService from "./service";
+export * as productController from "./controller";
 

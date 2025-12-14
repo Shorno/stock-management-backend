@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "stock-management-backend",
@@ -12,7 +11,6 @@
         "dotenv": "^17.2.3",
         "drizzle-orm": "0.45.0",
         "hono": "^4.10.8",
-        "tsc-alias": "^1.8.10",
         "typescript": "^5.9.3",
         "ws": "^8.18.3",
         "zod": "^4.1.13",
@@ -20,6 +18,7 @@
       "devDependencies": {
         "@types/bun": "latest",
         "drizzle-kit": "^0.31.8",
+        "tsc-alias": "^1.8.16",
         "tsx": "^4.21.0",
       },
     },
