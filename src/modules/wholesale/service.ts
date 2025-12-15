@@ -1,7 +1,7 @@
 import { db } from "../../db/config";
 import { wholesaleOrders, wholesaleOrderItems } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte } from "drizzle-orm";
-import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput } from "./validation";
+import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, AddItemInput, UpdateItemInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 
 // Unit multipliers for calculating total quantity
@@ -348,6 +348,7 @@ export const updateOrder = async (
     });
 };
 
+
 // Delete order
 export const deleteOrder = async (id: number): Promise<boolean> => {
     const result = await db
@@ -356,3 +357,237 @@ export const deleteOrder = async (id: number): Promise<boolean> => {
         .returning();
     return result.length > 0;
 };
+
+// Helper function to recalculate order totals from items
+const recalculateOrderTotals = async (orderId: number, tx: any) => {
+    // Fetch all items for the order
+    const items = await tx.query.wholesaleOrderItems.findMany({
+        where: (items: any, { eq }: any) => eq(items.orderId, orderId),
+    });
+
+    let subtotal = 0;
+    let discount = 0;
+
+    items.forEach((item: any) => {
+        subtotal += parseFloat(item.subtotal);
+        discount += parseFloat(item.discount);
+    });
+
+    const total = subtotal - discount;
+
+    // Update order totals
+    await tx
+        .update(wholesaleOrders)
+        .set({
+            subtotal: subtotal.toFixed(2),
+            discount: discount.toFixed(2),
+            total: total.toFixed(2),
+        })
+        .where(eq(wholesaleOrders.id, orderId));
+};
+
+// Add a single item to an order
+export const addOrderItem = async (
+    orderId: number,
+    data: AddItemInput
+): Promise<OrderWithItems | undefined> => {
+    return await db.transaction(async (tx) => {
+        // Check if order exists
+        const existingOrder = await tx.query.wholesaleOrders.findFirst({
+            where: (orders: any, { eq }: any) => eq(orders.id, orderId),
+        });
+
+        if (!existingOrder) {
+            return undefined;
+        }
+
+        // Calculate item totals
+        const itemTotals = calculateItemTotals(data);
+
+        // Create new item
+        const newItem: NewWholesaleOrderItem = {
+            orderId,
+            productId: data.productId,
+            brandId: data.brandId,
+            quantity: data.quantity,
+            unit: data.unit,
+            totalQuantity: itemTotals.totalQuantity,
+            availableQuantity: data.availableQuantity,
+            freeQuantity: data.freeQuantity,
+            salePrice: data.salePrice.toString(),
+            subtotal: itemTotals.subtotal,
+            discount: data.discount.toString(),
+            net: itemTotals.net,
+        };
+
+        await tx.insert(wholesaleOrderItems).values(newItem);
+
+        // Recalculate order totals
+        await recalculateOrderTotals(orderId, tx);
+
+        // Fetch and return the complete updated order
+        const completeOrder = await tx.query.wholesaleOrders.findFirst({
+            where: (orders: any, { eq }: any) => eq(orders.id, orderId),
+            with: {
+                items: {
+                    with: {
+                        product: true,
+                        brand: true,
+                    },
+                },
+                dsr: true,
+                route: true,
+                category: true,
+                brand: true,
+            },
+        });
+
+        return completeOrder as OrderWithItems | undefined;
+    });
+};
+
+// Update a single item in an order
+export const updateOrderItem = async (
+    orderId: number,
+    itemId: number,
+    data: UpdateItemInput
+): Promise<OrderWithItems | undefined> => {
+    return await db.transaction(async (tx) => {
+        // Check if order exists
+        const existingOrder = await tx.query.wholesaleOrders.findFirst({
+            where: (orders: any, { eq }: any) => eq(orders.id, orderId),
+        });
+
+        if (!existingOrder) {
+            return undefined;
+        }
+
+        // Check if item exists and belongs to the order
+        const existingItem = await tx.query.wholesaleOrderItems.findFirst({
+            where: (items: any, { eq, and }: any) =>
+                and(eq(items.id, itemId), eq(items.orderId, orderId)),
+        });
+
+        if (!existingItem) {
+            return undefined;
+        }
+
+        // Merge existing item data with updates
+        const updatedItemData = {
+            productId: data.productId ?? existingItem.productId,
+            brandId: data.brandId ?? existingItem.brandId,
+            quantity: data.quantity ?? existingItem.quantity,
+            unit: (data.unit ?? existingItem.unit) as "PCS" | "KG" | "LTR" | "BOX" | "CARTON" | "DOZEN",
+            totalQuantity: data.totalQuantity ?? existingItem.totalQuantity,
+            availableQuantity: data.availableQuantity ?? existingItem.availableQuantity,
+            freeQuantity: data.freeQuantity ?? existingItem.freeQuantity,
+            salePrice: data.salePrice ?? parseFloat(existingItem.salePrice),
+            discount: data.discount ?? parseFloat(existingItem.discount),
+        };
+
+        // Calculate new item totals
+        const itemTotals = calculateItemTotals(updatedItemData);
+
+        // Update item
+        await tx
+            .update(wholesaleOrderItems)
+            .set({
+                productId: updatedItemData.productId,
+                brandId: updatedItemData.brandId,
+                quantity: updatedItemData.quantity,
+                unit: updatedItemData.unit,
+                totalQuantity: itemTotals.totalQuantity,
+                availableQuantity: updatedItemData.availableQuantity,
+                freeQuantity: updatedItemData.freeQuantity,
+                salePrice: updatedItemData.salePrice.toString(),
+                subtotal: itemTotals.subtotal,
+                discount: updatedItemData.discount.toString(),
+                net: itemTotals.net,
+            })
+            .where(eq(wholesaleOrderItems.id, itemId));
+
+        // Recalculate order totals
+        await recalculateOrderTotals(orderId, tx);
+
+        // Fetch and return the complete updated order
+        const completeOrder = await tx.query.wholesaleOrders.findFirst({
+            where: (orders: any, { eq }: any) => eq(orders.id, orderId),
+            with: {
+                items: {
+                    with: {
+                        product: true,
+                        brand: true,
+                    },
+                },
+                dsr: true,
+                route: true,
+                category: true,
+                brand: true,
+            },
+        });
+
+        return completeOrder as OrderWithItems | undefined;
+    });
+};
+
+// Delete a single item from an order
+export const deleteOrderItem = async (
+    orderId: number,
+    itemId: number
+): Promise<OrderWithItems | undefined> => {
+    return await db.transaction(async (tx) => {
+        // Check if order exists
+        const existingOrder = await tx.query.wholesaleOrders.findFirst({
+            where: (orders: any, { eq }: any) => eq(orders.id, orderId),
+        });
+
+        if (!existingOrder) {
+            return undefined;
+        }
+
+        // Check if item exists and belongs to the order
+        const existingItem = await tx.query.wholesaleOrderItems.findFirst({
+            where: (items: any, { eq, and }: any) =>
+                and(eq(items.id, itemId), eq(items.orderId, orderId)),
+        });
+
+        if (!existingItem) {
+            return undefined;
+        }
+
+        // Check if this is the last item in the order
+        const itemCount = await tx.query.wholesaleOrderItems.findMany({
+            where: (items: any, { eq }: any) => eq(items.orderId, orderId),
+        });
+
+        if (itemCount.length <= 1) {
+            throw new Error("Cannot delete the last item in an order. Delete the order instead.");
+        }
+
+        // Delete the item
+        await tx.delete(wholesaleOrderItems).where(eq(wholesaleOrderItems.id, itemId));
+
+        // Recalculate order totals
+        await recalculateOrderTotals(orderId, tx);
+
+        // Fetch and return the complete updated order
+        const completeOrder = await tx.query.wholesaleOrders.findFirst({
+            where: (orders: any, { eq }: any) => eq(orders.id, orderId),
+            with: {
+                items: {
+                    with: {
+                        product: true,
+                        brand: true,
+                    },
+                },
+                dsr: true,
+                route: true,
+                category: true,
+                brand: true,
+            },
+        });
+
+        return completeOrder as OrderWithItems | undefined;
+    });
+};
+

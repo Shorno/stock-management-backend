@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery } from "./validation";
+import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, AddItemInput, UpdateItemInput } from "./validation";
 import type { WholesaleOrderResponse } from "./types";
 import * as wholesaleService from "./service";
 
@@ -197,3 +197,143 @@ export const handleDeleteOrder = async (c: AppContext): Promise<Response> => {
         );
     }
 };
+
+// Add item to order
+export const handleAddOrderItem = async (c: AppContext): Promise<Response> => {
+    try {
+        const orderId = Number(c.req.param("orderId"));
+
+        if (isNaN(orderId)) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Invalid order ID",
+                },
+                400
+            );
+        }
+
+        const validatedData = c.req.valid("json") as AddItemInput;
+        const updatedOrder = await wholesaleService.addOrderItem(orderId, validatedData);
+
+        if (!updatedOrder) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Wholesale order not found",
+                },
+                404
+            );
+        }
+
+        return c.json<WholesaleOrderResponse>(
+            {
+                success: true,
+                data: updatedOrder,
+                message: "Item added to order successfully",
+            },
+            201
+        );
+    } catch (error) {
+        console.error("Error adding item to order:", error);
+        return c.json<WholesaleOrderResponse>(
+            {
+                success: false,
+                message: error instanceof Error ? error.message : "Failed to add item to order",
+            },
+            500
+        );
+    }
+};
+
+// Update item in order
+export const handleUpdateOrderItem = async (c: AppContext): Promise<Response> => {
+    try {
+        const orderId = Number(c.req.param("orderId"));
+        const itemId = Number(c.req.param("itemId"));
+
+        if (isNaN(orderId) || isNaN(itemId)) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Invalid order ID or item ID",
+                },
+                400
+            );
+        }
+
+        const validatedData = c.req.valid("json") as UpdateItemInput;
+        const updatedOrder = await wholesaleService.updateOrderItem(orderId, itemId, validatedData);
+
+        if (!updatedOrder) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Wholesale order or item not found",
+                },
+                404
+            );
+        }
+
+        return c.json<WholesaleOrderResponse>({
+            success: true,
+            data: updatedOrder,
+            message: "Item updated successfully",
+        });
+    } catch (error) {
+        console.error("Error updating item:", error);
+        return c.json<WholesaleOrderResponse>(
+            {
+                success: false,
+                message: error instanceof Error ? error.message : "Failed to update item",
+            },
+            500
+        );
+    }
+};
+
+// Delete item from order
+export const handleDeleteOrderItem = async (c: AppContext): Promise<Response> => {
+    try {
+        const orderId = Number(c.req.param("orderId"));
+        const itemId = Number(c.req.param("itemId"));
+
+        if (isNaN(orderId) || isNaN(itemId)) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Invalid order ID or item ID",
+                },
+                400
+            );
+        }
+
+        const updatedOrder = await wholesaleService.deleteOrderItem(orderId, itemId);
+
+        if (!updatedOrder) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Wholesale order or item not found",
+                },
+                404
+            );
+        }
+
+        return c.json<WholesaleOrderResponse>({
+            success: true,
+            data: updatedOrder,
+            message: "Item deleted successfully",
+        });
+    } catch (error) {
+        console.error("Error deleting item:", error);
+        return c.json<WholesaleOrderResponse>(
+            {
+                success: false,
+                message: error instanceof Error ? error.message : "Failed to delete item",
+            },
+            500
+        );
+    }
+};
+

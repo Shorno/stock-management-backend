@@ -44,8 +44,26 @@ export const getOrdersQuerySchema = z.object({
     offset: z.string().optional().transform((val) => (val ? Number(val) : 0)),
 });
 
+// Add item schema (reuses orderItemSchema)
+export const addItemSchema = orderItemSchema;
+
+// Update item schema (all fields optional for partial updates)
+export const updateItemSchema = z.object({
+    productId: z.coerce.number().int("Product ID must be an integer").positive("Product ID must be positive").optional(),
+    brandId: z.coerce.number().int("Brand ID must be an integer").positive("Brand ID must be positive").optional(),
+    quantity: z.coerce.number().int("Quantity must be an integer").positive("Quantity must be greater than 0").optional(),
+    unit: z.enum(UNIT_TYPES, { message: "Unit must be one of: PCS, KG, LTR, BOX, CARTON, DOZEN" }).optional(),
+    totalQuantity: z.coerce.number().int("Total quantity must be an integer").nonnegative("Total quantity cannot be negative").optional(),
+    availableQuantity: z.coerce.number().int("Available quantity must be an integer").nonnegative("Available quantity cannot be negative").optional(),
+    freeQuantity: z.coerce.number().int("Free quantity must be an integer").nonnegative("Free quantity cannot be negative").optional(),
+    salePrice: z.coerce.number().nonnegative("Sale price must be non-negative").optional(),
+    discount: z.coerce.number().nonnegative("Discount must be non-negative").optional(),
+});
+
 // Type exports
 export type OrderItemInput = z.infer<typeof orderItemSchema>;
+export type AddItemInput = z.infer<typeof addItemSchema>;
+export type UpdateItemInput = z.infer<typeof updateItemSchema>;
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
 export type GetOrdersQuery = z.infer<typeof getOrdersQuerySchema>;

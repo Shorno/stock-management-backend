@@ -295,6 +295,121 @@ All endpoints are prefixed with `/api/wholesale-orders`
 
 ---
 
+### 6. Add Item to Order
+**POST** `/api/wholesale-orders/:orderId/items`
+
+**Request Body:**
+```json
+{
+  "productId": 15,
+  "brandId": 3,
+  "quantity": 5,
+  "unit": "BOX",
+  "totalQuantity": 60,
+  "availableQuantity": 100,
+  "freeQuantity": 1,
+  "salePrice": 2000.00,
+  "discount": 50.00
+}
+```
+
+**Response:** (201 Created)
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "orderNumber": "WO-2024-0001",
+    "dsrId": 1,
+    "routeId": 2,
+    "orderDate": "2024-12-15",
+    "categoryId": 1,
+    "brandId": 2,
+    "invoiceNote": "Urgent delivery required",
+    "subtotal": "25000.00",
+    "discount": "150.00",
+    "total": "24850.00",
+    "status": "pending",
+    "createdAt": "2024-12-15T10:00:00.000Z",
+    "updatedAt": "2024-12-15T11:30:00.000Z",
+    "items": [...]
+  },
+  "message": "Item added to order successfully"
+}
+```
+
+---
+
+### 7. Update Item in Order
+**PATCH** `/api/wholesale-orders/:orderId/items/:itemId`
+
+**Request Body:** (all fields optional)
+```json
+{
+  "quantity": 15,
+  "discount": 150.00
+}
+```
+
+**Response:** (200 OK)
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "orderNumber": "WO-2024-0001",
+    "dsrId": 1,
+    "routeId": 2,
+    "orderDate": "2024-12-15",
+    "categoryId": 1,
+    "brandId": 2,
+    "invoiceNote": "Urgent delivery required",
+    "subtotal": "30000.00",
+    "discount": "250.00",
+    "total": "29750.00",
+    "status": "pending",
+    "createdAt": "2024-12-15T10:00:00.000Z",
+    "updatedAt": "2024-12-15T12:00:00.000Z",
+    "items": [...]
+  },
+  "message": "Item updated successfully"
+}
+```
+
+---
+
+### 8. Delete Item from Order
+**DELETE** `/api/wholesale-orders/:orderId/items/:itemId`
+
+**Response:** (200 OK)
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "orderNumber": "WO-2024-0001",
+    "dsrId": 1,
+    "routeId": 2,
+    "orderDate": "2024-12-15",
+    "categoryId": 1,
+    "brandId": 2,
+    "invoiceNote": "Urgent delivery required",
+    "subtotal": "15000.00",
+    "discount": "100.00",
+    "total": "14900.00",
+    "status": "pending",
+    "createdAt": "2024-12-15T10:00:00.000Z",
+    "updatedAt": "2024-12-15T12:30:00.000Z",
+    "items": [...]
+  },
+  "message": "Item deleted successfully"
+}
+```
+
+**Note:** Cannot delete the last item in an order. If you need to remove all items, delete the order instead.
+
+---
+
 ## Error Responses
 
 ### Validation Error (400)
@@ -346,6 +461,7 @@ All endpoints are prefixed with `/api/wholesale-orders`
 - ✅ **Automatic Order Number Generation**: Format WO-YYYY-NNNN (e.g., WO-2024-0001)
 - ✅ **Relational Data**: Orders include DSR, Route, Category, Brand, and Product information
 - ✅ **Nested Items**: Support for multiple order items with individual calculations
+- ✅ **Individual Item Management**: Add, update, or delete individual items without replacing entire order
 - ✅ **Automatic Calculations**: 
   - Item subtotal = quantity × salePrice
   - Item net = subtotal - discount
@@ -353,6 +469,7 @@ All endpoints are prefixed with `/api/wholesale-orders`
   - Order subtotal = sum of item subtotals
   - Order discount = sum of item discounts
   - Order total = order subtotal - order discount
+  - **Automatic recalculation** when items are added, updated, or deleted
 - ✅ **Transaction Safety**: All create/update operations use database transactions
 - ✅ **Validation**: Input validation using Zod
 - ✅ **Search & Filtering**: Filter by DSR, Route, Category, Brand, Status, Date Range

@@ -4,6 +4,8 @@ import {
     createOrderSchema,
     updateOrderSchema,
     getOrdersQuerySchema,
+    addItemSchema,
+    updateItemSchema,
 } from "./validation";
 import * as wholesaleController from "./controller";
 
@@ -77,5 +79,50 @@ app.put(
 
 // Delete wholesale order
 app.delete("/:id", wholesaleController.handleDeleteOrder);
+
+// Add item to order
+app.post(
+    "/:orderId/items",
+    zValidator("json", addItemSchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Validation failed",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    wholesaleController.handleAddOrderItem
+);
+
+// Update item in order
+app.patch(
+    "/:orderId/items/:itemId",
+    zValidator("json", updateItemSchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Validation failed",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    wholesaleController.handleUpdateOrderItem
+);
+
+// Delete item from order
+app.delete("/:orderId/items/:itemId", wholesaleController.handleDeleteOrderItem);
 
 export default app;
