@@ -1,19 +1,19 @@
-import {pgTable, text, numeric, integer, serial, varchar} from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, integer, serial, varchar } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
-import {timestamps} from "../column.helpers";
+import { timestamps } from "../column.helpers";
 
 export const category = pgTable("category", {
   id: serial("id").primaryKey(),
-  name: varchar("name", {length: 100}).notNull(),
-  slug: varchar("slug", {length: 100}).notNull().unique(),
+  name: varchar("name", { length: 100 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
   ...timestamps
 });
 
 
 export const brand = pgTable("brand", {
   id: serial("id").primaryKey(),
-  name: varchar("name", {length: 100}).notNull(),
-  slug: varchar("slug", {length: 100}).notNull().unique(),
+  name: varchar("name", { length: 100 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
   ...timestamps
 });
 
@@ -29,6 +29,7 @@ export const product = pgTable("product", {
   supplierPrice: numeric("supplier_price", { precision: 10, scale: 2 }).notNull(),
   sellPrice: numeric("sell_price", { precision: 10, scale: 2 }).notNull(),
   quantity: integer("quantity").notNull().default(0),
+  freeQuantity: integer("free_quantity").notNull().default(0),
   ...timestamps
 });
 

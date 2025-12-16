@@ -1,4 +1,4 @@
-import {z} from "zod";
+import { z } from "zod";
 
 const baseProductSchema = z.object({
     name: z.string().min(1, "Product name is required").max(255, "Product name is too long"),
@@ -7,6 +7,7 @@ const baseProductSchema = z.object({
     supplierPrice: z.coerce.number().positive("Supplier price must be a positive number"),
     sellPrice: z.coerce.number().positive("Sell price must be a positive number"),
     quantity: z.coerce.number().int("Quantity must be an integer").nonnegative("Quantity cannot be negative").default(0),
+    freeQuantity: z.coerce.number().int("Free quantity must be an integer").nonnegative("Free quantity cannot be negative").default(0),
 });
 
 
@@ -20,6 +21,7 @@ export const updateProductSchema = z.object({
     supplierPrice: z.coerce.number().positive("Supplier price must be a positive number").optional(),
     sellPrice: z.coerce.number().positive("Sell price must be a positive number").optional(),
     quantity: z.coerce.number().int("Quantity must be an integer").nonnegative("Quantity cannot be negative").optional(),
+    freeQuantity: z.coerce.number().int("Free quantity must be an integer").nonnegative("Free quantity cannot be negative").optional(),
 });
 
 export const getProductsQuerySchema = z.object({

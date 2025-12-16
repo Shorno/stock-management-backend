@@ -15,6 +15,7 @@ export const createProduct = async (
     supplierPrice: data.supplierPrice.toString(),
     sellPrice: data.sellPrice.toString(),
     quantity: data.quantity,
+    freeQuantity: data.freeQuantity,
   };
 
   const [createdProduct] = await db.insert(product).values(newProduct).returning();
@@ -113,6 +114,10 @@ export const updateProduct = async (
   if (data.quantity !== undefined) {
     console.log("Setting quantity:", data.quantity);
     updateData.quantity = data.quantity;
+  }
+  if (data.freeQuantity !== undefined) {
+    console.log("Setting freeQuantity:", data.freeQuantity);
+    updateData.freeQuantity = data.freeQuantity;
   }
 
   console.log("Update data object:", JSON.stringify(updateData, null, 2));
