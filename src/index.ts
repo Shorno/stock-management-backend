@@ -7,6 +7,7 @@ import brandRoutes from "./modules/brand/routes";
 import dsrRoutes from "./modules/dsr/routes";
 import routeRoutes from "./modules/route/routes";
 import wholesaleRoutes from "./modules/wholesale/routes";
+import { productBatchRoutes, stockBatchRoutes } from "./modules/stock-batch";
 
 const app = new Hono<{
     Variables: {
@@ -50,6 +51,8 @@ app.on(["POST", "GET"], "/auth/**", (ctx) => {
 });
 
 app.route("/products", productRoutes);
+app.route("/products/:productId/batches", productBatchRoutes);
+app.route("/stock-batches", stockBatchRoutes);
 app.route("/categories", categoryRoutes);
 app.route("/brands", brandRoutes);
 app.route("/dsrs", dsrRoutes);

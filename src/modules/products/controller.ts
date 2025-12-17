@@ -110,12 +110,9 @@ export const handleGetProductById = async (c: AppContext): Promise<Response> => 
 
 export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
   try {
-    console.log("=== UPDATE PRODUCT CONTROLLER ===");
     const id = Number(c.req.param("id"));
-    console.log("Product ID from URL:", id);
 
     if (isNaN(id)) {
-      console.log("Invalid product ID");
       return c.json<ProductResponse>(
         {
           success: false,
@@ -125,17 +122,10 @@ export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
       );
     }
 
-    const rawBody = await c.req.json();
-    console.log("Raw request body:", JSON.stringify(rawBody, null, 2));
-
     const validatedData = c.req.valid("json") as UpdateProductInput;
-    console.log("Validated data:", JSON.stringify(validatedData, null, 2));
-
     const updatedProduct = await productService.updateProduct(id, validatedData);
-    console.log("Update result:", updatedProduct ? "Success" : "Not found");
 
     if (!updatedProduct) {
-      console.log("Product not found with ID:", id);
       return c.json<ProductResponse>(
         {
           success: false,
@@ -145,17 +135,13 @@ export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
       );
     }
 
-    console.log("Returning success response");
-    console.log("=== END UPDATE PRODUCT CONTROLLER ===");
     return c.json<ProductResponse>({
       success: true,
       data: updatedProduct,
       message: "Product updated successfully",
     });
   } catch (error) {
-    console.error("=== UPDATE PRODUCT ERROR ===");
     console.error("Error updating product:", error);
-    console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
     return c.json<ProductResponse>(
       {
         success: false,
@@ -207,49 +193,3 @@ export const handleDeleteProduct = async (c: AppContext): Promise<Response> => {
     );
   }
 };
-
-export const handleUpdateQuantity = async (c: AppContext): Promise<Response> => {
-  try {
-    const id = Number(c.req.param("id"));
-
-    if (isNaN(id)) {
-      return c.json<ProductResponse>(
-        {
-          success: false,
-          message: "Invalid product ID",
-        },
-        400
-      );
-    }
-
-    const { quantity } = await c.req.json<{ quantity: number }>();
-
-    const updatedProduct = await productService.updateProductQuantity(id, quantity);
-
-    if (!updatedProduct) {
-      return c.json<ProductResponse>(
-        {
-          success: false,
-          message: "Product not found",
-        },
-        404
-      );
-    }
-
-    return c.json<ProductResponse>({
-      success: true,
-      data: updatedProduct,
-      message: "Product quantity updated successfully",
-    });
-  } catch (error) {
-    console.error("Error updating product quantity:", error);
-    return c.json<ProductResponse>(
-      {
-        success: false,
-        message: error instanceof Error ? error.message : "Failed to update product quantity",
-      },
-      500
-    );
-  }
-};
-

@@ -26,10 +26,21 @@ export const product = pgTable("product", {
   brandId: integer("brand_id")
     .notNull()
     .references(() => brand.id, { onDelete: "cascade" }),
+  lowStockThreshold: integer("low_stock_threshold").default(10),
+  ...timestamps
+});
+
+export const stockBatch = pgTable("stock_batch", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id")
+    .notNull()
+    .references(() => product.id, { onDelete: "cascade" }),
   supplierPrice: numeric("supplier_price", { precision: 10, scale: 2 }).notNull(),
   sellPrice: numeric("sell_price", { precision: 10, scale: 2 }).notNull(),
-  quantity: integer("quantity").notNull().default(0),
-  freeQuantity: integer("free_quantity").notNull().default(0),
+  initialQuantity: integer("initial_quantity").notNull(),
+  remainingQuantity: integer("remaining_quantity").notNull(),
+  initialFreeQty: integer("initial_free_qty").notNull().default(0),
+  remainingFreeQty: integer("remaining_free_qty").notNull().default(0),
   ...timestamps
 });
 
@@ -41,7 +52,7 @@ export const brandRelations = relations(brand, ({ many }) => ({
   products: many(product),
 }));
 
-export const productRelations = relations(product, ({ one }) => ({
+export const productRelations = relations(product, ({ one, many }) => ({
   category: one(category, {
     fields: [product.categoryId],
     references: [category.id],
@@ -50,5 +61,12 @@ export const productRelations = relations(product, ({ one }) => ({
     fields: [product.brandId],
     references: [brand.id],
   }),
+  stockBatches: many(stockBatch),
 }));
 
+export const stockBatchRelations = relations(stockBatch, ({ one }) => ({
+  product: one(product, {
+    fields: [stockBatch.productId],
+    references: [product.id],
+  }),
+}));

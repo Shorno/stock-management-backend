@@ -81,7 +81,4 @@ app.patch(
 
 app.delete("/:id", productController.handleDeleteProduct);
 
-app.patch("/:id/quantity", productController.handleUpdateQuantity);
-
 export default app;
-
