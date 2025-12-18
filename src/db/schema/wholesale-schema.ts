@@ -1,7 +1,7 @@
 import { pgTable, serial, varchar, integer, decimal, text, date, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { timestamps } from "../column.helpers";
-import { category, brand, product } from "./product-schema";
+import { category, brand, product, stockBatch } from "./product-schema";
 
 export const dsr = pgTable("dsr", {
     id: serial("id").primaryKey(),
@@ -53,6 +53,9 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
     productId: integer("product_id")
         .notNull()
         .references(() => product.id, { onDelete: "restrict" }),
+    batchId: integer("batch_id")
+        .notNull()
+        .references(() => stockBatch.id, { onDelete: "restrict" }),
     brandId: integer("brand_id")
         .notNull()
         .references(() => brand.id, { onDelete: "restrict" }),
@@ -69,6 +72,7 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
 }, (table) => ({
     orderIdx: index("idx_wholesale_order_items_order").on(table.orderId),
     productIdx: index("idx_wholesale_order_items_product").on(table.productId),
+    batchIdx: index("idx_wholesale_order_items_batch").on(table.batchId),
 }));
 
 // Relations
@@ -108,6 +112,10 @@ export const wholesaleOrderItemsRelations = relations(wholesaleOrderItems, ({ on
     product: one(product, {
         fields: [wholesaleOrderItems.productId],
         references: [product.id],
+    }),
+    batch: one(stockBatch, {
+        fields: [wholesaleOrderItems.batchId],
+        references: [stockBatch.id],
     }),
     brand: one(brand, {
         fields: [wholesaleOrderItems.brandId],

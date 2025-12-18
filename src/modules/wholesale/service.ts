@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems } from "../../db/schema";
-import { eq, and, or, ilike, count, gte, lte } from "drizzle-orm";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch } from "../../db/schema";
+import { eq, and, or, ilike, count, gte, lte, sql } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 
@@ -37,9 +37,44 @@ const generateOrderNumber = async (): Promise<string> => {
     return `${prefix}${nextNumber.toString().padStart(4, "0")}`;
 };
 
+// Helper function to validate batch and get batch data
+const validateAndGetBatch = async (
+    batchId: number,
+    productId: number,
+    requestedQty: number,
+    requestedFreeQty: number,
+    tx: any
+) => {
+    const batch = await tx.query.stockBatch.findFirst({
+        where: (batches: any, { eq }: any) => eq(batches.id, batchId),
+    });
+
+    if (!batch) {
+        throw new Error(`Batch with ID ${batchId} not found`);
+    }
+
+    if (batch.productId !== productId) {
+        throw new Error(`Batch ${batchId} does not belong to product ${productId}`);
+    }
+
+    if (batch.remainingQuantity < requestedQty) {
+        throw new Error(
+            `Insufficient quantity in batch ${batchId}. Available: ${batch.remainingQuantity}, Requested: ${requestedQty}`
+        );
+    }
+
+    if (batch.remainingFreeQty < requestedFreeQty) {
+        throw new Error(
+            `Insufficient free quantity in batch ${batchId}. Available: ${batch.remainingFreeQty}, Requested: ${requestedFreeQty}`
+        );
+    }
+
+    return batch;
+};
+
 // Helper function to calculate item totals
-const calculateItemTotals = (item: OrderItemInput) => {
-    const subtotal = item.quantity * item.salePrice;
+const calculateItemTotals = (item: OrderItemInput, salePrice: number) => {
+    const subtotal = item.quantity * salePrice;
     const net = subtotal - item.discount;
     const totalQuantity = item.quantity * (UNIT_MULTIPLIERS[item.unit] || 1);
 
@@ -47,11 +82,12 @@ const calculateItemTotals = (item: OrderItemInput) => {
         subtotal: subtotal.toFixed(2),
         net: net.toFixed(2),
         totalQuantity,
+        salePrice,
     };
 };
 
 // Helper function to calculate order totals
-const calculateOrderTotals = (items: OrderItemInput[]) => {
+const calculateOrderTotals = (items: Array<{ quantity: number; salePrice: number; discount: number }>) => {
     let subtotal = 0;
     let discount = 0;
 
@@ -76,8 +112,24 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
         // Generate order number
         const orderNumber = await generateOrderNumber();
 
+        // Validate batches and get batch data
+        const itemsWithBatchData = await Promise.all(
+            data.items.map(async (item) => {
+                // Validate batch exists and has sufficient quantity
+                await validateAndGetBatch(
+                    item.batchId,
+                    item.productId,
+                    item.quantity,
+                    item.freeQuantity,
+                    tx
+                );
+                // Use the salePrice provided from frontend (which defaults to batch sellPrice but can be edited)
+                return item;
+            })
+        );
+
         // Calculate order totals
-        const totals = calculateOrderTotals(data.items);
+        const totals = calculateOrderTotals(itemsWithBatchData);
 
         // Create order
         const newOrder: NewWholesaleOrder = {
@@ -99,12 +151,16 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
             throw new Error("Failed to create wholesale order");
         }
 
-        // Create order items
-        const orderItems: NewWholesaleOrderItem[] = data.items.map((item) => {
-            const itemTotals = calculateItemTotals(item);
-            return {
+        // Create order items and update batch quantities
+        const orderItems: NewWholesaleOrderItem[] = [];
+
+        for (const item of itemsWithBatchData) {
+            const itemTotals = calculateItemTotals(item, item.salePrice);
+
+            orderItems.push({
                 orderId: createdOrder.id,
                 productId: item.productId,
+                batchId: item.batchId,
                 brandId: item.brandId,
                 quantity: item.quantity,
                 unit: item.unit,
@@ -115,8 +171,17 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
                 subtotal: itemTotals.subtotal,
                 discount: item.discount.toString(),
                 net: itemTotals.net,
-            };
-        });
+            });
+
+            // Update batch quantities
+            await tx
+                .update(stockBatch)
+                .set({
+                    remainingQuantity: sql`${stockBatch.remainingQuantity} - ${item.quantity}`,
+                    remainingFreeQty: sql`${stockBatch.remainingFreeQty} - ${item.freeQuantity}`,
+                })
+                .where(eq(stockBatch.id, item.batchId));
+        }
 
         await tx.insert(wholesaleOrderItems).values(orderItems);
 
@@ -128,6 +193,7 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
                     with: {
                         product: true,
                         brand: true,
+                        batch: true,
                     },
                 },
                 dsr: true,
@@ -254,6 +320,7 @@ export const getOrderById = async (id: number): Promise<OrderWithItems | undefin
                 with: {
                     product: true,
                     brand: true,
+                    batch: true,
                 },
             },
             dsr: true,
@@ -281,8 +348,24 @@ export const updateOrder = async (
             return undefined;
         }
 
+        // Validate batches and get batch data
+        const itemsWithBatchData = await Promise.all(
+            data.items.map(async (item) => {
+                // Validate batch exists and has sufficient quantity
+                await validateAndGetBatch(
+                    item.batchId,
+                    item.productId,
+                    item.quantity,
+                    item.freeQuantity,
+                    tx
+                );
+                // Use the salePrice provided from frontend (which defaults to batch sellPrice but can be edited)
+                return item;
+            })
+        );
+
         // Calculate new totals
-        const totals = calculateOrderTotals(data.items);
+        const totals = calculateOrderTotals(itemsWithBatchData);
 
         // Update order
         const updateData: Partial<NewWholesaleOrder> = {
@@ -307,11 +390,12 @@ export const updateOrder = async (
         await tx.delete(wholesaleOrderItems).where(eq(wholesaleOrderItems.orderId, id));
 
         // Create new items
-        const orderItems: NewWholesaleOrderItem[] = data.items.map((item) => {
-            const itemTotals = calculateItemTotals(item);
+        const orderItems: NewWholesaleOrderItem[] = itemsWithBatchData.map((item) => {
+            const itemTotals = calculateItemTotals(item, item.salePrice);
             return {
                 orderId: id,
                 productId: item.productId,
+                batchId: item.batchId,
                 brandId: item.brandId,
                 quantity: item.quantity,
                 unit: item.unit,
@@ -335,6 +419,7 @@ export const updateOrder = async (
                     with: {
                         product: true,
                         brand: true,
+                        batch: true,
                     },
                 },
                 dsr: true,
