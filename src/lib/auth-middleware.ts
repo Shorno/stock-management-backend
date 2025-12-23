@@ -33,6 +33,8 @@ export function requireRole(allowedRoles: UserRole[]) {
     return async (c: AuthContext, next: Next) => {
         const user = c.get("user");
 
+        console.log(user)
+
         if (!user) {
             return c.json({ error: "Unauthorized" }, 401);
         }

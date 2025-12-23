@@ -197,3 +197,48 @@ export const handleDeleteOrder = async (c: AppContext): Promise<Response> => {
         );
     }
 };
+
+export const handleUpdateStatus = async (c: AppContext): Promise<Response> => {
+    try {
+        const id = Number(c.req.param("id"));
+
+        if (isNaN(id)) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Invalid order ID",
+                },
+                400
+            );
+        }
+
+        const { status } = c.req.valid("json") as { status: string };
+        const updatedOrder = await wholesaleService.updateOrderStatus(id, status);
+
+        if (!updatedOrder) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Wholesale order not found",
+                },
+                404
+            );
+        }
+
+        return c.json<WholesaleOrderResponse>({
+            success: true,
+            data: updatedOrder,
+            message: `Order status updated to "${status}" successfully`,
+        });
+    } catch (error) {
+        console.error("Error updating order status:", error);
+        return c.json<WholesaleOrderResponse>(
+            {
+                success: false,
+                message: error instanceof Error ? error.message : "Failed to update order status",
+            },
+            500
+        );
+    }
+};
+
