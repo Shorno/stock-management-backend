@@ -441,3 +441,44 @@ export const deleteOrder = async (id: number): Promise<boolean> => {
         .returning();
     return result.length > 0;
 };
+
+// Update order status
+export const updateOrderStatus = async (
+    id: number,
+    status: string
+): Promise<OrderWithItems | undefined> => {
+    // Check if order exists
+    const existingOrder = await db.query.wholesaleOrders.findFirst({
+        where: (orders, { eq }) => eq(orders.id, id),
+    });
+
+    if (!existingOrder) {
+        return undefined;
+    }
+
+    // Update the status
+    await db
+        .update(wholesaleOrders)
+        .set({ status })
+        .where(eq(wholesaleOrders.id, id));
+
+    // Fetch and return the updated order
+    const updatedOrder = await db.query.wholesaleOrders.findFirst({
+        where: (orders, { eq }) => eq(orders.id, id),
+        with: {
+            items: {
+                with: {
+                    product: true,
+                    brand: true,
+                    batch: true,
+                },
+            },
+            dsr: true,
+            route: true,
+            category: true,
+            brand: true,
+        },
+    });
+
+    return updatedOrder as OrderWithItems | undefined;
+};

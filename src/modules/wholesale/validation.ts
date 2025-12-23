@@ -3,6 +3,10 @@ import { z } from "zod";
 // Unit types for products
 const UNIT_TYPES = ["PCS", "KG", "LTR", "BOX", "CARTON", "DOZEN"] as const;
 
+// Order status types
+export const ORDER_STATUSES = ["pending", "completed", "cancelled", "return"] as const;
+export type OrderStatus = typeof ORDER_STATUSES[number];
+
 // Order item schema
 export const orderItemSchema = z.object({
     productId: z.coerce.number().int("Product ID must be an integer").positive("Product ID must be positive"),
@@ -31,6 +35,13 @@ export const createOrderSchema = z.object({
 // Update order schema (same as create for full replacement)
 export const updateOrderSchema = createOrderSchema;
 
+// Update order status schema
+export const updateStatusSchema = z.object({
+    status: z.enum(ORDER_STATUSES, {
+        message: "Status must be one of: pending, completed, cancelled, return"
+    }),
+});
+
 // Query parameters schema
 export const getOrdersQuerySchema = z.object({
     search: z.string().optional(),
@@ -49,4 +60,5 @@ export const getOrdersQuerySchema = z.object({
 export type OrderItemInput = z.infer<typeof orderItemSchema>;
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
+export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
 export type GetOrdersQuery = z.infer<typeof getOrdersQuerySchema>;

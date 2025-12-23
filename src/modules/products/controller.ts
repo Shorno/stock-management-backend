@@ -24,6 +24,8 @@ export const handleCreateProduct = async (c: AppContext): Promise<Response> => {
     const validatedData = c.req.valid("json") as CreateProductInput;
     const newProduct = await productService.createProduct(validatedData);
 
+
+
     return c.json<ProductResponse>(
       {
         success: true,
@@ -48,6 +50,7 @@ export const handleGetProducts = async (c: AppContext): Promise<Response> => {
   try {
     const validatedQuery = c.req.valid("query") as GetProductsQuery;
     const { products, total } = await productService.getProducts(validatedQuery);
+
 
     return c.json<ProductResponse>({
       success: true,

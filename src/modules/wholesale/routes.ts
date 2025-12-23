@@ -4,8 +4,10 @@ import {
     createOrderSchema,
     updateOrderSchema,
     getOrdersQuerySchema,
+    updateStatusSchema,
 } from "./validation";
 import * as wholesaleController from "./controller";
+import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
 
@@ -54,6 +56,28 @@ app.get(
 // Get wholesale order by ID
 app.get("/:id", wholesaleController.handleGetOrderById);
 
+// Update order status (Admin and Manager only)
+app.patch(
+    "/:id/status",
+    requireRole(["admin", "manager"]),
+    zValidator("json", updateStatusSchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Validation failed",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    wholesaleController.handleUpdateStatus
+);
+
 // Update wholesale order
 app.put(
     "/:id",
@@ -79,3 +103,4 @@ app.put(
 app.delete("/:id", wholesaleController.handleDeleteOrder);
 
 export default app;
+
