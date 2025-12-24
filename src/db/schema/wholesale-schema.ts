@@ -17,6 +17,20 @@ export const route = pgTable("route", {
     ...timestamps
 });
 
+export const dsrTarget = pgTable("dsr_target", {
+    id: serial("id").primaryKey(),
+    dsrId: integer("dsr_id")
+        .notNull()
+        .references(() => dsr.id, { onDelete: "cascade" }),
+    targetMonth: date("target_month").notNull(), // First day of the month
+    targetAmount: decimal("target_amount", { precision: 12, scale: 2 }).notNull(),
+    ...timestamps
+}, (table) => ({
+    dsrIdx: index("idx_dsr_target_dsr").on(table.dsrId),
+    monthIdx: index("idx_dsr_target_month").on(table.targetMonth),
+    uniqueDsrMonth: index("idx_dsr_target_dsr_month").on(table.dsrId, table.targetMonth),
+}));
+
 export const wholesaleOrders = pgTable("wholesale_orders", {
     id: serial("id").primaryKey(),
     orderNumber: varchar("order_number", { length: 50 }).notNull().unique(),
@@ -78,6 +92,14 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
 // Relations
 export const dsrRelations = relations(dsr, ({ many }) => ({
     wholesaleOrders: many(wholesaleOrders),
+    targets: many(dsrTarget),
+}));
+
+export const dsrTargetRelations = relations(dsrTarget, ({ one }) => ({
+    dsr: one(dsr, {
+        fields: [dsrTarget.dsrId],
+        references: [dsr.id],
+    }),
 }));
 
 export const routeRelations = relations(route, ({ many }) => ({

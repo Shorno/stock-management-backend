@@ -8,6 +8,8 @@ import dsrRoutes from "./modules/dsr/routes";
 import routeRoutes from "./modules/route/routes";
 import wholesaleRoutes from "./modules/wholesale/routes";
 import { productBatchRoutes, stockBatchRoutes } from "./modules/stock-batch";
+import { analyticsRoutes } from "./modules/analytics";
+import { dsrTargetRoutes } from "./modules/dsr-target";
 
 const app = new Hono<{
     Variables: {
@@ -28,6 +30,22 @@ app.use(
     }),
 );
 
+// // Logging middleware - logs all incoming requests
+// app.use("*", async (c, next) => {
+//     const start = Date.now();
+//     const method = c.req.method;
+//     const path = c.req.path;
+//     const url = c.req.url;
+//
+//     console.log(`[${new Date().toISOString()}] --> ${method} ${path}`);
+//     console.log(`Full URL: ${url}`);
+//
+//     await next();
+//
+//     const duration = Date.now() - start;
+//     console.log(`[${new Date().toISOString()}] <-- ${method} ${path} ${c.res.status} (${duration}ms)`);
+// });
+
 app.use("*", async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) {
@@ -46,7 +64,7 @@ app.get('/', (c) => {
     return c.text('Hello Hono!')
 })
 
-app.on(["POST", "GET"], "/auth/**", (ctx) => {
+app.on(["POST", "GET"], "/auth/*", (ctx) => {
     return auth.handler(ctx.req.raw);
 });
 
@@ -58,6 +76,8 @@ app.route("/brands", brandRoutes);
 app.route("/dsrs", dsrRoutes);
 app.route("/routes", routeRoutes);
 app.route("/wholesale-orders", wholesaleRoutes);
+app.route("/analytics", analyticsRoutes);
+app.route("/dsr-targets", dsrTargetRoutes);
 
 const port = Number(process.env.PORT) || 3000;
 
