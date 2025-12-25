@@ -22,7 +22,7 @@ const app = new Hono<{
 app.use(
     "*",
     cors({
-        origin: [process.env.CLIENT_URL!],
+        origin: process.env.CLIENT_URL!,
         allowHeaders: ["Content-Type", "Authorization"],
         allowMethods: ["POST", "GET", "PUT", "PATCH", "DELETE", "OPTIONS"],
         exposeHeaders: ["Content-Length"],
@@ -30,22 +30,6 @@ app.use(
         credentials: true,
     }),
 );
-
-// // Logging middleware - logs all incoming requests
-// app.use("*", async (c, next) => {
-//     const start = Date.now();
-//     const method = c.req.method;
-//     const path = c.req.path;
-//     const url = c.req.url;
-//
-//     console.log(`[${new Date().toISOString()}] --> ${method} ${path}`);
-//     console.log(`Full URL: ${url}`);
-//
-//     await next();
-//
-//     const duration = Date.now() - start;
-//     console.log(`[${new Date().toISOString()}] <-- ${method} ${path} ${c.res.status} (${duration}ms)`);
-// });
 
 app.use("*", async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -65,7 +49,7 @@ app.get('/', (c) => {
     return c.text('Hello Hono!')
 })
 
-app.on(["POST", "GET"], "/auth/*", (ctx) => {
+app.on(["POST", "GET", "OPTIONS"], "/auth/*", (ctx) => {
     return auth.handler(ctx.req.raw);
 });
 
