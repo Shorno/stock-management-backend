@@ -78,6 +78,9 @@ app.patch(
     wholesaleController.handleUpdateStatus
 );
 
+// Generate invoice PDF
+app.get("/:id/invoice-pdf", wholesaleController.handleGenerateInvoicePdf);
+
 // Update wholesale order
 app.put(
     "/:id",
