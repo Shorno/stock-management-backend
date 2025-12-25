@@ -3,6 +3,7 @@ import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery } from "./valid
 import type { WholesaleOrderResponse } from "./types";
 import * as wholesaleService from "./service";
 import { generateInvoicePdf } from "./pdf.service";
+import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 
 type AppContext = Context<
     {
@@ -28,6 +29,18 @@ export const handleCreateOrder = async (c: AppContext): Promise<Response> => {
     try {
         const validatedData = c.req.valid("json") as CreateOrderInput;
         const newOrder = await wholesaleService.createOrder(validatedData);
+
+        // Audit log
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({
+            context: c,
+            ...userInfo,
+            action: "CREATE",
+            entityType: "wholesale_order",
+            entityId: newOrder.id,
+            entityName: newOrder.orderNumber,
+            newValue: newOrder,
+        });
 
         return c.json<WholesaleOrderResponse>(
             {
@@ -128,6 +141,7 @@ export const handleUpdateOrder = async (c: AppContext): Promise<Response> => {
         }
 
         const validatedData = c.req.valid("json") as UpdateOrderInput;
+        const oldOrder = await wholesaleService.getOrderById(id);
         const updatedOrder = await wholesaleService.updateOrder(id, validatedData);
 
         if (!updatedOrder) {
@@ -139,6 +153,19 @@ export const handleUpdateOrder = async (c: AppContext): Promise<Response> => {
                 404
             );
         }
+
+        // Audit log
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({
+            context: c,
+            ...userInfo,
+            action: "UPDATE",
+            entityType: "wholesale_order",
+            entityId: id,
+            entityName: updatedOrder.orderNumber,
+            oldValue: oldOrder,
+            newValue: updatedOrder,
+        });
 
         return c.json<WholesaleOrderResponse>({
             success: true,
@@ -171,6 +198,7 @@ export const handleDeleteOrder = async (c: AppContext): Promise<Response> => {
             );
         }
 
+        const order = await wholesaleService.getOrderById(id);
         const deleted = await wholesaleService.deleteOrder(id);
 
         if (!deleted) {
@@ -182,6 +210,18 @@ export const handleDeleteOrder = async (c: AppContext): Promise<Response> => {
                 404
             );
         }
+
+        // Audit log
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({
+            context: c,
+            ...userInfo,
+            action: "DELETE",
+            entityType: "wholesale_order",
+            entityId: id,
+            entityName: order?.orderNumber,
+            oldValue: order,
+        });
 
         return c.json<WholesaleOrderResponse>({
             success: true,
@@ -214,6 +254,7 @@ export const handleUpdateStatus = async (c: AppContext): Promise<Response> => {
         }
 
         const { status } = c.req.valid("json") as { status: string };
+        const oldOrder = await wholesaleService.getOrderById(id);
         const updatedOrder = await wholesaleService.updateOrderStatus(id, status);
 
         if (!updatedOrder) {
@@ -225,6 +266,19 @@ export const handleUpdateStatus = async (c: AppContext): Promise<Response> => {
                 404
             );
         }
+
+        // Audit log
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({
+            context: c,
+            ...userInfo,
+            action: "STATUS_CHANGE",
+            entityType: "wholesale_order",
+            entityId: id,
+            entityName: updatedOrder.orderNumber,
+            oldValue: { status: oldOrder?.status },
+            newValue: { status },
+        });
 
         return c.json<WholesaleOrderResponse>({
             success: true,

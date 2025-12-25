@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { CreateRouteInput, UpdateRouteInput, GetRoutesQuery } from "./validation";
 import type { RouteResponse } from "./types";
 import * as routeService from "./service";
+import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 
 type AppContext = Context<
   {
@@ -27,15 +28,9 @@ export const handleCreateRoute = async (c: AppContext): Promise<Response> => {
   try {
     const validatedData = c.req.valid("json") as CreateRouteInput;
     const newRoute = await routeService.createRoute(validatedData);
-
-    return c.json<RouteResponse>(
-      {
-        success: true,
-        data: newRoute,
-        message: "Route created successfully",
-      },
-      201
-    );
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({ context: c, ...userInfo, action: "CREATE", entityType: "route", entityId: newRoute.id, entityName: newRoute.name, newValue: newRoute });
+    return c.json<RouteResponse>({ success: true, data: newRoute, message: "Route created successfully" }, 201);
   } catch (error) {
     console.error("Error creating route:", error);
     return c.json<RouteResponse>(
@@ -127,23 +122,12 @@ export const handleUpdateRoute = async (c: AppContext): Promise<Response> => {
     }
 
     const validatedData = c.req.valid("json") as UpdateRouteInput;
+    const oldRoute = await routeService.getRouteById(id);
     const updatedRoute = await routeService.updateRoute(id, validatedData);
-
-    if (!updatedRoute) {
-      return c.json<RouteResponse>(
-        {
-          success: false,
-          message: "Route not found",
-        },
-        404
-      );
-    }
-
-    return c.json<RouteResponse>({
-      success: true,
-      data: updatedRoute,
-      message: "Route updated successfully",
-    });
+    if (!updatedRoute) { return c.json<RouteResponse>({ success: false, message: "Route not found" }, 404); }
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({ context: c, ...userInfo, action: "UPDATE", entityType: "route", entityId: id, entityName: updatedRoute.name, oldValue: oldRoute, newValue: updatedRoute });
+    return c.json<RouteResponse>({ success: true, data: updatedRoute, message: "Route updated successfully" });
   } catch (error) {
     console.error("Error updating route:", error);
     return c.json<RouteResponse>(
@@ -170,22 +154,12 @@ export const handleDeleteRoute = async (c: AppContext): Promise<Response> => {
       );
     }
 
+    const route = await routeService.getRouteById(id);
     const deleted = await routeService.deleteRoute(id);
-
-    if (!deleted) {
-      return c.json<RouteResponse>(
-        {
-          success: false,
-          message: "Route not found",
-        },
-        404
-      );
-    }
-
-    return c.json<RouteResponse>({
-      success: true,
-      message: "Route deleted successfully",
-    });
+    if (!deleted) { return c.json<RouteResponse>({ success: false, message: "Route not found" }, 404); }
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({ context: c, ...userInfo, action: "DELETE", entityType: "route", entityId: id, entityName: route?.name, oldValue: route });
+    return c.json<RouteResponse>({ success: true, message: "Route deleted successfully" });
   } catch (error) {
     console.error("Error deleting route:", error);
     return c.json<RouteResponse>(

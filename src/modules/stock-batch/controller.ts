@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { CreateStockBatchInput, UpdateStockBatchInput, GetStockBatchesQuery } from "./validation";
 import type { StockBatchResponse } from "./types";
 import * as stockBatchService from "./service";
+import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 
 type AppContext = Context<{
     Variables: {
@@ -36,14 +37,10 @@ export const handleCreateStockBatch = async (c: AppContext): Promise<Response> =
         const validatedData = c.req.valid("json") as CreateStockBatchInput;
         const newBatch = await stockBatchService.createStockBatch(productId, validatedData);
 
-        return c.json<StockBatchResponse>(
-            {
-                success: true,
-                data: newBatch,
-                message: "Stock batch added successfully",
-            },
-            201
-        );
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({ context: c, ...userInfo, action: "CREATE", entityType: "stock", entityId: newBatch.id, entityName: `Batch #${newBatch.id}`, newValue: newBatch });
+
+        return c.json<StockBatchResponse>({ success: true, data: newBatch, message: "Stock batch added successfully" }, 201);
     } catch (error) {
         console.error("Error creating stock batch:", error);
         return c.json<StockBatchResponse>(
@@ -147,23 +144,17 @@ export const handleUpdateStockBatch = async (c: AppContext): Promise<Response> =
         }
 
         const validatedData = c.req.valid("json") as UpdateStockBatchInput;
+        const oldBatch = await stockBatchService.getStockBatchById(id);
         const updatedBatch = await stockBatchService.updateStockBatch(id, validatedData);
 
         if (!updatedBatch) {
-            return c.json<StockBatchResponse>(
-                {
-                    success: false,
-                    message: "Stock batch not found",
-                },
-                404
-            );
+            return c.json<StockBatchResponse>({ success: false, message: "Stock batch not found" }, 404);
         }
 
-        return c.json<StockBatchResponse>({
-            success: true,
-            data: updatedBatch,
-            message: "Stock batch updated successfully",
-        });
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({ context: c, ...userInfo, action: "UPDATE", entityType: "stock", entityId: id, entityName: `Batch #${id}`, oldValue: oldBatch, newValue: updatedBatch });
+
+        return c.json<StockBatchResponse>({ success: true, data: updatedBatch, message: "Stock batch updated successfully" });
     } catch (error) {
         console.error("Error updating stock batch:", error);
         return c.json<StockBatchResponse>(
@@ -190,22 +181,17 @@ export const handleDeleteStockBatch = async (c: AppContext): Promise<Response> =
             );
         }
 
+        const batch = await stockBatchService.getStockBatchById(id);
         const deleted = await stockBatchService.deleteStockBatch(id);
 
         if (!deleted) {
-            return c.json<StockBatchResponse>(
-                {
-                    success: false,
-                    message: "Stock batch not found",
-                },
-                404
-            );
+            return c.json<StockBatchResponse>({ success: false, message: "Stock batch not found" }, 404);
         }
 
-        return c.json<StockBatchResponse>({
-            success: true,
-            message: "Stock batch deleted successfully",
-        });
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({ context: c, ...userInfo, action: "DELETE", entityType: "stock", entityId: id, entityName: `Batch #${id}`, oldValue: batch });
+
+        return c.json<StockBatchResponse>({ success: true, message: "Stock batch deleted successfully" });
     } catch (error) {
         console.error("Error deleting stock batch:", error);
         return c.json<StockBatchResponse>(

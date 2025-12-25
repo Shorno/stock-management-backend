@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery } from "./validation";
 import type { DsrResponse } from "./types";
 import * as dsrService from "./service";
+import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 
 type AppContext = Context<
   {
@@ -27,15 +28,9 @@ export const handleCreateDsr = async (c: AppContext): Promise<Response> => {
   try {
     const validatedData = c.req.valid("json") as CreateDsrInput;
     const newDsr = await dsrService.createDsr(validatedData);
-
-    return c.json<DsrResponse>(
-      {
-        success: true,
-        data: newDsr,
-        message: "DSR created successfully",
-      },
-      201
-    );
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({ context: c, ...userInfo, action: "CREATE", entityType: "dsr", entityId: newDsr.id, entityName: newDsr.name, newValue: newDsr });
+    return c.json<DsrResponse>({ success: true, data: newDsr, message: "DSR created successfully" }, 201);
   } catch (error) {
     console.error("Error creating DSR:", error);
     return c.json<DsrResponse>(
@@ -127,23 +122,12 @@ export const handleUpdateDsr = async (c: AppContext): Promise<Response> => {
     }
 
     const validatedData = c.req.valid("json") as UpdateDsrInput;
+    const oldDsr = await dsrService.getDsrById(id);
     const updatedDsr = await dsrService.updateDsr(id, validatedData);
-
-    if (!updatedDsr) {
-      return c.json<DsrResponse>(
-        {
-          success: false,
-          message: "DSR not found",
-        },
-        404
-      );
-    }
-
-    return c.json<DsrResponse>({
-      success: true,
-      data: updatedDsr,
-      message: "DSR updated successfully",
-    });
+    if (!updatedDsr) { return c.json<DsrResponse>({ success: false, message: "DSR not found" }, 404); }
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({ context: c, ...userInfo, action: "UPDATE", entityType: "dsr", entityId: id, entityName: updatedDsr.name, oldValue: oldDsr, newValue: updatedDsr });
+    return c.json<DsrResponse>({ success: true, data: updatedDsr, message: "DSR updated successfully" });
   } catch (error) {
     console.error("Error updating DSR:", error);
     return c.json<DsrResponse>(
@@ -170,22 +154,12 @@ export const handleDeleteDsr = async (c: AppContext): Promise<Response> => {
       );
     }
 
+    const dsr = await dsrService.getDsrById(id);
     const deleted = await dsrService.deleteDsr(id);
-
-    if (!deleted) {
-      return c.json<DsrResponse>(
-        {
-          success: false,
-          message: "DSR not found",
-        },
-        404
-      );
-    }
-
-    return c.json<DsrResponse>({
-      success: true,
-      message: "DSR deleted successfully",
-    });
+    if (!deleted) { return c.json<DsrResponse>({ success: false, message: "DSR not found" }, 404); }
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({ context: c, ...userInfo, action: "DELETE", entityType: "dsr", entityId: id, entityName: dsr?.name, oldValue: dsr });
+    return c.json<DsrResponse>({ success: true, message: "DSR deleted successfully" });
   } catch (error) {
     console.error("Error deleting DSR:", error);
     return c.json<DsrResponse>(

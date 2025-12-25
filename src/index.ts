@@ -10,6 +10,7 @@ import wholesaleRoutes from "./modules/wholesale/routes";
 import { productBatchRoutes, stockBatchRoutes } from "./modules/stock-batch";
 import { analyticsRoutes } from "./modules/analytics";
 import { dsrTargetRoutes } from "./modules/dsr-target";
+import { auditLogRoutes } from "./modules/audit-log";
 
 const app = new Hono<{
     Variables: {
@@ -78,6 +79,7 @@ app.route("/routes", routeRoutes);
 app.route("/wholesale-orders", wholesaleRoutes);
 app.route("/analytics", analyticsRoutes);
 app.route("/dsr-targets", dsrTargetRoutes);
+app.route("/audit-logs", auditLogRoutes);
 
 const port = Number(process.env.PORT) || 3000;
 
