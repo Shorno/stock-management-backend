@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation";
 import type { ProductResponse } from "./types";
 import * as productService from "./service";
+import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 
 type AppContext = Context<{
   Variables: {
@@ -24,7 +25,17 @@ export const handleCreateProduct = async (c: AppContext): Promise<Response> => {
     const validatedData = c.req.valid("json") as CreateProductInput;
     const newProduct = await productService.createProduct(validatedData);
 
-
+    // Audit log
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({
+      context: c,
+      ...userInfo,
+      action: "CREATE",
+      entityType: "product",
+      entityId: newProduct.id,
+      entityName: newProduct.name,
+      newValue: newProduct,
+    });
 
     return c.json<ProductResponse>(
       {
@@ -126,6 +137,7 @@ export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
     }
 
     const validatedData = c.req.valid("json") as UpdateProductInput;
+    const oldProduct = await productService.getProductById(id);
     const updatedProduct = await productService.updateProduct(id, validatedData);
 
     if (!updatedProduct) {
@@ -137,6 +149,19 @@ export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
         404
       );
     }
+
+    // Audit log
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({
+      context: c,
+      ...userInfo,
+      action: "UPDATE",
+      entityType: "product",
+      entityId: id,
+      entityName: updatedProduct.name,
+      oldValue: oldProduct,
+      newValue: updatedProduct,
+    });
 
     return c.json<ProductResponse>({
       success: true,
@@ -169,6 +194,7 @@ export const handleDeleteProduct = async (c: AppContext): Promise<Response> => {
       );
     }
 
+    const product = await productService.getProductById(id);
     const deleted = await productService.deleteProduct(id);
 
     if (!deleted) {
@@ -180,6 +206,18 @@ export const handleDeleteProduct = async (c: AppContext): Promise<Response> => {
         404
       );
     }
+
+    // Audit log
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({
+      context: c,
+      ...userInfo,
+      action: "DELETE",
+      entityType: "product",
+      entityId: id,
+      entityName: product?.name,
+      oldValue: product,
+    });
 
     return c.json<ProductResponse>({
       success: true,

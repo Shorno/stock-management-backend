@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } from "./validation";
 import type { CategoryResponse } from "./types";
 import * as categoryService from "./service";
+import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 
 type AppContext = Context<
   {
@@ -27,15 +28,9 @@ export const handleCreateCategory = async (c: AppContext): Promise<Response> => 
   try {
     const validatedData = c.req.valid("json") as CreateCategoryInput;
     const newCategory = await categoryService.createCategory(validatedData);
-
-    return c.json<CategoryResponse>(
-      {
-        success: true,
-        data: newCategory,
-        message: "Category created successfully",
-      },
-      201
-    );
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({ context: c, ...userInfo, action: "CREATE", entityType: "category", entityId: newCategory.id, entityName: newCategory.name, newValue: newCategory });
+    return c.json<CategoryResponse>({ success: true, data: newCategory, message: "Category created successfully" }, 201);
   } catch (error) {
     console.error("Error creating category:", error);
     return c.json<CategoryResponse>(
@@ -127,23 +122,12 @@ export const handleUpdateCategory = async (c: AppContext): Promise<Response> => 
     }
 
     const validatedData = c.req.valid("json") as UpdateCategoryInput;
+    const oldCategory = await categoryService.getCategoryById(id);
     const updatedCategory = await categoryService.updateCategory(id, validatedData);
-
-    if (!updatedCategory) {
-      return c.json<CategoryResponse>(
-        {
-          success: false,
-          message: "Category not found",
-        },
-        404
-      );
-    }
-
-    return c.json<CategoryResponse>({
-      success: true,
-      data: updatedCategory,
-      message: "Category updated successfully",
-    });
+    if (!updatedCategory) { return c.json<CategoryResponse>({ success: false, message: "Category not found" }, 404); }
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({ context: c, ...userInfo, action: "UPDATE", entityType: "category", entityId: id, entityName: updatedCategory.name, oldValue: oldCategory, newValue: updatedCategory });
+    return c.json<CategoryResponse>({ success: true, data: updatedCategory, message: "Category updated successfully" });
   } catch (error) {
     console.error("Error updating category:", error);
     return c.json<CategoryResponse>(
@@ -170,22 +154,12 @@ export const handleDeleteCategory = async (c: AppContext): Promise<Response> => 
       );
     }
 
+    const category = await categoryService.getCategoryById(id);
     const deleted = await categoryService.deleteCategory(id);
-
-    if (!deleted) {
-      return c.json<CategoryResponse>(
-        {
-          success: false,
-          message: "Category not found",
-        },
-        404
-      );
-    }
-
-    return c.json<CategoryResponse>({
-      success: true,
-      message: "Category deleted successfully",
-    });
+    if (!deleted) { return c.json<CategoryResponse>({ success: false, message: "Category not found" }, 404); }
+    const userInfo = getUserInfoFromContext(c);
+    await auditLog({ context: c, ...userInfo, action: "DELETE", entityType: "category", entityId: id, entityName: category?.name, oldValue: category });
+    return c.json<CategoryResponse>({ success: true, message: "Category deleted successfully" });
   } catch (error) {
     console.error("Error deleting category:", error);
     return c.json<CategoryResponse>(
