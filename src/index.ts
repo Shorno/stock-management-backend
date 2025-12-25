@@ -45,9 +45,21 @@ app.use("*", async (c, next) => {
 });
 
 app.get('/', (c) => {
-    console.log(c.get("user"))
     return c.text('Hello Hono!')
 })
+
+// Explicit CORS for auth routes - must be before the auth handler
+app.use(
+    "/auth/*",
+    cors({
+        origin: process.env.CLIENT_URL!,
+        allowHeaders: ["Content-Type", "Authorization"],
+        allowMethods: ["POST", "GET", "OPTIONS"],
+        exposeHeaders: ["Content-Length"],
+        maxAge: 600,
+        credentials: true,
+    }),
+);
 
 app.on(["POST", "GET", "OPTIONS"], "/auth/*", (ctx) => {
     return auth.handler(ctx.req.raw);
