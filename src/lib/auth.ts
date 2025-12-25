@@ -21,7 +21,7 @@ export const auth = betterAuth({
             defaultRole: "dsr",
         }),
     ],
-    trustedOrigins: [process.env.CLIENT_URL!],
+    trustedOrigins: [process.env.CLIENT_URL || "https://mstamimenterprise.shop"],
     emailAndPassword: {
         enabled: true,
         autoSignIn: false,

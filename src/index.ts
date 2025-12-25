@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Hono } from 'hono'
 import { cors } from "hono/cors"
 import { auth } from "./lib/auth";
@@ -19,10 +20,13 @@ const app = new Hono<{
     }
 }>().basePath("/api")
 
+const CLIENT_ORIGIN = process.env.CLIENT_URL || "https://mstamimenterprise.shop";
+console.log("CORS Origin configured:", CLIENT_ORIGIN);
+
 app.use(
     "*",
     cors({
-        origin: process.env.CLIENT_URL!,
+        origin: CLIENT_ORIGIN,
         allowHeaders: ["Content-Type", "Authorization"],
         allowMethods: ["POST", "GET", "PUT", "PATCH", "DELETE", "OPTIONS"],
         exposeHeaders: ["Content-Length"],
@@ -52,7 +56,7 @@ app.get('/', (c) => {
 app.use(
     "/auth/*",
     cors({
-        origin: process.env.CLIENT_URL!,
+        origin: CLIENT_ORIGIN,
         allowHeaders: ["Content-Type", "Authorization"],
         allowMethods: ["POST", "GET", "OPTIONS"],
         exposeHeaders: ["Content-Length"],
