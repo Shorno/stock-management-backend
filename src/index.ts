@@ -8,10 +8,11 @@ import brandRoutes from "./modules/brand/routes";
 import dsrRoutes from "./modules/dsr/routes";
 import routeRoutes from "./modules/route/routes";
 import wholesaleRoutes from "./modules/wholesale/routes";
-import { productBatchRoutes, stockBatchRoutes } from "./modules/stock-batch";
+import { variantBatchRoutes, stockBatchRoutes } from "./modules/stock-batch";
 import { analyticsRoutes } from "./modules/analytics";
 import { dsrTargetRoutes } from "./modules/dsr-target";
 import { auditLogRoutes } from "./modules/audit-log";
+import { variantRoutes, variantStandaloneRoutes } from "./modules/variant";
 
 const app = new Hono<{
     Variables: {
@@ -70,7 +71,9 @@ app.on(["POST", "GET", "OPTIONS"], "/auth/*", (ctx) => {
 });
 
 app.route("/products", productRoutes);
-app.route("/products/:productId/batches", productBatchRoutes);
+app.route("/products/:productId/variants", variantRoutes);
+app.route("/variants", variantStandaloneRoutes);
+app.route("/variants/:variantId/batches", variantBatchRoutes);
 app.route("/stock-batches", stockBatchRoutes);
 app.route("/categories", categoryRoutes);
 app.route("/brands", brandRoutes);

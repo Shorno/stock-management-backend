@@ -53,7 +53,11 @@ export const getProducts = async (
       with: {
         category: true,
         brand: true,
-        stockBatches: true,
+        variants: {
+          with: {
+            stockBatches: true,
+          },
+        },
       },
     }),
     db
@@ -74,7 +78,11 @@ export const getProductById = async (id: number): Promise<Product | undefined> =
     with: {
       category: true,
       brand: true,
-      stockBatches: true,
+      variants: {
+        with: {
+          stockBatches: true,
+        },
+      },
     },
   });
 };

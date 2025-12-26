@@ -7,10 +7,10 @@ import {
 } from "./validation";
 import * as stockBatchController from "./controller";
 
-// Routes for product-scoped batches: /api/products/:productId/batches
-export const productBatchRoutes = new Hono();
+// Routes for variant-scoped batches: /api/variants/:variantId/batches
+export const variantBatchRoutes = new Hono();
 
-productBatchRoutes.post(
+variantBatchRoutes.post(
     "/",
     zValidator("json", createStockBatchSchema, (result, ctx) => {
         if (!result.success) {
@@ -30,7 +30,7 @@ productBatchRoutes.post(
     stockBatchController.handleCreateStockBatch
 );
 
-productBatchRoutes.get(
+variantBatchRoutes.get(
     "/",
     zValidator("query", getStockBatchesQuerySchema, (result, ctx) => {
         if (!result.success) {

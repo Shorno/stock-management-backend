@@ -1,4 +1,4 @@
-import { pgTable, text, numeric, integer, serial, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, integer, serial, varchar, boolean } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { timestamps } from "../column.helpers";
 
@@ -30,11 +30,26 @@ export const product = pgTable("product", {
   ...timestamps
 });
 
-export const stockBatch = pgTable("stock_batch", {
+// Product variants for weight, volume, pack size
+export const productVariant = pgTable("product_variant", {
   id: serial("id").primaryKey(),
   productId: integer("product_id")
     .notNull()
     .references(() => product.id, { onDelete: "cascade" }),
+  variantType: varchar("variant_type", { length: 50 }).notNull(), // "weight", "volume", "pack"
+  label: varchar("label", { length: 100 }).notNull(),              // "500g", "1L", "Pack of 6"
+  value: numeric("value", { precision: 10, scale: 2 }),            // 500, 1, 6 (numeric value)
+  unit: varchar("unit", { length: 20 }),                           // "g", "kg", "L", "ml", "pcs"
+  isDefault: boolean("is_default").default(false),
+  isActive: boolean("is_active").default(true),
+  ...timestamps
+});
+
+export const stockBatch = pgTable("stock_batch", {
+  id: serial("id").primaryKey(),
+  variantId: integer("variant_id")
+    .notNull()
+    .references(() => productVariant.id, { onDelete: "cascade" }),
   supplierPrice: numeric("supplier_price", { precision: 10, scale: 2 }).notNull(),
   sellPrice: numeric("sell_price", { precision: 10, scale: 2 }).notNull(),
   initialQuantity: integer("initial_quantity").notNull(),
@@ -61,12 +76,21 @@ export const productRelations = relations(product, ({ one, many }) => ({
     fields: [product.brandId],
     references: [brand.id],
   }),
+  variants: many(productVariant),
+}));
+
+export const productVariantRelations = relations(productVariant, ({ one, many }) => ({
+  product: one(product, {
+    fields: [productVariant.productId],
+    references: [product.id],
+  }),
   stockBatches: many(stockBatch),
 }));
 
 export const stockBatchRelations = relations(stockBatch, ({ one }) => ({
-  product: one(product, {
-    fields: [stockBatch.productId],
-    references: [product.id],
+  variant: one(productVariant, {
+    fields: [stockBatch.variantId],
+    references: [productVariant.id],
   }),
 }));
+
