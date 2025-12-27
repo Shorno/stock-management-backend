@@ -49,6 +49,8 @@ export const wholesaleOrders = pgTable("wholesale_orders", {
     subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull().default("0"),
     discount: decimal("discount", { precision: 10, scale: 2 }).notNull().default("0"),
     total: decimal("total", { precision: 10, scale: 2 }).notNull().default("0"),
+    paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+    paymentStatus: varchar("payment_status", { length: 20 }).notNull().default("unpaid"),
     status: varchar("status", { length: 20 }).notNull().default("pending"),
     ...timestamps
 }, (table) => ({
@@ -56,6 +58,7 @@ export const wholesaleOrders = pgTable("wholesale_orders", {
     routeIdx: index("idx_wholesale_orders_route").on(table.routeId),
     dateIdx: index("idx_wholesale_orders_date").on(table.orderDate),
     statusIdx: index("idx_wholesale_orders_status").on(table.status),
+    paymentStatusIdx: index("idx_wholesale_orders_payment_status").on(table.paymentStatus),
     orderNumberIdx: index("idx_wholesale_orders_order_number").on(table.orderNumber),
 }));
 
@@ -78,6 +81,9 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
     totalQuantity: integer("total_quantity").notNull(),
     availableQuantity: integer("available_quantity").notNull().default(0),
     freeQuantity: integer("free_quantity").notNull().default(0),
+    // Delivered quantities for partial completion
+    deliveredQuantity: integer("delivered_quantity"),
+    deliveredFreeQty: integer("delivered_free_qty"),
     salePrice: decimal("sale_price", { precision: 10, scale: 2 }).notNull(),
     subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
     discount: decimal("discount", { precision: 10, scale: 2 }).notNull().default("0"),
@@ -143,4 +149,34 @@ export const wholesaleOrderItemsRelations = relations(wholesaleOrderItems, ({ on
         fields: [wholesaleOrderItems.brandId],
         references: [brand.id],
     }),
+}));
+
+// Order Payments table for tracking payment history
+export const orderPayments = pgTable("order_payments", {
+    id: serial("id").primaryKey(),
+    orderId: integer("order_id")
+        .notNull()
+        .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    paymentDate: date("payment_date").notNull(),
+    paymentMethod: varchar("payment_method", { length: 50 }),
+    note: text("note"),
+    collectedBy: varchar("collected_by", { length: 100 }),
+    ...timestamps
+}, (table) => ({
+    orderIdx: index("idx_order_payments_order").on(table.orderId),
+    dateIdx: index("idx_order_payments_date").on(table.paymentDate),
+}));
+
+// Order payments relations
+export const orderPaymentsRelations = relations(orderPayments, ({ one }) => ({
+    order: one(wholesaleOrders, {
+        fields: [orderPayments.orderId],
+        references: [wholesaleOrders.id],
+    }),
+}));
+
+// Update wholesaleOrders relations to include payments
+export const wholesaleOrdersPaymentRelation = relations(wholesaleOrders, ({ many }) => ({
+    payments: many(orderPayments),
 }));

@@ -5,6 +5,9 @@ import {
     updateOrderSchema,
     getOrdersQuerySchema,
     updateStatusSchema,
+    partialCompleteSchema,
+    recordPaymentSchema,
+    getDueOrdersQuerySchema,
 } from "./validation";
 import * as wholesaleController from "./controller";
 import { requireRole } from "../../lib/auth-middleware";
@@ -53,6 +56,13 @@ app.get(
     wholesaleController.handleGetOrders
 );
 
+// Get due orders (unpaid/partial payment orders) - MUST be before /:id route
+app.get(
+    "/due-orders",
+    zValidator("query", getDueOrdersQuerySchema),
+    wholesaleController.handleGetDueOrders
+);
+
 // Get wholesale order by ID
 app.get("/:id", wholesaleController.handleGetOrderById);
 
@@ -76,6 +86,28 @@ app.patch(
         }
     }),
     wholesaleController.handleUpdateStatus
+);
+
+// Partial order completion (Admin and Manager only)
+app.patch(
+    "/:id/partial-complete",
+    requireRole(["admin", "manager"]),
+    zValidator("json", partialCompleteSchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Validation failed",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    wholesaleController.handlePartialComplete
 );
 
 // Generate invoice PDF
@@ -105,5 +137,29 @@ app.put(
 // Delete wholesale order
 app.delete("/:id", wholesaleController.handleDeleteOrder);
 
-export default app;
+// Record payment for an order
+app.patch(
+    "/:id/payment",
+    requireRole(["admin", "manager"]),
+    zValidator("json", recordPaymentSchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Validation failed",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    wholesaleController.handleRecordPayment
+);
 
+// Get payment history for an order
+app.get("/:id/payments", wholesaleController.handleGetPaymentHistory);
+
+export default app;
