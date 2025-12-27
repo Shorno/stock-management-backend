@@ -45,15 +45,20 @@ const validateAndGetBatch = async (
     requestedFreeQty: number,
     tx: any
 ) => {
+    // Fetch batch with its variant to check product ownership
     const batch = await tx.query.stockBatch.findFirst({
         where: (batches: any, { eq }: any) => eq(batches.id, batchId),
+        with: {
+            variant: true,
+        },
     });
 
     if (!batch) {
         throw new Error(`Batch with ID ${batchId} not found`);
     }
 
-    if (batch.productId !== productId) {
+    // Check if batch's variant belongs to the product
+    if (!batch.variant || batch.variant.productId !== productId) {
         throw new Error(`Batch ${batchId} does not belong to product ${productId}`);
     }
 
