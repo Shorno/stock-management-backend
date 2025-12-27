@@ -4,7 +4,7 @@ import { z } from "zod";
 const UNIT_TYPES = ["PCS", "KG", "LTR", "BOX", "CARTON", "DOZEN"] as const;
 
 // Order status types
-export const ORDER_STATUSES = ["pending", "completed", "cancelled", "return", "partial"] as const;
+export const ORDER_STATUSES = ["pending", "completed", "cancelled", "return", "partial", "due"] as const;
 export type OrderStatus = typeof ORDER_STATUSES[number];
 
 // Order item schema
@@ -69,6 +69,25 @@ export const getOrdersQuerySchema = z.object({
     offset: z.string().optional().transform((val) => (val ? Number(val) : 0)),
 });
 
+// Payment recording schema
+export const recordPaymentSchema = z.object({
+    amount: z.coerce.number().positive("Amount must be greater than 0"),
+    paymentDate: z.string().min(1, "Payment date is required"),
+    paymentMethod: z.string().optional(),
+    note: z.string().optional(),
+    collectedBy: z.string().optional(),
+});
+
+// Due orders query schema
+export const getDueOrdersQuerySchema = z.object({
+    dsrId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
+    routeId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    limit: z.string().optional().transform((val) => (val ? Number(val) : 50)),
+    offset: z.string().optional().transform((val) => (val ? Number(val) : 0)),
+});
+
 // Type exports
 export type OrderItemInput = z.infer<typeof orderItemSchema>;
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
@@ -77,3 +96,5 @@ export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
 export type GetOrdersQuery = z.infer<typeof getOrdersQuerySchema>;
 export type PartialCompleteItemInput = z.infer<typeof partialCompleteItemSchema>;
 export type PartialCompleteInput = z.infer<typeof partialCompleteSchema>;
+export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>;
+export type GetDueOrdersQuery = z.infer<typeof getDueOrdersQuerySchema>;
