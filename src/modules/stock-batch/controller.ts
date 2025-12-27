@@ -22,20 +22,20 @@ type AppContext = Context<{
 
 export const handleCreateStockBatch = async (c: AppContext): Promise<Response> => {
     try {
-        const productId = Number(c.req.param("productId"));
+        const variantId = Number(c.req.param("variantId"));
 
-        if (isNaN(productId)) {
+        if (isNaN(variantId)) {
             return c.json<StockBatchResponse>(
                 {
                     success: false,
-                    message: "Invalid product ID",
+                    message: "Invalid variant ID",
                 },
                 400
             );
         }
 
         const validatedData = c.req.valid("json") as CreateStockBatchInput;
-        const newBatch = await stockBatchService.createStockBatch(productId, validatedData);
+        const newBatch = await stockBatchService.createStockBatch(variantId, validatedData);
 
         const userInfo = getUserInfoFromContext(c);
         await auditLog({ context: c, ...userInfo, action: "CREATE", entityType: "stock", entityId: newBatch.id, entityName: `Batch #${newBatch.id}`, newValue: newBatch });
@@ -55,20 +55,20 @@ export const handleCreateStockBatch = async (c: AppContext): Promise<Response> =
 
 export const handleGetStockBatches = async (c: AppContext): Promise<Response> => {
     try {
-        const productId = Number(c.req.param("productId"));
+        const variantId = Number(c.req.param("variantId"));
 
-        if (isNaN(productId)) {
+        if (isNaN(variantId)) {
             return c.json<StockBatchResponse>(
                 {
                     success: false,
-                    message: "Invalid product ID",
+                    message: "Invalid variant ID",
                 },
                 400
             );
         }
 
         const validatedQuery = c.req.valid("query") as GetStockBatchesQuery;
-        const { batches, total } = await stockBatchService.getStockBatchesByProductId(productId, validatedQuery);
+        const { batches, total } = await stockBatchService.getStockBatchesByVariantId(variantId, validatedQuery);
 
         return c.json<StockBatchResponse>({
             success: true,

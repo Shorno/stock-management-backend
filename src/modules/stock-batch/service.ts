@@ -5,11 +5,11 @@ import type { CreateStockBatchInput, UpdateStockBatchInput, GetStockBatchesQuery
 import type { StockBatch, NewStockBatch } from "./types";
 
 export const createStockBatch = async (
-    productId: number,
+    variantId: number,
     data: CreateStockBatchInput
 ): Promise<StockBatch> => {
     const newBatch: NewStockBatch = {
-        productId,
+        variantId,
         supplierPrice: data.supplierPrice.toString(),
         sellPrice: data.sellPrice.toString(),
         initialQuantity: data.quantity,
@@ -25,13 +25,13 @@ export const createStockBatch = async (
     return createdBatch;
 };
 
-export const getStockBatchesByProductId = async (
-    productId: number,
+export const getStockBatchesByVariantId = async (
+    variantId: number,
     query: GetStockBatchesQuery
 ): Promise<{ batches: StockBatch[]; total: number }> => {
     const [batches, totalResult] = await Promise.all([
         db.query.stockBatch.findMany({
-            where: (batch, { eq }) => eq(batch.productId, productId),
+            where: (batch, { eq }) => eq(batch.variantId, variantId),
             limit: query.limit,
             offset: query.offset,
             orderBy: (batch, { desc }) => [desc(batch.createdAt)],
@@ -39,7 +39,7 @@ export const getStockBatchesByProductId = async (
         db
             .select({ count: count() })
             .from(stockBatch)
-            .where(eq(stockBatch.productId, productId)),
+            .where(eq(stockBatch.variantId, variantId)),
     ]);
 
     return {
@@ -52,7 +52,7 @@ export const getStockBatchById = async (id: number): Promise<StockBatch | undefi
     return await db.query.stockBatch.findFirst({
         where: (batch, { eq }) => eq(batch.id, id),
         with: {
-            product: true,
+            variant: true,
         },
     });
 };
@@ -94,12 +94,12 @@ export const deleteStockBatch = async (id: number): Promise<boolean> => {
     return result.length > 0;
 };
 
-// Computed totals for a product
-export const getProductStockTotals = async (
-    productId: number
+// Computed totals for a variant
+export const getVariantStockTotals = async (
+    variantId: number
 ): Promise<{ totalQuantity: number; totalFreeQuantity: number }> => {
     const batches = await db.query.stockBatch.findMany({
-        where: (batch, { eq }) => eq(batch.productId, productId),
+        where: (batch, { eq }) => eq(batch.variantId, variantId),
     });
 
     return batches.reduce(
@@ -110,3 +110,4 @@ export const getProductStockTotals = async (
         { totalQuantity: 0, totalFreeQuantity: 0 }
     );
 };
+
