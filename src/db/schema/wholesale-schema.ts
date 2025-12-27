@@ -78,6 +78,9 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
     totalQuantity: integer("total_quantity").notNull(),
     availableQuantity: integer("available_quantity").notNull().default(0),
     freeQuantity: integer("free_quantity").notNull().default(0),
+    // Delivered quantities for partial completion
+    deliveredQuantity: integer("delivered_quantity"),
+    deliveredFreeQty: integer("delivered_free_qty"),
     salePrice: decimal("sale_price", { precision: 10, scale: 2 }).notNull(),
     subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
     discount: decimal("discount", { precision: 10, scale: 2 }).notNull().default("0"),

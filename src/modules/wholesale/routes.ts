@@ -5,6 +5,7 @@ import {
     updateOrderSchema,
     getOrdersQuerySchema,
     updateStatusSchema,
+    partialCompleteSchema,
 } from "./validation";
 import * as wholesaleController from "./controller";
 import { requireRole } from "../../lib/auth-middleware";
@@ -76,6 +77,28 @@ app.patch(
         }
     }),
     wholesaleController.handleUpdateStatus
+);
+
+// Partial order completion (Admin and Manager only)
+app.patch(
+    "/:id/partial-complete",
+    requireRole(["admin", "manager"]),
+    zValidator("json", partialCompleteSchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Validation failed",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    wholesaleController.handlePartialComplete
 );
 
 // Generate invoice PDF

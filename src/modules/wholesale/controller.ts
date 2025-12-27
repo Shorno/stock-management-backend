@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery } from "./validation";
+import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, PartialCompleteInput } from "./validation";
 import type { WholesaleOrderResponse } from "./types";
 import * as wholesaleService from "./service";
 import { generateInvoicePdf } from "./pdf.service";
@@ -339,6 +339,65 @@ export const handleGenerateInvoicePdf = async (c: AppContext): Promise<Response>
             {
                 success: false,
                 message: error instanceof Error ? error.message : "Failed to generate invoice PDF",
+            },
+            500
+        );
+    }
+};
+
+// Handle partial order completion
+export const handlePartialComplete = async (c: AppContext): Promise<Response> => {
+    try {
+        const id = Number(c.req.param("id"));
+
+        if (isNaN(id)) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Invalid order ID",
+                },
+                400
+            );
+        }
+
+        const validatedData = c.req.valid("json") as PartialCompleteInput;
+        const oldOrder = await wholesaleService.getOrderById(id);
+        const updatedOrder = await wholesaleService.completeOrderPartially(id, validatedData);
+
+        if (!updatedOrder) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Wholesale order not found",
+                },
+                404
+            );
+        }
+
+        // Audit log
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({
+            context: c,
+            ...userInfo,
+            action: "STATUS_CHANGE",
+            entityType: "wholesale_order",
+            entityId: id,
+            entityName: updatedOrder.orderNumber,
+            oldValue: oldOrder,
+            newValue: updatedOrder,
+        });
+
+        return c.json<WholesaleOrderResponse>({
+            success: true,
+            data: updatedOrder,
+            message: "Order partially completed successfully",
+        });
+    } catch (error) {
+        console.error("Error completing order partially:", error);
+        return c.json<WholesaleOrderResponse>(
+            {
+                success: false,
+                message: error instanceof Error ? error.message : "Failed to complete order partially",
             },
             500
         );

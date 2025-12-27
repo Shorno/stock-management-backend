@@ -1,7 +1,7 @@
 import { db } from "../../db/config";
 import { wholesaleOrders, wholesaleOrderItems, stockBatch } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte, sql } from "drizzle-orm";
-import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput } from "./validation";
+import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, PartialCompleteInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 
 // Unit multipliers for calculating total quantity
@@ -486,4 +486,107 @@ export const updateOrderStatus = async (
     });
 
     return updatedOrder as OrderWithItems | undefined;
+};
+
+// Complete order partially - restore undelivered stock to batches
+export const completeOrderPartially = async (
+    orderId: number,
+    input: PartialCompleteInput
+): Promise<OrderWithItems | undefined> => {
+    return await db.transaction(async (tx) => {
+        // Get the order with items
+        const order = await tx.query.wholesaleOrders.findFirst({
+            where: (orders, { eq }) => eq(orders.id, orderId),
+            with: { items: true },
+        });
+
+        if (!order) {
+            throw new Error("Order not found");
+        }
+
+        if (order.status !== "pending") {
+            throw new Error("Only pending orders can be partially completed");
+        }
+
+        let newGrandTotal = 0;
+
+        // Process each item
+        for (const inputItem of input.items) {
+            const orderItem = order.items.find((item: any) => item.id === inputItem.itemId);
+            if (!orderItem) {
+                throw new Error(`Order item ${inputItem.itemId} not found`);
+            }
+
+            // Validate delivered quantities
+            if (inputItem.deliveredQuantity > orderItem.quantity) {
+                throw new Error(`Delivered quantity cannot exceed ordered quantity for item ${inputItem.itemId}`);
+            }
+            if (inputItem.deliveredFreeQty > orderItem.freeQuantity) {
+                throw new Error(`Delivered free quantity cannot exceed ordered free quantity for item ${inputItem.itemId}`);
+            }
+
+            // Calculate quantities to restore
+            const qtyToRestore = orderItem.quantity - inputItem.deliveredQuantity;
+            const freeQtyToRestore = orderItem.freeQuantity - inputItem.deliveredFreeQty;
+
+            // Restore stock to batch if any
+            if (qtyToRestore > 0 || freeQtyToRestore > 0) {
+                await tx
+                    .update(stockBatch)
+                    .set({
+                        remainingQuantity: sql`${stockBatch.remainingQuantity} + ${qtyToRestore}`,
+                        remainingFreeQty: sql`${stockBatch.remainingFreeQty} + ${freeQtyToRestore}`,
+                    })
+                    .where(eq(stockBatch.id, orderItem.batchId));
+            }
+
+            // Calculate new item totals based on delivered quantity
+            const salePrice = parseFloat(orderItem.salePrice);
+            const discount = parseFloat(orderItem.discount);
+            const newSubtotal = inputItem.deliveredQuantity * salePrice;
+            const newNet = newSubtotal - discount;
+
+            // Update order item with delivered quantities
+            await tx
+                .update(wholesaleOrderItems)
+                .set({
+                    deliveredQuantity: inputItem.deliveredQuantity,
+                    deliveredFreeQty: inputItem.deliveredFreeQty,
+                    subtotal: newSubtotal.toFixed(2),
+                    net: newNet.toFixed(2),
+                })
+                .where(eq(wholesaleOrderItems.id, inputItem.itemId));
+
+            newGrandTotal += newNet;
+        }
+
+        // Update order status to partial and update total
+        await tx
+            .update(wholesaleOrders)
+            .set({
+                status: "partial",
+                total: newGrandTotal.toFixed(2),
+            })
+            .where(eq(wholesaleOrders.id, orderId));
+
+        // Fetch and return updated order
+        const updatedOrder = await tx.query.wholesaleOrders.findFirst({
+            where: (orders, { eq }) => eq(orders.id, orderId),
+            with: {
+                items: {
+                    with: {
+                        product: true,
+                        brand: true,
+                        batch: true,
+                    },
+                },
+                dsr: true,
+                route: true,
+                category: true,
+                brand: true,
+            },
+        });
+
+        return updatedOrder as OrderWithItems | undefined;
+    });
 };

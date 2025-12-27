@@ -4,7 +4,7 @@ import { z } from "zod";
 const UNIT_TYPES = ["PCS", "KG", "LTR", "BOX", "CARTON", "DOZEN"] as const;
 
 // Order status types
-export const ORDER_STATUSES = ["pending", "completed", "cancelled", "return"] as const;
+export const ORDER_STATUSES = ["pending", "completed", "cancelled", "return", "partial"] as const;
 export type OrderStatus = typeof ORDER_STATUSES[number];
 
 // Order item schema
@@ -38,8 +38,21 @@ export const updateOrderSchema = createOrderSchema;
 // Update order status schema
 export const updateStatusSchema = z.object({
     status: z.enum(ORDER_STATUSES, {
-        message: "Status must be one of: pending, completed, cancelled, return"
+        message: "Status must be one of: pending, completed, cancelled, return, partial"
     }),
+});
+
+// Partial completion item schema
+export const partialCompleteItemSchema = z.object({
+    itemId: z.coerce.number().int().positive(),
+    deliveredQuantity: z.coerce.number().int().nonnegative(),
+    deliveredFreeQty: z.coerce.number().int().nonnegative().default(0),
+});
+
+// Partial completion schema
+export const partialCompleteSchema = z.object({
+    items: z.array(partialCompleteItemSchema).min(1, "At least one item is required"),
+    notes: z.string().optional(),
 });
 
 // Query parameters schema
@@ -62,3 +75,5 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
 export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
 export type GetOrdersQuery = z.infer<typeof getOrdersQuerySchema>;
+export type PartialCompleteItemInput = z.infer<typeof partialCompleteItemSchema>;
+export type PartialCompleteInput = z.infer<typeof partialCompleteSchema>;
