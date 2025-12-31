@@ -76,6 +76,7 @@ export const recordPaymentSchema = z.object({
     paymentMethod: z.string().optional(),
     note: z.string().optional(),
     collectedBy: z.string().optional(),
+    collectedByDsrId: z.coerce.number().int().positive().optional(),
 });
 
 // Due orders query schema

@@ -183,11 +183,14 @@ export const orderPayments = pgTable("order_payments", {
     paymentDate: date("payment_date").notNull(),
     paymentMethod: varchar("payment_method", { length: 50 }),
     note: text("note"),
-    collectedBy: varchar("collected_by", { length: 100 }),
+    collectedBy: varchar("collected_by", { length: 100 }), // Legacy - free text
+    collectedByDsrId: integer("collected_by_dsr_id")
+        .references(() => dsr.id, { onDelete: "set null" }),
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_payments_order").on(table.orderId),
     dateIdx: index("idx_order_payments_date").on(table.paymentDate),
+    dsrIdx: index("idx_order_payments_dsr").on(table.collectedByDsrId),
 }));
 
 // Order payments relations
@@ -195,6 +198,10 @@ export const orderPaymentsRelations = relations(orderPayments, ({ one }) => ({
     order: one(wholesaleOrders, {
         fields: [orderPayments.orderId],
         references: [wholesaleOrders.id],
+    }),
+    collectedByDsr: one(dsr, {
+        fields: [orderPayments.collectedByDsrId],
+        references: [dsr.id],
     }),
 }));
 

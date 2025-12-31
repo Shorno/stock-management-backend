@@ -468,3 +468,137 @@ export const getAllDsrLedgerSummaries = async (
         },
     };
 };
+
+// ==================== DSR DUE SUMMARY ====================
+
+export interface DsrDueSummaryItem {
+    dsrId: number;
+    dsrName: string;
+    orderCount: number;
+    totalOrderAmount: string;
+    totalPaid: string;
+    totalDue: string;
+    oldestDueDate: string | null;
+    dueAgeDays: number;
+}
+
+export interface DsrDueSummaryResponse {
+    items: DsrDueSummaryItem[];
+    totals: {
+        totalDsrs: number;
+        totalOrders: number;
+        grandTotalDue: string;
+        averageAgeDays: number;
+    };
+}
+
+/**
+ * Get DSR Due Summary - shows all DSRs with outstanding dues
+ */
+export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
+    const today = new Date();
+
+    // Get all orders with dues (unpaid or partial payment, excluding cancelled/return/completed)
+    const ordersWithDues = await db
+        .select({
+            dsrId: wholesaleOrders.dsrId,
+            dsrName: dsr.name,
+            orderDate: wholesaleOrders.orderDate,
+            total: wholesaleOrders.total,
+            paidAmount: wholesaleOrders.paidAmount,
+            status: wholesaleOrders.status,
+            paymentStatus: wholesaleOrders.paymentStatus,
+        })
+        .from(wholesaleOrders)
+        .innerJoin(dsr, eq(wholesaleOrders.dsrId, dsr.id))
+        .where(and(
+            ne(wholesaleOrders.status, "cancelled"),
+            ne(wholesaleOrders.status, "return"),
+            ne(wholesaleOrders.status, "completed"),
+            ne(wholesaleOrders.paymentStatus, "paid")
+        ))
+        .orderBy(dsr.name, wholesaleOrders.orderDate);
+
+    // Group by DSR
+    const dsrMap = new Map<number, {
+        dsrName: string;
+        orders: Array<{
+            orderDate: string;
+            total: number;
+            paidAmount: number;
+        }>;
+    }>();
+
+    for (const order of ordersWithDues) {
+        const existing = dsrMap.get(order.dsrId);
+        const orderData = {
+            orderDate: order.orderDate,
+            total: parseFloat(order.total),
+            paidAmount: parseFloat(order.paidAmount),
+        };
+
+        if (existing) {
+            existing.orders.push(orderData);
+        } else {
+            dsrMap.set(order.dsrId, {
+                dsrName: order.dsrName,
+                orders: [orderData],
+            });
+        }
+    }
+
+    // Build summary items
+    const items: DsrDueSummaryItem[] = [];
+    let grandTotalDue = 0;
+    let totalAgeDays = 0;
+    let totalOrders = 0;
+
+    for (const [dsrId, data] of dsrMap) {
+        let totalOrderAmount = 0;
+        let totalPaid = 0;
+        let oldestDate: Date | null = null;
+
+        for (const order of data.orders) {
+            totalOrderAmount += order.total;
+            totalPaid += order.paidAmount;
+
+            const orderDate = new Date(order.orderDate);
+            if (!oldestDate || orderDate < oldestDate) {
+                oldestDate = orderDate;
+            }
+        }
+
+        const due = totalOrderAmount - totalPaid;
+        const ageDays = oldestDate
+            ? Math.floor((today.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24))
+            : 0;
+
+        items.push({
+            dsrId,
+            dsrName: data.dsrName,
+            orderCount: data.orders.length,
+            totalOrderAmount: totalOrderAmount.toFixed(2),
+            totalPaid: totalPaid.toFixed(2),
+            totalDue: due.toFixed(2),
+            oldestDueDate: oldestDate ? oldestDate.toISOString().split("T")[0] : null,
+            dueAgeDays: ageDays,
+        });
+
+        grandTotalDue += due;
+        totalAgeDays += ageDays;
+        totalOrders += data.orders.length;
+    }
+
+    // Sort by due amount descending (prioritize high-value collections)
+    items.sort((a, b) => parseFloat(b.totalDue) - parseFloat(a.totalDue));
+
+    return {
+        items,
+        totals: {
+            totalDsrs: items.length,
+            totalOrders,
+            grandTotalDue: grandTotalDue.toFixed(2),
+            averageAgeDays: items.length > 0 ? Math.round(totalAgeDays / items.length) : 0,
+        },
+    };
+};

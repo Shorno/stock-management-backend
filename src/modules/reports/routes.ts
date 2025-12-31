@@ -125,5 +125,28 @@ app.get(
     }
 );
 
-export default app;
+// Get DSR Due Summary (all DSRs with outstanding dues)
+app.get(
+    "/dsr-due-summary",
+    async (ctx) => {
+        try {
+            const data = await reportsService.getDsrDueSummary();
 
+            return ctx.json({
+                success: true,
+                data,
+            });
+        } catch (error) {
+            console.error("Error fetching DSR due summary:", error);
+            return ctx.json(
+                {
+                    success: false,
+                    message: error instanceof Error ? error.message : "Failed to fetch DSR due summary",
+                },
+                500
+            );
+        }
+    }
+);
+
+export default app;

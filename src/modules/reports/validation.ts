@@ -27,3 +27,8 @@ export const dsrLedgerOverviewQuerySchema = z.object({
 });
 
 export type DsrLedgerOverviewQuery = z.infer<typeof dsrLedgerOverviewQuerySchema>;
+
+// Query schema for DSR Due Summary (no required params - returns all DSRs with dues)
+export const dsrDueSummaryQuerySchema = z.object({});
+
+export type DsrDueSummaryQuery = z.infer<typeof dsrDueSummaryQuerySchema>;

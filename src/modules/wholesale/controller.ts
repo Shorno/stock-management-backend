@@ -419,12 +419,13 @@ export const handleRecordPayment = async (c: AppContext): Promise<Response> => {
             );
         }
 
-        const { amount, paymentDate, paymentMethod, note, collectedBy } = c.req.valid("json") as {
+        const { amount, paymentDate, paymentMethod, note, collectedBy, collectedByDsrId } = c.req.valid("json") as {
             amount: number;
             paymentDate: string;
             paymentMethod?: string;
             note?: string;
             collectedBy?: string;
+            collectedByDsrId?: number;
         };
 
         const updatedOrder = await wholesaleService.recordPayment(
@@ -433,7 +434,8 @@ export const handleRecordPayment = async (c: AppContext): Promise<Response> => {
             paymentDate,
             paymentMethod,
             note,
-            collectedBy
+            collectedBy,
+            collectedByDsrId
         );
 
         if (!updatedOrder) {
