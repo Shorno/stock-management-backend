@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
 import { wholesaleOrders, dsr, route, orderPayments } from "../../db/schema";
-import { eq, and, gte, lte, lt, sql, ne } from "drizzle-orm";
+import { eq, and, gte, lte, lt, sql, ne, sum, countDistinct, desc } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery } from "./validation";
 
 export interface DailySalesCollectionItem {
@@ -541,7 +541,7 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
             existing.orders.push(orderData);
         } else {
             dsrMap.set(order.dsrId, {
-                dsrName: order.dsrName,
+                dsrName: order.dsrName ?? "",
                 orders: [orderData],
             });
         }
@@ -580,7 +580,7 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
             totalOrderAmount: totalOrderAmount.toFixed(2),
             totalPaid: totalPaid.toFixed(2),
             totalDue: due.toFixed(2),
-            oldestDueDate: oldestDate ? oldestDate.toISOString().split("T")[0] : null,
+            oldestDueDate: (oldestDate !== null ? oldestDate.toISOString().split("T")[0] : null) as string | null,
             dueAgeDays: ageDays,
         });
 
@@ -681,10 +681,10 @@ export const getProductWiseSales = async (
             brandId: wholesaleOrderItems.brandId,
             brandName: brand.name,
             unit: wholesaleOrderItems.unit,
-            quantity: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity}))::int`,
-            freeQty: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity}))::int`,
-            totalNet: sql<string>`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL))`,
-            orderCount: sql<number>`COUNT(DISTINCT ${wholesaleOrderItems.orderId})::int`,
+            quantity: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity}))`,
+            freeQty: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity}))`,
+            totalNet: sum(wholesaleOrderItems.net),
+            orderCount: countDistinct(wholesaleOrderItems.orderId),
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
@@ -701,7 +701,7 @@ export const getProductWiseSales = async (
             brand.name,
             wholesaleOrderItems.unit
         )
-        .orderBy(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL)) DESC`);
+        .orderBy(desc(sum(wholesaleOrderItems.net)));
 
     // Transform and calculate
     let totalQuantitySold = 0;
@@ -711,7 +711,7 @@ export const getProductWiseSales = async (
     const items: ProductWiseSalesItem[] = results.map((row) => {
         const quantity = Number(row.quantity) || 0;
         const freeQty = Number(row.freeQty) || 0;
-        const net = parseFloat(row.totalNet) || 0;
+        const net = parseFloat(row.totalNet ?? "0") || 0;
         const avgPrice = quantity > 0 ? net / quantity : 0;
 
         totalQuantitySold += quantity;
