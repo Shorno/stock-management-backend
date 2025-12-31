@@ -31,6 +31,28 @@ export const dsrTarget = pgTable("dsr_target", {
     uniqueDsrMonth: index("idx_dsr_target_dsr_month").on(table.dsrId, table.targetMonth),
 }));
 
+export const customer = pgTable("customer", {
+    id: serial("id").primaryKey(),
+    name: varchar("name", { length: 100 }).notNull(),
+    shopName: varchar("shop_name", { length: 150 }),
+    mobile: varchar("mobile", { length: 20 }),
+    address: text("address"),
+    routeId: integer("route_id")
+        .references(() => route.id, { onDelete: "set null" }),
+    ...timestamps
+}, (table) => ({
+    nameIdx: index("idx_customer_name").on(table.name),
+    routeIdx: index("idx_customer_route").on(table.routeId),
+    mobileIdx: index("idx_customer_mobile").on(table.mobile),
+}));
+
+export const customerRelations = relations(customer, ({ one }) => ({
+    route: one(route, {
+        fields: [customer.routeId],
+        references: [route.id],
+    }),
+}));
+
 export const wholesaleOrders = pgTable("wholesale_orders", {
     id: serial("id").primaryKey(),
     orderNumber: varchar("order_number", { length: 50 }).notNull().unique(),
@@ -161,11 +183,14 @@ export const orderPayments = pgTable("order_payments", {
     paymentDate: date("payment_date").notNull(),
     paymentMethod: varchar("payment_method", { length: 50 }),
     note: text("note"),
-    collectedBy: varchar("collected_by", { length: 100 }),
+    collectedBy: varchar("collected_by", { length: 100 }), // Legacy - free text
+    collectedByDsrId: integer("collected_by_dsr_id")
+        .references(() => dsr.id, { onDelete: "set null" }),
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_payments_order").on(table.orderId),
     dateIdx: index("idx_order_payments_date").on(table.paymentDate),
+    dsrIdx: index("idx_order_payments_dsr").on(table.collectedByDsrId),
 }));
 
 // Order payments relations
@@ -173,6 +198,10 @@ export const orderPaymentsRelations = relations(orderPayments, ({ one }) => ({
     order: one(wholesaleOrders, {
         fields: [orderPayments.orderId],
         references: [wholesaleOrders.id],
+    }),
+    collectedByDsr: one(dsr, {
+        fields: [orderPayments.collectedByDsrId],
+        references: [dsr.id],
     }),
 }));
 

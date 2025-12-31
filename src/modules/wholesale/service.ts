@@ -618,7 +618,8 @@ export const recordPayment = async (
     paymentDate: string,
     paymentMethod?: string,
     note?: string,
-    collectedBy?: string
+    collectedBy?: string,
+    collectedByDsrId?: number
 ) => {
     return await db.transaction(async (tx) => {
         // Get the order
@@ -656,6 +657,7 @@ export const recordPayment = async (
             paymentMethod: paymentMethod || null,
             note: note || null,
             collectedBy: collectedBy || null,
+            collectedByDsrId: collectedByDsrId || null,
         });
 
         // Update order paid amount, payment status, and order status if fully paid
