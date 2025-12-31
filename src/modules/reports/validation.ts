@@ -32,3 +32,16 @@ export type DsrLedgerOverviewQuery = z.infer<typeof dsrLedgerOverviewQuerySchema
 export const dsrDueSummaryQuerySchema = z.object({});
 
 export type DsrDueSummaryQuery = z.infer<typeof dsrDueSummaryQuerySchema>;
+
+// Query schema for Product Wise Sales report
+export const productWiseSalesQuerySchema = z.object({
+    startDate: z.string(), // YYYY-MM-DD format, required
+    endDate: z.string(),   // YYYY-MM-DD format, required
+    dsrId: z.coerce.number().int().positive().optional(),
+    routeId: z.coerce.number().int().positive().optional(),
+    categoryId: z.coerce.number().int().positive().optional(),
+    brandId: z.coerce.number().int().positive().optional(),
+    productId: z.coerce.number().int().positive().optional(),
+});
+
+export type ProductWiseSalesQuery = z.infer<typeof productWiseSalesQuerySchema>;

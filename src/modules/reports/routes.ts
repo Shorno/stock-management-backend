@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema } from "./validation";
+import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema } from "./validation";
 import * as reportsService from "./service";
 
 const app = new Hono();
@@ -142,6 +142,46 @@ app.get(
                 {
                     success: false,
                     message: error instanceof Error ? error.message : "Failed to fetch DSR due summary",
+                },
+                500
+            );
+        }
+    }
+);
+
+// Get Product Wise Sales report
+app.get(
+    "/product-wise-sales",
+    zValidator("query", productWiseSalesQuerySchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Invalid query parameters",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    async (ctx) => {
+        try {
+            const query = ctx.req.valid("query");
+            const data = await reportsService.getProductWiseSales(query);
+
+            return ctx.json({
+                success: true,
+                data,
+            });
+        } catch (error) {
+            console.error("Error fetching product wise sales:", error);
+            return ctx.json(
+                {
+                    success: false,
+                    message: error instanceof Error ? error.message : "Failed to fetch product wise sales report",
                 },
                 500
             );

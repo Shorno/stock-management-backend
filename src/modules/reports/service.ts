@@ -602,3 +602,145 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
         },
     };
 };
+
+// Import additional schemas for product-wise-sales
+import { wholesaleOrderItems, category, brand, product } from "../../db/schema";
+import type { ProductWiseSalesQuery } from "./validation";
+
+export interface ProductWiseSalesItem {
+    productId: number;
+    productName: string;
+    categoryId: number | null;
+    categoryName: string | null;
+    brandId: number;
+    brandName: string;
+    unit: string;
+    totalQuantity: number;
+    freeQuantity: number;
+    totalSales: string;
+    averagePrice: string;
+    orderCount: number;
+}
+
+export interface ProductWiseSalesSummary {
+    totalProducts: number;
+    totalQuantitySold: number;
+    totalFreeQuantity: number;
+    grandTotal: string;
+}
+
+export interface ProductWiseSalesResponse {
+    items: ProductWiseSalesItem[];
+    summary: ProductWiseSalesSummary;
+}
+
+/**
+ * Get product-wise sales report
+ */
+export const getProductWiseSales = async (
+    query: ProductWiseSalesQuery
+): Promise<ProductWiseSalesResponse> => {
+    // Build base conditions for orders
+    const orderConditions = [
+        gte(wholesaleOrders.orderDate, query.startDate),
+        lte(wholesaleOrders.orderDate, query.endDate),
+        ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "return"),
+    ];
+
+    if (query.dsrId) {
+        orderConditions.push(eq(wholesaleOrders.dsrId, query.dsrId));
+    }
+
+    if (query.routeId) {
+        orderConditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    // Build item conditions
+    const itemConditions: any[] = [];
+
+    if (query.categoryId) {
+        itemConditions.push(eq(product.categoryId, query.categoryId));
+    }
+
+    if (query.brandId) {
+        itemConditions.push(eq(wholesaleOrderItems.brandId, query.brandId));
+    }
+
+    if (query.productId) {
+        itemConditions.push(eq(wholesaleOrderItems.productId, query.productId));
+    }
+
+    // Query order items grouped by product
+    const results = await db
+        .select({
+            productId: wholesaleOrderItems.productId,
+            productName: product.name,
+            categoryId: product.categoryId,
+            categoryName: category.name,
+            brandId: wholesaleOrderItems.brandId,
+            brandName: brand.name,
+            unit: wholesaleOrderItems.unit,
+            quantity: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity}))::int`,
+            freeQty: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity}))::int`,
+            totalNet: sql<string>`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL))`,
+            orderCount: sql<number>`COUNT(DISTINCT ${wholesaleOrderItems.orderId})::int`,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
+        .leftJoin(category, eq(product.categoryId, category.id))
+        .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])))
+        .groupBy(
+            wholesaleOrderItems.productId,
+            product.name,
+            product.categoryId,
+            category.name,
+            wholesaleOrderItems.brandId,
+            brand.name,
+            wholesaleOrderItems.unit
+        )
+        .orderBy(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL)) DESC`);
+
+    // Transform and calculate
+    let totalQuantitySold = 0;
+    let totalFreeQuantity = 0;
+    let grandTotal = 0;
+
+    const items: ProductWiseSalesItem[] = results.map((row) => {
+        const quantity = Number(row.quantity) || 0;
+        const freeQty = Number(row.freeQty) || 0;
+        const net = parseFloat(row.totalNet) || 0;
+        const avgPrice = quantity > 0 ? net / quantity : 0;
+
+        totalQuantitySold += quantity;
+        totalFreeQuantity += freeQty;
+        grandTotal += net;
+
+        return {
+            productId: row.productId,
+            productName: row.productName,
+            categoryId: row.categoryId,
+            categoryName: row.categoryName,
+            brandId: row.brandId,
+            brandName: row.brandName,
+            unit: row.unit,
+            totalQuantity: quantity,
+            freeQuantity: freeQty,
+            totalSales: net.toFixed(2),
+            averagePrice: avgPrice.toFixed(2),
+            orderCount: row.orderCount,
+        };
+    });
+
+    return {
+        items,
+        summary: {
+            totalProducts: items.length,
+            totalQuantitySold,
+            totalFreeQuantity,
+            grandTotal: grandTotal.toFixed(2),
+        },
+    };
+};
