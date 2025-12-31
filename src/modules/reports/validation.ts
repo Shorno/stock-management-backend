@@ -19,3 +19,11 @@ export const dsrLedgerQuerySchema = z.object({
 });
 
 export type DsrLedgerQuery = z.infer<typeof dsrLedgerQuerySchema>;
+
+// Query schema for DSR Ledger Overview report
+export const dsrLedgerOverviewQuerySchema = z.object({
+    startDate: z.string(), // YYYY-MM-DD format, required
+    endDate: z.string(),   // YYYY-MM-DD format, required
+});
+
+export type DsrLedgerOverviewQuery = z.infer<typeof dsrLedgerOverviewQuerySchema>;

@@ -31,6 +31,28 @@ export const dsrTarget = pgTable("dsr_target", {
     uniqueDsrMonth: index("idx_dsr_target_dsr_month").on(table.dsrId, table.targetMonth),
 }));
 
+export const customer = pgTable("customer", {
+    id: serial("id").primaryKey(),
+    name: varchar("name", { length: 100 }).notNull(),
+    shopName: varchar("shop_name", { length: 150 }),
+    mobile: varchar("mobile", { length: 20 }),
+    address: text("address"),
+    routeId: integer("route_id")
+        .references(() => route.id, { onDelete: "set null" }),
+    ...timestamps
+}, (table) => ({
+    nameIdx: index("idx_customer_name").on(table.name),
+    routeIdx: index("idx_customer_route").on(table.routeId),
+    mobileIdx: index("idx_customer_mobile").on(table.mobile),
+}));
+
+export const customerRelations = relations(customer, ({ one }) => ({
+    route: one(route, {
+        fields: [customer.routeId],
+        references: [route.id],
+    }),
+}));
+
 export const wholesaleOrders = pgTable("wholesale_orders", {
     id: serial("id").primaryKey(),
     orderNumber: varchar("order_number", { length: 50 }).notNull().unique(),

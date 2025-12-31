@@ -331,3 +331,140 @@ export const getDsrLedger = async (
         },
     };
 };
+
+// ==================== DSR LEDGER OVERVIEW ====================
+
+export interface DsrLedgerOverviewItem {
+    dsrId: number;
+    dsrName: string;
+    openingBalance: string;
+    totalDebit: string;
+    totalCredit: string;
+    closingBalance: string;
+    transactionCount: number;
+}
+
+export interface DsrLedgerOverviewResponse {
+    items: DsrLedgerOverviewItem[];
+    totals: {
+        totalOpeningBalance: string;
+        totalDebit: string;
+        totalCredit: string;
+        totalClosingBalance: string;
+    };
+}
+
+export interface DsrLedgerOverviewQuery {
+    startDate: string;
+    endDate: string;
+}
+
+/**
+ * Get DSR Ledger Overview - shows summary for all DSRs
+ */
+export const getAllDsrLedgerSummaries = async (
+    query: DsrLedgerOverviewQuery
+): Promise<DsrLedgerOverviewResponse> => {
+    const { startDate, endDate } = query;
+
+    // Get all DSRs
+    const allDsrs = await db.query.dsr.findMany({
+        orderBy: (d, { asc }) => asc(d.name),
+    });
+
+    const items: DsrLedgerOverviewItem[] = [];
+    let totalOpeningBalance = 0;
+    let totalDebit = 0;
+    let totalCredit = 0;
+    let totalClosingBalance = 0;
+
+    for (const dsrInfo of allDsrs) {
+        // Calculate opening balance (sales - payments before start date)
+        const salesBeforeResult = await db
+            .select({
+                total: sql<string>`COALESCE(SUM(CAST(${wholesaleOrders.total} AS DECIMAL)), 0)`,
+            })
+            .from(wholesaleOrders)
+            .where(and(
+                eq(wholesaleOrders.dsrId, dsrInfo.id),
+                lt(wholesaleOrders.orderDate, startDate),
+                ne(wholesaleOrders.status, "cancelled"),
+                ne(wholesaleOrders.status, "return")
+            ));
+
+        const paymentsBeforeResult = await db
+            .select({
+                total: sql<string>`COALESCE(SUM(CAST(${orderPayments.amount} AS DECIMAL)), 0)`,
+            })
+            .from(orderPayments)
+            .innerJoin(wholesaleOrders, eq(orderPayments.orderId, wholesaleOrders.id))
+            .where(and(
+                eq(wholesaleOrders.dsrId, dsrInfo.id),
+                lt(orderPayments.paymentDate, startDate)
+            ));
+
+        const salesBefore = parseFloat(salesBeforeResult[0]?.total || "0");
+        const paymentsBefore = parseFloat(paymentsBeforeResult[0]?.total || "0");
+        const openingBalance = salesBefore - paymentsBefore;
+
+        // Get sales in date range (debit)
+        const salesInRangeResult = await db
+            .select({
+                total: sql<string>`COALESCE(SUM(CAST(${wholesaleOrders.total} AS DECIMAL)), 0)`,
+                count: sql<number>`COUNT(*)`,
+            })
+            .from(wholesaleOrders)
+            .where(and(
+                eq(wholesaleOrders.dsrId, dsrInfo.id),
+                gte(wholesaleOrders.orderDate, startDate),
+                lte(wholesaleOrders.orderDate, endDate),
+                ne(wholesaleOrders.status, "cancelled"),
+                ne(wholesaleOrders.status, "return")
+            ));
+
+        // Get payments in date range (credit)
+        const paymentsInRangeResult = await db
+            .select({
+                total: sql<string>`COALESCE(SUM(CAST(${orderPayments.amount} AS DECIMAL)), 0)`,
+                count: sql<number>`COUNT(*)`,
+            })
+            .from(orderPayments)
+            .innerJoin(wholesaleOrders, eq(orderPayments.orderId, wholesaleOrders.id))
+            .where(and(
+                eq(wholesaleOrders.dsrId, dsrInfo.id),
+                gte(orderPayments.paymentDate, startDate),
+                lte(orderPayments.paymentDate, endDate)
+            ));
+
+        const debit = parseFloat(salesInRangeResult[0]?.total || "0");
+        const credit = parseFloat(paymentsInRangeResult[0]?.total || "0");
+        const salesCount = Number(salesInRangeResult[0]?.count || 0);
+        const paymentsCount = Number(paymentsInRangeResult[0]?.count || 0);
+        const closingBalance = openingBalance + debit - credit;
+
+        items.push({
+            dsrId: dsrInfo.id,
+            dsrName: dsrInfo.name,
+            openingBalance: openingBalance.toFixed(2),
+            totalDebit: debit.toFixed(2),
+            totalCredit: credit.toFixed(2),
+            closingBalance: closingBalance.toFixed(2),
+            transactionCount: salesCount + paymentsCount,
+        });
+
+        totalOpeningBalance += openingBalance;
+        totalDebit += debit;
+        totalCredit += credit;
+        totalClosingBalance += closingBalance;
+    }
+
+    return {
+        items,
+        totals: {
+            totalOpeningBalance: totalOpeningBalance.toFixed(2),
+            totalDebit: totalDebit.toFixed(2),
+            totalCredit: totalCredit.toFixed(2),
+            totalClosingBalance: totalClosingBalance.toFixed(2),
+        },
+    };
+};
