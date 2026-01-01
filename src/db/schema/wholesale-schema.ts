@@ -1,7 +1,7 @@
 import { pgTable, serial, varchar, integer, decimal, text, date, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { timestamps } from "../column.helpers";
-import { category, brand, product, stockBatch } from "./product-schema";
+import { category, brand, product, stockBatch, productVariant } from "./product-schema";
 
 export const dsr = pgTable("dsr", {
     id: serial("id").primaryKey(),
@@ -208,4 +208,72 @@ export const orderPaymentsRelations = relations(orderPayments, ({ one }) => ({
 // Update wholesaleOrders relations to include payments
 export const wholesaleOrdersPaymentRelation = relations(wholesaleOrders, ({ many }) => ({
     payments: many(orderPayments),
+}));
+
+// ==================== DAMAGE RETURNS ====================
+
+export const damageReturns = pgTable("damage_returns", {
+    id: serial("id").primaryKey(),
+    returnNumber: varchar("return_number", { length: 50 }).notNull().unique(),
+    dsrId: integer("dsr_id")
+        .notNull()
+        .references(() => dsr.id, { onDelete: "restrict" }),
+    returnDate: date("return_date").notNull(),
+    returnType: varchar("return_type", { length: 30 }).notNull(), // customer_return, damage, expired, defective
+    status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, approved, rejected
+    totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+    notes: text("notes"),
+    approvedById: integer("approved_by_id"),
+    approvedAt: date("approved_at"),
+    ...timestamps
+}, (table) => ({
+    dsrIdx: index("idx_damage_returns_dsr").on(table.dsrId),
+    dateIdx: index("idx_damage_returns_date").on(table.returnDate),
+    statusIdx: index("idx_damage_returns_status").on(table.status),
+    returnNumberIdx: index("idx_damage_returns_number").on(table.returnNumber),
+}));
+
+export const damageReturnItems = pgTable("damage_return_items", {
+    id: serial("id").primaryKey(),
+    returnId: integer("return_id")
+        .notNull()
+        .references(() => damageReturns.id, { onDelete: "cascade" }),
+    variantId: integer("variant_id")
+        .notNull()
+        .references(() => productVariant.id, { onDelete: "restrict" }),
+    batchId: integer("batch_id")
+        .references(() => stockBatch.id, { onDelete: "set null" }),
+    quantity: integer("quantity").notNull(),
+    unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+    total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+    condition: varchar("condition", { length: 20 }).notNull().default("damaged"), // resellable, damaged
+    reason: text("reason"),
+    ...timestamps
+}, (table) => ({
+    returnIdx: index("idx_damage_return_items_return").on(table.returnId),
+    variantIdx: index("idx_damage_return_items_variant").on(table.variantId),
+}));
+
+// Damage returns relations
+export const damageReturnsRelations = relations(damageReturns, ({ one, many }) => ({
+    dsr: one(dsr, {
+        fields: [damageReturns.dsrId],
+        references: [dsr.id],
+    }),
+    items: many(damageReturnItems),
+}));
+
+export const damageReturnItemsRelations = relations(damageReturnItems, ({ one }) => ({
+    return: one(damageReturns, {
+        fields: [damageReturnItems.returnId],
+        references: [damageReturns.id],
+    }),
+    variant: one(productVariant, {
+        fields: [damageReturnItems.variantId],
+        references: [productVariant.id],
+    }),
+    batch: one(stockBatch, {
+        fields: [damageReturnItems.batchId],
+        references: [stockBatch.id],
+    }),
 }));
