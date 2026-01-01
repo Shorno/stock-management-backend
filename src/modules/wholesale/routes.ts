@@ -63,6 +63,9 @@ app.get(
     wholesaleController.handleGetDueOrders
 );
 
+// Get total due for a specific DSR - MUST be before /:id route
+app.get("/dsr-due/:dsrId", wholesaleController.handleGetDsrTotalDue);
+
 // Get wholesale order by ID
 app.get("/:id", wholesaleController.handleGetOrderById);
 

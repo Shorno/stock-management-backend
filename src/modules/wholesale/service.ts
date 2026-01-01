@@ -4,14 +4,26 @@ import { eq, and, or, ilike, count, gte, lte, sql } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, PartialCompleteInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 
-// Unit multipliers for calculating total quantity
-const UNIT_MULTIPLIERS: Record<string, number> = {
+// Fallback unit multipliers (used if unit not found in database)
+const FALLBACK_UNIT_MULTIPLIERS: Record<string, number> = {
     PCS: 1,
     KG: 1,
     LTR: 1,
     BOX: 12,
     CARTON: 24,
     DOZEN: 12,
+};
+
+// Helper function to get unit multiplier from database (with fallback)
+const getUnitMultiplier = async (abbreviation: string): Promise<number> => {
+    const foundUnit = await db.query.unit.findFirst({
+        where: (units, { eq }) => eq(units.abbreviation, abbreviation.toUpperCase()),
+    });
+    if (foundUnit) {
+        return foundUnit.multiplier;
+    }
+    // Fallback to hardcoded multipliers if unit not found
+    return FALLBACK_UNIT_MULTIPLIERS[abbreviation.toUpperCase()] || 1;
 };
 
 // Helper function to generate unique order number
@@ -77,11 +89,12 @@ const validateAndGetBatch = async (
     return batch;
 };
 
-// Helper function to calculate item totals
-const calculateItemTotals = (item: OrderItemInput, salePrice: number) => {
+// Helper function to calculate item totals (async to fetch unit multiplier)
+const calculateItemTotals = async (item: OrderItemInput, salePrice: number) => {
     const subtotal = item.quantity * salePrice;
     const net = subtotal - item.discount;
-    const totalQuantity = item.quantity * (UNIT_MULTIPLIERS[item.unit] || 1);
+    const multiplier = await getUnitMultiplier(item.unit);
+    const totalQuantity = item.quantity * multiplier;
 
     return {
         subtotal: subtotal.toFixed(2),
@@ -160,7 +173,7 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
         const orderItems: NewWholesaleOrderItem[] = [];
 
         for (const item of itemsWithBatchData) {
-            const itemTotals = calculateItemTotals(item, item.salePrice);
+            const itemTotals = await calculateItemTotals(item, item.salePrice);
 
             orderItems.push({
                 orderId: createdOrder.id,
@@ -398,9 +411,10 @@ export const updateOrder = async (
         await tx.delete(wholesaleOrderItems).where(eq(wholesaleOrderItems.orderId, id));
 
         // Create new items
-        const orderItems: NewWholesaleOrderItem[] = itemsWithBatchData.map((item) => {
-            const itemTotals = calculateItemTotals(item, item.salePrice);
-            return {
+        const orderItems: NewWholesaleOrderItem[] = [];
+        for (const item of itemsWithBatchData) {
+            const itemTotals = await calculateItemTotals(item, item.salePrice);
+            orderItems.push({
                 orderId: id,
                 productId: item.productId,
                 batchId: item.batchId,
@@ -414,8 +428,8 @@ export const updateOrder = async (
                 subtotal: itemTotals.subtotal,
                 discount: item.discount.toString(),
                 net: itemTotals.net,
-            };
-        });
+            });
+        }
 
         await tx.insert(wholesaleOrderItems).values(orderItems);
 
@@ -765,5 +779,29 @@ export const getDueOrders = async (params: {
         orders,
         total,
         totalDue: parseFloat(dueResult[0]?.totalDue || "0"),
+    };
+};
+
+// Get total outstanding due for a specific DSR
+export const getDsrTotalDue = async (dsrId: number) => {
+    // Calculate total due = SUM(total - paidAmount) for all orders where there's still unpaid amount
+    const result = await db
+        .select({
+            totalDue: sql<string>`COALESCE(SUM(CAST(${wholesaleOrders.total} AS DECIMAL) - CAST(${wholesaleOrders.paidAmount} AS DECIMAL)), 0)`,
+            orderCount: count(),
+        })
+        .from(wholesaleOrders)
+        .where(
+            and(
+                eq(wholesaleOrders.dsrId, dsrId),
+                // Only include orders that have outstanding balance (payment not complete)
+                sql`CAST(${wholesaleOrders.total} AS DECIMAL) > CAST(${wholesaleOrders.paidAmount} AS DECIMAL)`
+            )
+        );
+
+    return {
+        dsrId,
+        totalDue: parseFloat(result[0]?.totalDue || "0"),
+        orderCount: result[0]?.orderCount || 0,
     };
 };

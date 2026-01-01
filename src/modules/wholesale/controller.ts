@@ -541,3 +541,36 @@ export const handleGetPaymentHistory = async (c: AppContext): Promise<Response> 
         );
     }
 };
+
+// Handle getting total due for a specific DSR
+export const handleGetDsrTotalDue = async (c: AppContext): Promise<Response> => {
+    try {
+        const dsrId = Number(c.req.param("dsrId"));
+
+        if (isNaN(dsrId)) {
+            return c.json(
+                {
+                    success: false,
+                    message: "Invalid DSR ID",
+                },
+                400
+            );
+        }
+
+        const result = await wholesaleService.getDsrTotalDue(dsrId);
+
+        return c.json({
+            success: true,
+            data: result,
+        });
+    } catch (error) {
+        console.error("Error fetching DSR total due:", error);
+        return c.json(
+            {
+                success: false,
+                message: "Failed to fetch DSR total due",
+            },
+            500
+        );
+    }
+};

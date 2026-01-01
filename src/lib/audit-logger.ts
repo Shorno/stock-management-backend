@@ -11,7 +11,7 @@ export async function auditLog(params: {
     userName?: string;
     userRole?: string;
     action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "STATUS_CHANGE" | "VIEW";
-    entityType: "product" | "order" | "stock" | "user" | "dsr" | "route" | "brand" | "category" | "wholesale_order" | "variant";
+    entityType: "product" | "order" | "stock" | "user" | "dsr" | "route" | "brand" | "category" | "wholesale_order" | "variant" | "unit";
     entityId: string | number;
     entityName?: string;
     oldValue?: any;

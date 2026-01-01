@@ -6,7 +6,8 @@
     "build": "tsc && tsc-alias",
     "start": "bun run dist/index.js",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed-units": "bun run src/db/seed-units.ts"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.5",
