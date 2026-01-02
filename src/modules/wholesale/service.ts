@@ -900,7 +900,7 @@ export const saveOrderAdjustment = async (
     });
 };
 
-// Get order adjustment data
+// Get order adjustment data with all calculated values
 export const getOrderAdjustment = async (orderId: number) => {
     const order = await db.query.wholesaleOrders.findFirst({
         where: (orders, { eq }) => eq(orders.id, orderId),
@@ -915,7 +915,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             dsr: true,
             route: true,
         },
-    });
+    }) as any; // Type assertion needed because Drizzle's query type inference doesn't include relations
 
     if (!order) {
         return undefined;
@@ -932,9 +932,67 @@ export const getOrderAdjustment = async (orderId: number) => {
     });
 
     // Get item returns
-    const itemReturns = await db.query.orderItemReturns.findMany({
+    const itemReturnsData = await db.query.orderItemReturns.findMany({
         where: (r, { eq }) => eq(r.orderId, orderId),
     });
+
+    // Calculate totals
+    const totalPayments = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+    const totalReturns = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount), 0);
+
+    // Calculate per-item net values
+    const itemsWithCalculations = await Promise.all(
+        (order.items as any[]).map(async (item) => {
+            const itemReturn = itemReturnsData.find((r) => r.orderItemId === item.id);
+            const returnQuantity = itemReturn?.returnQuantity ?? 0;
+            const returnUnit = itemReturn?.returnUnit ?? "PCS";
+            const returnFreeQuantity = itemReturn?.returnFreeQuantity ?? 0;
+            const returnAmount = itemReturn ? parseFloat(itemReturn.returnAmount) : 0;
+
+            // Get unit multiplier for return unit
+            const unitMultiplier = await getUnitMultiplier(returnUnit);
+            const returnQtyInBase = returnQuantity * unitMultiplier;
+
+            // Calculate net values
+            const netQuantity = Math.max(0, item.quantity - returnQtyInBase);
+            const netFreeQuantity = Math.max(0, item.freeQuantity - returnFreeQuantity);
+            const salePrice = parseFloat(item.salePrice);
+            const netTotal = netQuantity * salePrice;
+
+            return {
+                id: item.id,
+                productId: item.productId,
+                productName: item.product?.name,
+                brandId: item.brandId,
+                brandName: item.brand?.name,
+                quantity: item.quantity,
+                unit: item.unit,
+                freeQuantity: item.freeQuantity,
+                salePrice: item.salePrice,
+                discount: item.discount,
+                net: item.net,
+                // Return values
+                returnQuantity,
+                returnUnit,
+                returnFreeQuantity,
+                returnAmount,
+                // Net values (calculated)
+                netQuantity,
+                netFreeQuantity,
+                netTotal,
+            };
+        })
+    );
+
+    // Calculate summary totals
+    const subtotal = (order.items as any[]).reduce((sum, item) => sum + parseFloat(item.net), 0);
+    const orderTotal = parseFloat(order.total);
+    const netTotalAfterReturns = itemsWithCalculations.reduce((sum, item) => sum + item.netTotal, 0);
+
+    // Adjustment = Payments + Expenses (both reduce what's owed)
+    const totalAdjustment = totalPayments + totalExpenses;
+    const due = Math.max(0, netTotalAfterReturns - totalAdjustment);
 
     return {
         order,
@@ -948,7 +1006,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             amount: parseFloat(e.amount),
             type: e.expenseType,
         })),
-        itemReturns: itemReturns.map(r => ({
+        itemReturns: itemReturnsData.map(r => ({
             id: r.id,
             itemId: r.orderItemId,
             returnQuantity: r.returnQuantity,
@@ -956,5 +1014,19 @@ export const getOrderAdjustment = async (orderId: number) => {
             returnFreeQuantity: r.returnFreeQuantity,
             returnAmount: parseFloat(r.returnAmount),
         })),
+        // New: Items with pre-calculated values
+        itemsWithCalculations,
+        // New: Summary with all totals
+        summary: {
+            subtotal,
+            discount: parseFloat(order.discount),
+            total: orderTotal,
+            totalReturns,
+            netTotal: netTotalAfterReturns,
+            totalPayments,
+            totalExpenses,
+            totalAdjustment,
+            due,
+        },
     };
 };
