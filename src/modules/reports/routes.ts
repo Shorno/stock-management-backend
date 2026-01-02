@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema, brandWiseSalesQuerySchema } from "./validation";
+import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema, brandWiseSalesQuerySchema, dailySettlementQuerySchema } from "./validation";
 import * as reportsService from "./service";
 
 const app = new Hono();
@@ -222,6 +222,46 @@ app.get(
                 {
                     success: false,
                     message: error instanceof Error ? error.message : "Failed to fetch brand wise sales report",
+                },
+                500
+            );
+        }
+    }
+);
+
+// Get Daily Settlement report
+app.get(
+    "/daily-settlement",
+    zValidator("query", dailySettlementQuerySchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Invalid query parameters",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    async (ctx) => {
+        try {
+            const query = ctx.req.valid("query");
+            const data = await reportsService.getDailySettlement(query);
+
+            return ctx.json({
+                success: true,
+                data,
+            });
+        } catch (error) {
+            console.error("Error fetching daily settlement:", error);
+            return ctx.json(
+                {
+                    success: false,
+                    message: error instanceof Error ? error.message : "Failed to fetch daily settlement report",
                 },
                 500
             );

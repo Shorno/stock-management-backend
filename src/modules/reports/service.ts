@@ -1,7 +1,7 @@
 import { db } from "../../db/config";
 import { wholesaleOrders, dsr, route, orderPayments } from "../../db/schema";
 import { eq, and, gte, lte, lt, sql, ne, sum, countDistinct, desc } from "drizzle-orm";
-import type { DailySalesCollectionQuery, DsrLedgerQuery } from "./validation";
+import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
 export interface DailySalesCollectionItem {
     orderDate: string;
@@ -884,6 +884,243 @@ export const getBrandWiseSales = async (
             totalQuantitySold,
             totalFreeQuantity,
             grandTotal: grandTotal.toFixed(2),
+        },
+    };
+};
+
+// ===================== DAILY SETTLEMENT =====================
+
+export interface NetSalesItem {
+    orderDate: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    sale: string;
+    returnAmount: string;
+    discount: string;
+    netSales: string;
+    totalReceived: string;
+    due: string;
+}
+
+export interface ExpenseItem {
+    orderDate: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    expenseType: string;
+    amount: string;
+}
+
+export interface PaymentReceivedItem {
+    paymentDate: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    cash: string;
+    mobileBank: string;
+    bank: string;
+    total: string;
+}
+
+export interface DailySettlementSummary {
+    netTotalSales: string;
+    totalExpenses: string;
+    totalPaymentReceived: string;
+    totalDue: string;
+}
+
+export interface DailySettlementResponse {
+    netSales: NetSalesItem[];
+    expenses: ExpenseItem[];
+    paymentsReceived: PaymentReceivedItem[];
+    summary: DailySettlementSummary;
+}
+
+/**
+ * Get daily settlement report
+ * Shows net sales, expenses, and payments received for a date
+ */
+export const getDailySettlement = async (
+    query: DailySettlementQuery
+): Promise<DailySettlementResponse> => {
+    // Default to today if no date provided
+    const today = new Date().toISOString().split("T")[0];
+    const startDate = query.startDate || query.date || today;
+    const endDate = query.endDate || query.date || today;
+
+    // Build order conditions
+    const orderConditions = [
+        gte(wholesaleOrders.orderDate, startDate!),
+        lte(wholesaleOrders.orderDate, endDate!),
+        ne(wholesaleOrders.status, "cancelled"),
+    ];
+
+    if (query.dsrId) {
+        orderConditions.push(eq(wholesaleOrders.dsrId, query.dsrId));
+    }
+
+    if (query.routeId) {
+        orderConditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    // 1. Get Net Sales data (orders with returns and payments)
+    const orders = await db
+        .select({
+            orderId: wholesaleOrders.id,
+            orderDate: wholesaleOrders.orderDate,
+            dsrId: wholesaleOrders.dsrId,
+            dsrName: dsr.name,
+            routeId: wholesaleOrders.routeId,
+            routeName: route.name,
+            total: wholesaleOrders.total,
+            discount: wholesaleOrders.discount,
+        })
+        .from(wholesaleOrders)
+        .innerJoin(dsr, eq(wholesaleOrders.dsrId, dsr.id))
+        .innerJoin(route, eq(wholesaleOrders.routeId, route.id))
+        .where(and(...orderConditions))
+        .orderBy(wholesaleOrders.orderDate, dsr.name);
+
+    const orderIds = orders.map(o => o.orderId);
+
+    // Fetch related data
+    const allPayments = orderIds.length > 0 ? await db.query.orderPayments.findMany({
+        where: (p, { inArray }) => inArray(p.orderId, orderIds),
+    }) : [];
+
+    const allExpenses = orderIds.length > 0 ? await db.query.orderExpenses.findMany({
+        where: (e, { inArray }) => inArray(e.orderId, orderIds),
+    }) : [];
+
+    const allReturns = orderIds.length > 0 ? await db.query.orderItemReturns.findMany({
+        where: (r, { inArray }) => inArray(r.orderId, orderIds),
+    }) : [];
+
+    // Group payments/returns by order
+    const paymentsByOrder = new Map<number, { cash: number; mobileBank: number; bank: number; total: number }>();
+    for (const p of allPayments) {
+        const existing = paymentsByOrder.get(p.orderId) || { cash: 0, mobileBank: 0, bank: 0, total: 0 };
+        const amount = parseFloat(p.amount);
+        existing.total += amount;
+        if (p.paymentMethod === "cash") existing.cash += amount;
+        else if (p.paymentMethod === "mobileBank") existing.mobileBank += amount;
+        else if (p.paymentMethod === "bank") existing.bank += amount;
+        else existing.cash += amount; // Default to cash
+        paymentsByOrder.set(p.orderId, existing);
+    }
+
+    const returnsByOrder = new Map<number, number>();
+    for (const r of allReturns) {
+        returnsByOrder.set(r.orderId, (returnsByOrder.get(r.orderId) || 0) + parseFloat(r.returnAmount));
+    }
+
+    // Build Net Sales items
+    let totalNetSales = 0;
+    let totalReceived = 0;
+    let totalDue = 0;
+
+    const netSales: NetSalesItem[] = orders.map((order) => {
+        const sale = parseFloat(order.total);
+        const discount = parseFloat(order.discount);
+        const returnAmount = returnsByOrder.get(order.orderId) || 0;
+        const payments = paymentsByOrder.get(order.orderId) || { cash: 0, mobileBank: 0, bank: 0, total: 0 };
+
+        const netSalesAmount = sale - returnAmount - discount;
+        const due = Math.max(0, netSalesAmount - payments.total);
+
+        totalNetSales += netSalesAmount;
+        totalReceived += payments.total;
+        totalDue += due;
+
+        return {
+            orderDate: order.orderDate,
+            dsrId: order.dsrId,
+            dsrName: order.dsrName,
+            routeId: order.routeId,
+            routeName: order.routeName,
+            sale: sale.toFixed(2),
+            returnAmount: returnAmount.toFixed(2),
+            discount: discount.toFixed(2),
+            netSales: netSalesAmount.toFixed(2),
+            totalReceived: payments.total.toFixed(2),
+            due: due.toFixed(2),
+        };
+    });
+
+    // 2. Build Expenses list
+    let totalExpenses = 0;
+    const orderMap = new Map(orders.map(o => [o.orderId, o]));
+
+    const expenses: ExpenseItem[] = allExpenses.map((expense) => {
+        const order = orderMap.get(expense.orderId);
+        totalExpenses += parseFloat(expense.amount);
+
+        return {
+            orderDate: order?.orderDate || "",
+            dsrId: order?.dsrId || 0,
+            dsrName: order?.dsrName || "",
+            routeId: order?.routeId || 0,
+            routeName: order?.routeName || "",
+            expenseType: expense.expenseType,
+            amount: expense.amount,
+        };
+    });
+
+    // 3. Build Payments Received grouped by DSR/Route
+    const paymentGroups = new Map<string, PaymentReceivedItem>();
+
+    for (const payment of allPayments) {
+        const order = orderMap.get(payment.orderId);
+        if (!order) continue;
+
+        const key = `${payment.paymentDate}-${order.dsrId}-${order.routeId}`;
+        const existing = paymentGroups.get(key) || {
+            paymentDate: payment.paymentDate,
+            dsrId: order.dsrId,
+            dsrName: order.dsrName,
+            routeId: order.routeId,
+            routeName: order.routeName,
+            cash: "0.00",
+            mobileBank: "0.00",
+            bank: "0.00",
+            total: "0.00",
+        };
+
+        const amount = parseFloat(payment.amount);
+        const currentCash = parseFloat(existing.cash);
+        const currentMobile = parseFloat(existing.mobileBank);
+        const currentBank = parseFloat(existing.bank);
+        const currentTotal = parseFloat(existing.total);
+
+        if (payment.paymentMethod === "cash") {
+            existing.cash = (currentCash + amount).toFixed(2);
+        } else if (payment.paymentMethod === "mobileBank") {
+            existing.mobileBank = (currentMobile + amount).toFixed(2);
+        } else if (payment.paymentMethod === "bank") {
+            existing.bank = (currentBank + amount).toFixed(2);
+        } else {
+            existing.cash = (currentCash + amount).toFixed(2);
+        }
+        existing.total = (currentTotal + amount).toFixed(2);
+
+        paymentGroups.set(key, existing);
+    }
+
+    const paymentsReceived = Array.from(paymentGroups.values());
+
+    return {
+        netSales,
+        expenses,
+        paymentsReceived,
+        summary: {
+            netTotalSales: totalNetSales.toFixed(2),
+            totalExpenses: totalExpenses.toFixed(2),
+            totalPaymentReceived: totalReceived.toFixed(2),
+            totalDue: totalDue.toFixed(2),
         },
     };
 };

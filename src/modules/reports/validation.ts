@@ -52,3 +52,14 @@ export const brandWiseSalesQuerySchema = z.object({
 });
 
 export type BrandWiseSalesQuery = z.infer<typeof brandWiseSalesQuerySchema>;
+
+// Query schema for Daily Settlement report
+export const dailySettlementQuerySchema = z.object({
+    date: z.string().optional(), // YYYY-MM-DD format, defaults to today
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    dsrId: z.coerce.number().int().positive().optional(),
+    routeId: z.coerce.number().int().positive().optional(),
+});
+
+export type DailySettlementQuery = z.infer<typeof dailySettlementQuerySchema>;
