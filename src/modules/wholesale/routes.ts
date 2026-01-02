@@ -8,6 +8,7 @@ import {
     partialCompleteSchema,
     recordPaymentSchema,
     getDueOrdersQuerySchema,
+    saveAdjustmentSchema,
 } from "./validation";
 import * as wholesaleController from "./controller";
 import { requireRole } from "../../lib/auth-middleware";
@@ -164,5 +165,30 @@ app.patch(
 
 // Get payment history for an order
 app.get("/:id/payments", wholesaleController.handleGetPaymentHistory);
+
+// Get order adjustment data
+app.get("/:id/adjustment", wholesaleController.handleGetOrderAdjustment);
+
+// Save order adjustment (payments, expenses, item returns)
+app.post(
+    "/:id/adjustment",
+    requireRole(["admin", "manager"]),
+    zValidator("json", saveAdjustmentSchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Validation failed",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    wholesaleController.handleSaveOrderAdjustment
+);
 
 export default app;

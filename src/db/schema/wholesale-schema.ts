@@ -210,6 +210,67 @@ export const wholesaleOrdersPaymentRelation = relations(wholesaleOrders, ({ many
     payments: many(orderPayments),
 }));
 
+// ==================== ORDER EXPENSES ====================
+
+export const orderExpenses = pgTable("order_expenses", {
+    id: serial("id").primaryKey(),
+    orderId: integer("order_id")
+        .notNull()
+        .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    expenseType: varchar("expense_type", { length: 50 }).notNull(), // transport, food, commission, other
+    note: text("note"),
+    ...timestamps
+}, (table) => ({
+    orderIdx: index("idx_order_expenses_order").on(table.orderId),
+}));
+
+// Order expenses relations
+export const orderExpensesRelations = relations(orderExpenses, ({ one }) => ({
+    order: one(wholesaleOrders, {
+        fields: [orderExpenses.orderId],
+        references: [wholesaleOrders.id],
+    }),
+}));
+
+// ==================== ORDER ITEM RETURNS ====================
+
+export const orderItemReturns = pgTable("order_item_returns", {
+    id: serial("id").primaryKey(),
+    orderId: integer("order_id")
+        .notNull()
+        .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+    orderItemId: integer("order_item_id")
+        .notNull()
+        .references(() => wholesaleOrderItems.id, { onDelete: "cascade" }),
+    returnQuantity: integer("return_quantity").notNull().default(0),
+    returnUnit: varchar("return_unit", { length: 20 }).notNull(),
+    returnFreeQuantity: integer("return_free_quantity").notNull().default(0),
+    returnAmount: decimal("return_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+    ...timestamps
+}, (table) => ({
+    orderIdx: index("idx_order_item_returns_order").on(table.orderId),
+    itemIdx: index("idx_order_item_returns_item").on(table.orderItemId),
+}));
+
+// Order item returns relations
+export const orderItemReturnsRelations = relations(orderItemReturns, ({ one }) => ({
+    order: one(wholesaleOrders, {
+        fields: [orderItemReturns.orderId],
+        references: [wholesaleOrders.id],
+    }),
+    orderItem: one(wholesaleOrderItems, {
+        fields: [orderItemReturns.orderItemId],
+        references: [wholesaleOrderItems.id],
+    }),
+}));
+
+// Extended wholesale orders relations for expenses and returns
+export const wholesaleOrdersExpenseRelation = relations(wholesaleOrders, ({ many }) => ({
+    expenses: many(orderExpenses),
+    itemReturns: many(orderItemReturns),
+}));
+
 // ==================== DAMAGE RETURNS ====================
 
 export const damageReturns = pgTable("damage_returns", {

@@ -1,7 +1,7 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte, sql } from "drizzle-orm";
-import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, PartialCompleteInput } from "./validation";
+import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, PartialCompleteInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 
 // Fallback unit multipliers (used if unit not found in database)
@@ -803,5 +803,158 @@ export const getDsrTotalDue = async (dsrId: number) => {
         dsrId,
         totalDue: parseFloat(result[0]?.totalDue || "0"),
         orderCount: result[0]?.orderCount || 0,
+    };
+};
+
+// ==================== ORDER ADJUSTMENTS ====================
+
+// Save order adjustment (payments, expenses, item returns)
+export const saveOrderAdjustment = async (
+    orderId: number,
+    data: SaveAdjustmentInput
+) => {
+    return await db.transaction(async (tx) => {
+        // Get the order
+        const order = await tx.query.wholesaleOrders.findFirst({
+            where: (orders, { eq }) => eq(orders.id, orderId),
+            with: { items: true },
+        }) as any;
+
+        if (!order) {
+            throw new Error("Order not found");
+        }
+
+        // Delete existing payments, expenses, and item returns for this order
+        await tx.delete(orderPayments).where(eq(orderPayments.orderId, orderId));
+        await tx.delete(orderExpenses).where(eq(orderExpenses.orderId, orderId));
+        await tx.delete(orderItemReturns).where(eq(orderItemReturns.orderId, orderId));
+
+        let totalPayments = 0;
+        let totalExpensesAmount = 0;
+        let totalReturnsAmount = 0;
+
+        // Insert new payments
+        for (const payment of data.payments) {
+            if (payment.amount > 0) {
+                await tx.insert(orderPayments).values({
+                    orderId,
+                    amount: payment.amount.toFixed(2),
+                    paymentDate: data.paymentDate,
+                    paymentMethod: payment.method,
+                });
+                totalPayments += payment.amount;
+            }
+        }
+
+        // Insert new expenses
+        for (const expense of data.expenses) {
+            if (expense.amount > 0) {
+                await tx.insert(orderExpenses).values({
+                    orderId,
+                    amount: expense.amount.toFixed(2),
+                    expenseType: expense.type,
+                });
+                totalExpensesAmount += expense.amount;
+            }
+        }
+
+        // Insert new item returns
+        for (const itemReturn of data.itemReturns) {
+            if (itemReturn.returnQuantity > 0 || itemReturn.returnFreeQuantity > 0) {
+                await tx.insert(orderItemReturns).values({
+                    orderId,
+                    orderItemId: itemReturn.itemId,
+                    returnQuantity: itemReturn.returnQuantity,
+                    returnUnit: itemReturn.returnUnit,
+                    returnFreeQuantity: itemReturn.returnFreeQuantity,
+                    returnAmount: itemReturn.returnAmount.toFixed(2),
+                });
+                totalReturnsAmount += itemReturn.returnAmount;
+            }
+        }
+
+        // Calculate new paid amount and payment status
+        const orderTotal = parseFloat(order.total);
+        const adjustedTotal = orderTotal - totalReturnsAmount;
+        const netAdjustment = totalPayments - totalExpensesAmount;
+        const amountDue = Math.max(0, adjustedTotal - netAdjustment);
+
+        let paymentStatus = "unpaid";
+        if (amountDue <= 0) {
+            paymentStatus = "paid";
+        } else if (totalPayments > 0) {
+            paymentStatus = "partial";
+        }
+
+        // Update order with calculated values
+        await tx
+            .update(wholesaleOrders)
+            .set({
+                paidAmount: totalPayments.toFixed(2),
+                paymentStatus,
+            })
+            .where(eq(wholesaleOrders.id, orderId));
+
+        // Return updated order with adjustment data
+        return await getOrderAdjustment(orderId);
+    });
+};
+
+// Get order adjustment data
+export const getOrderAdjustment = async (orderId: number) => {
+    const order = await db.query.wholesaleOrders.findFirst({
+        where: (orders, { eq }) => eq(orders.id, orderId),
+        with: {
+            items: {
+                with: {
+                    product: true,
+                    brand: true,
+                    batch: true,
+                },
+            },
+            dsr: true,
+            route: true,
+        },
+    });
+
+    if (!order) {
+        return undefined;
+    }
+
+    // Get payments
+    const payments = await db.query.orderPayments.findMany({
+        where: (p, { eq }) => eq(p.orderId, orderId),
+    });
+
+    // Get expenses
+    const expenses = await db.query.orderExpenses.findMany({
+        where: (e, { eq }) => eq(e.orderId, orderId),
+    });
+
+    // Get item returns
+    const itemReturns = await db.query.orderItemReturns.findMany({
+        where: (r, { eq }) => eq(r.orderId, orderId),
+    });
+
+    return {
+        order,
+        payments: payments.map(p => ({
+            id: p.id,
+            amount: parseFloat(p.amount),
+            method: p.paymentMethod || "cash",
+        })),
+        expenses: expenses.map(e => ({
+            id: e.id,
+            amount: parseFloat(e.amount),
+            type: e.expenseType,
+        })),
+        itemReturns: itemReturns.map(r => ({
+            id: r.id,
+            itemId: r.orderItemId,
+            returnQuantity: r.returnQuantity,
+            returnUnit: r.returnUnit,
+            returnFreeQuantity: r.returnFreeQuantity,
+            returnAmount: parseFloat(r.returnAmount),
+        })),
     };
 };
