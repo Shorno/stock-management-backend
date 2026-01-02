@@ -744,3 +744,104 @@ export const getProductWiseSales = async (
         },
     };
 };
+
+// ==================== BRAND WISE SALES ====================
+
+import type { BrandWiseSalesQuery } from "./validation";
+
+export interface BrandWiseSalesItem {
+    brandId: number;
+    brandName: string;
+    totalQuantity: number;
+    freeQuantity: number;
+    totalSales: string;
+    orderCount: number;
+    productCount: number;
+}
+
+export interface BrandWiseSalesSummary {
+    totalBrands: number;
+    totalQuantitySold: number;
+    totalFreeQuantity: number;
+    grandTotal: string;
+}
+
+export interface BrandWiseSalesResponse {
+    items: BrandWiseSalesItem[];
+    summary: BrandWiseSalesSummary;
+}
+
+/**
+ * Get brand-wise sales report
+ * If no date filters provided, returns all sales
+ */
+export const getBrandWiseSales = async (
+    query: BrandWiseSalesQuery
+): Promise<BrandWiseSalesResponse> => {
+    // Build conditions for orders
+    const orderConditions = [
+        ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "return"),
+    ];
+
+    // Add date filters if provided
+    if (query.startDate) {
+        orderConditions.push(gte(wholesaleOrders.orderDate, query.startDate));
+    }
+    if (query.endDate) {
+        orderConditions.push(lte(wholesaleOrders.orderDate, query.endDate));
+    }
+
+    // Query order items grouped by brand
+    const results = await db
+        .select({
+            brandId: wholesaleOrderItems.brandId,
+            brandName: brand.name,
+            quantity: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity}))`,
+            freeQty: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity}))`,
+            totalNet: sum(wholesaleOrderItems.net),
+            orderCount: countDistinct(wholesaleOrderItems.orderId),
+            productCount: countDistinct(wholesaleOrderItems.productId),
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .where(and(...orderConditions))
+        .groupBy(wholesaleOrderItems.brandId, brand.name)
+        .orderBy(desc(sum(wholesaleOrderItems.net)));
+
+    // Transform and calculate
+    let totalQuantitySold = 0;
+    let totalFreeQuantity = 0;
+    let grandTotal = 0;
+
+    const items: BrandWiseSalesItem[] = results.map((row) => {
+        const quantity = Number(row.quantity) || 0;
+        const freeQty = Number(row.freeQty) || 0;
+        const net = parseFloat(row.totalNet ?? "0") || 0;
+
+        totalQuantitySold += quantity;
+        totalFreeQuantity += freeQty;
+        grandTotal += net;
+
+        return {
+            brandId: row.brandId,
+            brandName: row.brandName,
+            totalQuantity: quantity,
+            freeQuantity: freeQty,
+            totalSales: net.toFixed(2),
+            orderCount: row.orderCount,
+            productCount: row.productCount,
+        };
+    });
+
+    return {
+        items,
+        summary: {
+            totalBrands: items.length,
+            totalQuantitySold,
+            totalFreeQuantity,
+            grandTotal: grandTotal.toFixed(2),
+        },
+    };
+};
