@@ -1,26 +1,29 @@
 import { db } from "../../db/config";
 import { wholesaleOrders, dsr, route, orderPayments } from "../../db/schema";
 import { eq, and, gte, lte, lt, sql, ne, sum, countDistinct, desc } from "drizzle-orm";
-import type { DailySalesCollectionQuery, DsrLedgerQuery } from "./validation";
+import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
 export interface DailySalesCollectionItem {
-    orderNumber: string;
     orderDate: string;
     dsrId: number;
     dsrName: string;
     routeId: number;
     routeName: string;
-    totalSale: string;
-    returnAmount: string;
-    paidAmount: string;
-    dueAmount: string;
-    status: string;
-    paymentStatus: string;
+    sale: string;           // Original order total
+    returnAmount: string;   // Sum of item returns
+    discount: string;       // Order discount
+    grandTotal: string;     // sale - returns - discount
+    expense: string;        // Sum of expenses
+    received: string;       // Sum of payments
+    due: string;            // grandTotal - received
 }
 
 export interface DailySalesCollectionSummary {
     totalSales: string;
     totalReturns: string;
+    totalDiscount: string;
+    totalGrandTotal: string;
+    totalExpenses: string;
     totalReceived: string;
     totalDue: string;
     orderCount: number;
@@ -33,6 +36,7 @@ export interface DailySalesCollectionResponse {
 
 /**
  * Get daily sales and collection report
+ * Uses adjustment data (expenses, returns, payments) as source of truth
  */
 export const getDailySalesCollection = async (
     query: DailySalesCollectionQuery
@@ -46,6 +50,7 @@ export const getDailySalesCollection = async (
     const conditions = [
         gte(wholesaleOrders.orderDate, startDate!),
         lte(wholesaleOrders.orderDate, endDate!),
+        ne(wholesaleOrders.status, "cancelled"),
     ];
 
     if (query.dsrId) {
@@ -59,16 +64,14 @@ export const getDailySalesCollection = async (
     // Query orders with joins
     const orders = await db
         .select({
-            orderNumber: wholesaleOrders.orderNumber,
+            orderId: wholesaleOrders.id,
             orderDate: wholesaleOrders.orderDate,
             dsrId: wholesaleOrders.dsrId,
             dsrName: dsr.name,
             routeId: wholesaleOrders.routeId,
             routeName: route.name,
             total: wholesaleOrders.total,
-            paidAmount: wholesaleOrders.paidAmount,
-            status: wholesaleOrders.status,
-            paymentStatus: wholesaleOrders.paymentStatus,
+            discount: wholesaleOrders.discount,
         })
         .from(wholesaleOrders)
         .innerJoin(dsr, eq(wholesaleOrders.dsrId, dsr.id))
@@ -76,45 +79,81 @@ export const getDailySalesCollection = async (
         .where(and(...conditions))
         .orderBy(wholesaleOrders.orderDate, dsr.name);
 
+    // Get all order IDs for batch queries
+    const orderIds = orders.map(o => o.orderId);
+
+    // Fetch all payments, expenses, and returns for these orders
+    const allPayments = orderIds.length > 0 ? await db.query.orderPayments.findMany({
+        where: (p, { inArray }) => inArray(p.orderId, orderIds),
+    }) : [];
+
+    const allExpenses = orderIds.length > 0 ? await db.query.orderExpenses.findMany({
+        where: (e, { inArray }) => inArray(e.orderId, orderIds),
+    }) : [];
+
+    const allReturns = orderIds.length > 0 ? await db.query.orderItemReturns.findMany({
+        where: (r, { inArray }) => inArray(r.orderId, orderIds),
+    }) : [];
+
+    // Group by order ID for quick lookup
+    const paymentsByOrder = new Map<number, number>();
+    for (const p of allPayments) {
+        paymentsByOrder.set(p.orderId, (paymentsByOrder.get(p.orderId) || 0) + parseFloat(p.amount));
+    }
+
+    const expensesByOrder = new Map<number, number>();
+    for (const e of allExpenses) {
+        expensesByOrder.set(e.orderId, (expensesByOrder.get(e.orderId) || 0) + parseFloat(e.amount));
+    }
+
+    const returnsByOrder = new Map<number, number>();
+    for (const r of allReturns) {
+        returnsByOrder.set(r.orderId, (returnsByOrder.get(r.orderId) || 0) + parseFloat(r.returnAmount));
+    }
+
     // Transform data and calculate amounts
     let totalSales = 0;
     let totalReturns = 0;
+    let totalDiscount = 0;
+    let totalGrandTotal = 0;
+    let totalExpenses = 0;
     let totalReceived = 0;
     let totalDue = 0;
 
     const items: DailySalesCollectionItem[] = orders.map((order) => {
-        const total = parseFloat(order.total);
-        const dbPaidAmount = parseFloat(order.paidAmount);
-        const isReturn = order.status === "return";
-        const isCompleted = order.status === "completed";
+        const sale = parseFloat(order.total);
+        const discount = parseFloat(order.discount);
+        const returnAmount = returnsByOrder.get(order.orderId) || 0;
+        const expense = expensesByOrder.get(order.orderId) || 0;
+        const received = paymentsByOrder.get(order.orderId) || 0;
 
-        // For returns, the total is considered a return amount
-        const saleAmount = isReturn ? 0 : total;
-        const returnAmount = isReturn ? total : 0;
-
-        // For completed orders, treat as fully paid even if paidAmount is 0 in DB
-        const paidAmount = isCompleted ? total : dbPaidAmount;
-        const dueAmount = isCompleted ? 0 : Math.max(0, total - dbPaidAmount);
+        // Grand Total = Sale - Returns - Discount
+        const grandTotal = sale - returnAmount;
+        // Due = Grand Total - Received
+        const due = Math.max(0, grandTotal - received);
 
         // Aggregate totals
-        totalSales += saleAmount;
+        totalSales += sale;
         totalReturns += returnAmount;
-        totalReceived += paidAmount;
-        totalDue += dueAmount;
+        totalDiscount += discount;
+        totalGrandTotal += grandTotal;
+        totalExpenses += expense;
+        totalReceived += received;
+        totalDue += due;
 
         return {
-            orderNumber: order.orderNumber,
             orderDate: order.orderDate,
             dsrId: order.dsrId,
             dsrName: order.dsrName,
             routeId: order.routeId,
             routeName: order.routeName,
-            totalSale: saleAmount.toFixed(2),
+            sale: sale.toFixed(2),
             returnAmount: returnAmount.toFixed(2),
-            paidAmount: paidAmount.toFixed(2),
-            dueAmount: dueAmount.toFixed(2),
-            status: order.status,
-            paymentStatus: order.paymentStatus,
+            discount: discount.toFixed(2),
+            grandTotal: grandTotal.toFixed(2),
+            expense: expense.toFixed(2),
+            received: received.toFixed(2),
+            due: due.toFixed(2),
         };
     });
 
@@ -123,6 +162,9 @@ export const getDailySalesCollection = async (
         summary: {
             totalSales: totalSales.toFixed(2),
             totalReturns: totalReturns.toFixed(2),
+            totalDiscount: totalDiscount.toFixed(2),
+            totalGrandTotal: totalGrandTotal.toFixed(2),
+            totalExpenses: totalExpenses.toFixed(2),
             totalReceived: totalReceived.toFixed(2),
             totalDue: totalDue.toFixed(2),
             orderCount: items.length,
@@ -741,6 +783,344 @@ export const getProductWiseSales = async (
             totalQuantitySold,
             totalFreeQuantity,
             grandTotal: grandTotal.toFixed(2),
+        },
+    };
+};
+
+// ==================== BRAND WISE SALES ====================
+
+import type { BrandWiseSalesQuery } from "./validation";
+
+export interface BrandWiseSalesItem {
+    brandId: number;
+    brandName: string;
+    totalQuantity: number;
+    freeQuantity: number;
+    totalSales: string;
+    orderCount: number;
+    productCount: number;
+}
+
+export interface BrandWiseSalesSummary {
+    totalBrands: number;
+    totalQuantitySold: number;
+    totalFreeQuantity: number;
+    grandTotal: string;
+}
+
+export interface BrandWiseSalesResponse {
+    items: BrandWiseSalesItem[];
+    summary: BrandWiseSalesSummary;
+}
+
+/**
+ * Get brand-wise sales report
+ * If no date filters provided, returns all sales
+ */
+export const getBrandWiseSales = async (
+    query: BrandWiseSalesQuery
+): Promise<BrandWiseSalesResponse> => {
+    // Build conditions for orders
+    const orderConditions = [
+        ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "return"),
+    ];
+
+    // Add date filters if provided
+    if (query.startDate) {
+        orderConditions.push(gte(wholesaleOrders.orderDate, query.startDate));
+    }
+    if (query.endDate) {
+        orderConditions.push(lte(wholesaleOrders.orderDate, query.endDate));
+    }
+
+    // Query order items grouped by brand
+    const results = await db
+        .select({
+            brandId: wholesaleOrderItems.brandId,
+            brandName: brand.name,
+            quantity: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity}))`,
+            freeQty: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity}))`,
+            totalNet: sum(wholesaleOrderItems.net),
+            orderCount: countDistinct(wholesaleOrderItems.orderId),
+            productCount: countDistinct(wholesaleOrderItems.productId),
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .where(and(...orderConditions))
+        .groupBy(wholesaleOrderItems.brandId, brand.name)
+        .orderBy(desc(sum(wholesaleOrderItems.net)));
+
+    // Transform and calculate
+    let totalQuantitySold = 0;
+    let totalFreeQuantity = 0;
+    let grandTotal = 0;
+
+    const items: BrandWiseSalesItem[] = results.map((row) => {
+        const quantity = Number(row.quantity) || 0;
+        const freeQty = Number(row.freeQty) || 0;
+        const net = parseFloat(row.totalNet ?? "0") || 0;
+
+        totalQuantitySold += quantity;
+        totalFreeQuantity += freeQty;
+        grandTotal += net;
+
+        return {
+            brandId: row.brandId,
+            brandName: row.brandName,
+            totalQuantity: quantity,
+            freeQuantity: freeQty,
+            totalSales: net.toFixed(2),
+            orderCount: row.orderCount,
+            productCount: row.productCount,
+        };
+    });
+
+    return {
+        items,
+        summary: {
+            totalBrands: items.length,
+            totalQuantitySold,
+            totalFreeQuantity,
+            grandTotal: grandTotal.toFixed(2),
+        },
+    };
+};
+
+// ===================== DAILY SETTLEMENT =====================
+
+export interface NetSalesItem {
+    orderDate: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    sale: string;
+    returnAmount: string;
+    discount: string;
+    netSales: string;
+    totalReceived: string;
+    due: string;
+}
+
+export interface ExpenseItem {
+    orderDate: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    expenseType: string;
+    amount: string;
+}
+
+export interface PaymentReceivedItem {
+    paymentDate: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    cash: string;
+    mobileBank: string;
+    bank: string;
+    total: string;
+}
+
+export interface DailySettlementSummary {
+    netTotalSales: string;
+    totalExpenses: string;
+    totalPaymentReceived: string;
+    totalDue: string;
+}
+
+export interface DailySettlementResponse {
+    netSales: NetSalesItem[];
+    expenses: ExpenseItem[];
+    paymentsReceived: PaymentReceivedItem[];
+    summary: DailySettlementSummary;
+}
+
+/**
+ * Get daily settlement report
+ * Shows net sales, expenses, and payments received for a date
+ */
+export const getDailySettlement = async (
+    query: DailySettlementQuery
+): Promise<DailySettlementResponse> => {
+    // Default to today if no date provided
+    const today = new Date().toISOString().split("T")[0];
+    const startDate = query.startDate || query.date || today;
+    const endDate = query.endDate || query.date || today;
+
+    // Build order conditions
+    const orderConditions = [
+        gte(wholesaleOrders.orderDate, startDate!),
+        lte(wholesaleOrders.orderDate, endDate!),
+        ne(wholesaleOrders.status, "cancelled"),
+    ];
+
+    if (query.dsrId) {
+        orderConditions.push(eq(wholesaleOrders.dsrId, query.dsrId));
+    }
+
+    if (query.routeId) {
+        orderConditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    // 1. Get Net Sales data (orders with returns and payments)
+    const orders = await db
+        .select({
+            orderId: wholesaleOrders.id,
+            orderDate: wholesaleOrders.orderDate,
+            dsrId: wholesaleOrders.dsrId,
+            dsrName: dsr.name,
+            routeId: wholesaleOrders.routeId,
+            routeName: route.name,
+            total: wholesaleOrders.total,
+            discount: wholesaleOrders.discount,
+        })
+        .from(wholesaleOrders)
+        .innerJoin(dsr, eq(wholesaleOrders.dsrId, dsr.id))
+        .innerJoin(route, eq(wholesaleOrders.routeId, route.id))
+        .where(and(...orderConditions))
+        .orderBy(wholesaleOrders.orderDate, dsr.name);
+
+    const orderIds = orders.map(o => o.orderId);
+
+    // Fetch related data
+    const allPayments = orderIds.length > 0 ? await db.query.orderPayments.findMany({
+        where: (p, { inArray }) => inArray(p.orderId, orderIds),
+    }) : [];
+
+    const allExpenses = orderIds.length > 0 ? await db.query.orderExpenses.findMany({
+        where: (e, { inArray }) => inArray(e.orderId, orderIds),
+    }) : [];
+
+    const allReturns = orderIds.length > 0 ? await db.query.orderItemReturns.findMany({
+        where: (r, { inArray }) => inArray(r.orderId, orderIds),
+    }) : [];
+
+    // Group payments/returns by order
+    const paymentsByOrder = new Map<number, { cash: number; mobileBank: number; bank: number; total: number }>();
+    for (const p of allPayments) {
+        const existing = paymentsByOrder.get(p.orderId) || { cash: 0, mobileBank: 0, bank: 0, total: 0 };
+        const amount = parseFloat(p.amount);
+        existing.total += amount;
+        if (p.paymentMethod === "cash") existing.cash += amount;
+        else if (p.paymentMethod === "mobileBank") existing.mobileBank += amount;
+        else if (p.paymentMethod === "bank") existing.bank += amount;
+        else existing.cash += amount; // Default to cash
+        paymentsByOrder.set(p.orderId, existing);
+    }
+
+    const returnsByOrder = new Map<number, number>();
+    for (const r of allReturns) {
+        returnsByOrder.set(r.orderId, (returnsByOrder.get(r.orderId) || 0) + parseFloat(r.returnAmount));
+    }
+
+    // Build Net Sales items
+    let totalNetSales = 0;
+    let totalReceived = 0;
+    let totalDue = 0;
+
+    const netSales: NetSalesItem[] = orders.map((order) => {
+        const sale = parseFloat(order.total);
+        const discount = parseFloat(order.discount);
+        const returnAmount = returnsByOrder.get(order.orderId) || 0;
+        const payments = paymentsByOrder.get(order.orderId) || { cash: 0, mobileBank: 0, bank: 0, total: 0 };
+
+        const netSalesAmount = sale - returnAmount - discount;
+        const due = Math.max(0, netSalesAmount - payments.total);
+
+        totalNetSales += netSalesAmount;
+        totalReceived += payments.total;
+        totalDue += due;
+
+        return {
+            orderDate: order.orderDate,
+            dsrId: order.dsrId,
+            dsrName: order.dsrName,
+            routeId: order.routeId,
+            routeName: order.routeName,
+            sale: sale.toFixed(2),
+            returnAmount: returnAmount.toFixed(2),
+            discount: discount.toFixed(2),
+            netSales: netSalesAmount.toFixed(2),
+            totalReceived: payments.total.toFixed(2),
+            due: due.toFixed(2),
+        };
+    });
+
+    // 2. Build Expenses list
+    let totalExpenses = 0;
+    const orderMap = new Map(orders.map(o => [o.orderId, o]));
+
+    const expenses: ExpenseItem[] = allExpenses.map((expense) => {
+        const order = orderMap.get(expense.orderId);
+        totalExpenses += parseFloat(expense.amount);
+
+        return {
+            orderDate: order?.orderDate || "",
+            dsrId: order?.dsrId || 0,
+            dsrName: order?.dsrName || "",
+            routeId: order?.routeId || 0,
+            routeName: order?.routeName || "",
+            expenseType: expense.expenseType,
+            amount: expense.amount,
+        };
+    });
+
+    // 3. Build Payments Received grouped by DSR/Route
+    const paymentGroups = new Map<string, PaymentReceivedItem>();
+
+    for (const payment of allPayments) {
+        const order = orderMap.get(payment.orderId);
+        if (!order) continue;
+
+        const key = `${payment.paymentDate}-${order.dsrId}-${order.routeId}`;
+        const existing = paymentGroups.get(key) || {
+            paymentDate: payment.paymentDate,
+            dsrId: order.dsrId,
+            dsrName: order.dsrName,
+            routeId: order.routeId,
+            routeName: order.routeName,
+            cash: "0.00",
+            mobileBank: "0.00",
+            bank: "0.00",
+            total: "0.00",
+        };
+
+        const amount = parseFloat(payment.amount);
+        const currentCash = parseFloat(existing.cash);
+        const currentMobile = parseFloat(existing.mobileBank);
+        const currentBank = parseFloat(existing.bank);
+        const currentTotal = parseFloat(existing.total);
+
+        if (payment.paymentMethod === "cash") {
+            existing.cash = (currentCash + amount).toFixed(2);
+        } else if (payment.paymentMethod === "mobileBank") {
+            existing.mobileBank = (currentMobile + amount).toFixed(2);
+        } else if (payment.paymentMethod === "bank") {
+            existing.bank = (currentBank + amount).toFixed(2);
+        } else {
+            existing.cash = (currentCash + amount).toFixed(2);
+        }
+        existing.total = (currentTotal + amount).toFixed(2);
+
+        paymentGroups.set(key, existing);
+    }
+
+    const paymentsReceived = Array.from(paymentGroups.values());
+
+    return {
+        netSales,
+        expenses,
+        paymentsReceived,
+        summary: {
+            netTotalSales: totalNetSales.toFixed(2),
+            totalExpenses: totalExpenses.toFixed(2),
+            totalPaymentReceived: totalReceived.toFixed(2),
+            totalDue: totalDue.toFixed(2),
         },
     };
 };

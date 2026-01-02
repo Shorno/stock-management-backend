@@ -33,7 +33,6 @@ export const dsrDueSummaryQuerySchema = z.object({});
 
 export type DsrDueSummaryQuery = z.infer<typeof dsrDueSummaryQuerySchema>;
 
-// Query schema for Product Wise Sales report
 export const productWiseSalesQuerySchema = z.object({
     startDate: z.string(), // YYYY-MM-DD format, required
     endDate: z.string(),   // YYYY-MM-DD format, required
@@ -45,3 +44,22 @@ export const productWiseSalesQuerySchema = z.object({
 });
 
 export type ProductWiseSalesQuery = z.infer<typeof productWiseSalesQuerySchema>;
+
+// Query schema for Brand Wise Sales report
+export const brandWiseSalesQuerySchema = z.object({
+    startDate: z.string().optional(), // YYYY-MM-DD format, optional (defaults to all time)
+    endDate: z.string().optional(),   // YYYY-MM-DD format, optional
+});
+
+export type BrandWiseSalesQuery = z.infer<typeof brandWiseSalesQuerySchema>;
+
+// Query schema for Daily Settlement report
+export const dailySettlementQuerySchema = z.object({
+    date: z.string().optional(), // YYYY-MM-DD format, defaults to today
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    dsrId: z.coerce.number().int().positive().optional(),
+    routeId: z.coerce.number().int().positive().optional(),
+});
+
+export type DailySettlementQuery = z.infer<typeof dailySettlementQuerySchema>;
