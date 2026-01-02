@@ -574,3 +574,119 @@ export const handleGetDsrTotalDue = async (c: AppContext): Promise<Response> => 
         );
     }
 };
+
+// Handle getting order adjustment data
+export const handleGetOrderAdjustment = async (c: AppContext): Promise<Response> => {
+    try {
+        const id = Number(c.req.param("id"));
+
+        if (isNaN(id)) {
+            return c.json(
+                {
+                    success: false,
+                    message: "Invalid order ID",
+                },
+                400
+            );
+        }
+
+        const adjustmentData = await wholesaleService.getOrderAdjustment(id);
+
+        if (!adjustmentData) {
+            return c.json(
+                {
+                    success: false,
+                    message: "Order not found",
+                },
+                404
+            );
+        }
+
+        return c.json({
+            success: true,
+            data: adjustmentData,
+        });
+    } catch (error) {
+        console.error("Error fetching order adjustment:", error);
+        return c.json(
+            {
+                success: false,
+                message: "Failed to fetch order adjustment",
+            },
+            500
+        );
+    }
+};
+
+// Handle saving order adjustment (payments, expenses, item returns)
+export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response> => {
+    try {
+        const id = Number(c.req.param("id"));
+
+        if (isNaN(id)) {
+            return c.json(
+                {
+                    success: false,
+                    message: "Invalid order ID",
+                },
+                400
+            );
+        }
+
+        const validatedData = c.req.valid("json") as {
+            payments: Array<{ amount: number; method: string }>;
+            expenses: Array<{ amount: number; type: string }>;
+            itemReturns: Array<{
+                itemId: number;
+                returnQuantity: number;
+                returnUnit: string;
+                returnFreeQuantity: number;
+                returnAmount: number;
+            }>;
+            paymentDate: string;
+        };
+
+        const result = await wholesaleService.saveOrderAdjustment(id, validatedData);
+
+        if (!result) {
+            return c.json(
+                {
+                    success: false,
+                    message: "Order not found",
+                },
+                404
+            );
+        }
+
+        // Audit log
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({
+            context: c,
+            ...userInfo,
+            action: "UPDATE",
+            entityType: "wholesale_order",
+            entityId: id,
+            entityName: result.order?.orderNumber,
+            newValue: {
+                payments: result.payments,
+                expenses: result.expenses,
+                itemReturns: result.itemReturns,
+            },
+        });
+
+        return c.json({
+            success: true,
+            data: result,
+            message: "Order adjustment saved successfully",
+        });
+    } catch (error) {
+        console.error("Error saving order adjustment:", error);
+        return c.json(
+            {
+                success: false,
+                message: error instanceof Error ? error.message : "Failed to save order adjustment",
+            },
+            500
+        );
+    }
+};

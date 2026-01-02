@@ -99,3 +99,39 @@ export type PartialCompleteItemInput = z.infer<typeof partialCompleteItemSchema>
 export type PartialCompleteInput = z.infer<typeof partialCompleteSchema>;
 export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>;
 export type GetDueOrdersQuery = z.infer<typeof getDueOrdersQuerySchema>;
+
+// ==================== ORDER ADJUSTMENT SCHEMAS ====================
+
+// Payment entry schema for adjustments
+export const adjustmentPaymentSchema = z.object({
+    amount: z.coerce.number().nonnegative("Amount must be non-negative"),
+    method: z.string().min(1, "Payment method is required"),
+});
+
+// Expense entry schema for adjustments
+export const adjustmentExpenseSchema = z.object({
+    amount: z.coerce.number().nonnegative("Amount must be non-negative"),
+    type: z.string().min(1, "Expense type is required"),
+});
+
+// Item return schema for adjustments
+export const adjustmentItemReturnSchema = z.object({
+    itemId: z.coerce.number().int().positive("Item ID must be positive"),
+    returnQuantity: z.coerce.number().int().nonnegative("Return quantity must be non-negative"),
+    returnUnit: z.string().min(1, "Return unit is required"),
+    returnFreeQuantity: z.coerce.number().int().nonnegative("Return free quantity must be non-negative").default(0),
+    returnAmount: z.coerce.number().nonnegative("Return amount must be non-negative").default(0),
+});
+
+// Complete adjustment save schema
+export const saveAdjustmentSchema = z.object({
+    payments: z.array(adjustmentPaymentSchema).default([]),
+    expenses: z.array(adjustmentExpenseSchema).default([]),
+    itemReturns: z.array(adjustmentItemReturnSchema).default([]),
+    paymentDate: z.string().min(1, "Payment date is required"),
+});
+
+export type AdjustmentPaymentInput = z.infer<typeof adjustmentPaymentSchema>;
+export type AdjustmentExpenseInput = z.infer<typeof adjustmentExpenseSchema>;
+export type AdjustmentItemReturnInput = z.infer<typeof adjustmentItemReturnSchema>;
+export type SaveAdjustmentInput = z.infer<typeof saveAdjustmentSchema>;
