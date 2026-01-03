@@ -1,7 +1,7 @@
 import { db } from "../../db/config";
 import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte, sql } from "drizzle-orm";
-import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, PartialCompleteInput, SaveAdjustmentInput } from "./validation";
+import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 
 // Fallback unit multipliers (used if unit not found in database)
@@ -464,34 +464,19 @@ export const deleteOrder = async (id: number): Promise<boolean> => {
     return result.length > 0;
 };
 
-// Update order status
+// Update order status - simplified to only pending/adjusted
 export const updateOrderStatus = async (
     id: number,
     status: string
 ): Promise<OrderWithItems | undefined> => {
     return await db.transaction(async (tx) => {
-        // Check if order exists with items
+        // Check if order exists
         const existingOrder = await tx.query.wholesaleOrders.findFirst({
             where: (orders, { eq }) => eq(orders.id, id),
-            with: { items: true },
-        }) as any;
+        });
 
         if (!existingOrder) {
             return undefined;
-        }
-
-        // If changing to "return" status, restock ALL items
-        if (status === "return" && existingOrder.status !== "return") {
-            for (const item of existingOrder.items) {
-                // Restore full quantity and free quantity to batch
-                await tx
-                    .update(stockBatch)
-                    .set({
-                        remainingQuantity: sql`${stockBatch.remainingQuantity} + ${item.quantity}`,
-                        remainingFreeQty: sql`${stockBatch.remainingFreeQty} + ${item.freeQuantity}`,
-                    })
-                    .where(eq(stockBatch.id, item.batchId));
-            }
         }
 
         // Update the status
@@ -522,195 +507,7 @@ export const updateOrderStatus = async (
     });
 };
 
-// Complete order partially - restore undelivered stock to batches
-export const completeOrderPartially = async (
-    orderId: number,
-    input: PartialCompleteInput
-): Promise<OrderWithItems | undefined> => {
-    return await db.transaction(async (tx) => {
-        // Get the order with items
-        const order = await tx.query.wholesaleOrders.findFirst({
-            where: (orders, { eq }) => eq(orders.id, orderId),
-            with: { items: true },
-        }) as any;
 
-        if (!order) {
-            throw new Error("Order not found");
-        }
-
-        if (order.status !== "pending") {
-            throw new Error("Only pending orders can be partially completed");
-        }
-
-        let newGrandTotal = 0;
-
-        // Process each item
-        for (const inputItem of input.items) {
-            const orderItem = order.items.find((item: any) => item.id === inputItem.itemId);
-            if (!orderItem) {
-                throw new Error(`Order item ${inputItem.itemId} not found`);
-            }
-
-            // Validate delivered quantities
-            if (inputItem.deliveredQuantity > orderItem.quantity) {
-                throw new Error(`Delivered quantity cannot exceed ordered quantity for item ${inputItem.itemId}`);
-            }
-            if (inputItem.deliveredFreeQty > orderItem.freeQuantity) {
-                throw new Error(`Delivered free quantity cannot exceed ordered free quantity for item ${inputItem.itemId}`);
-            }
-
-            // Calculate quantities to restore
-            const qtyToRestore = orderItem.quantity - inputItem.deliveredQuantity;
-            const freeQtyToRestore = orderItem.freeQuantity - inputItem.deliveredFreeQty;
-
-            // Restore stock to batch if any
-            if (qtyToRestore > 0 || freeQtyToRestore > 0) {
-                await tx
-                    .update(stockBatch)
-                    .set({
-                        remainingQuantity: sql`${stockBatch.remainingQuantity} + ${qtyToRestore}`,
-                        remainingFreeQty: sql`${stockBatch.remainingFreeQty} + ${freeQtyToRestore}`,
-                    })
-                    .where(eq(stockBatch.id, orderItem.batchId));
-            }
-
-            // Calculate new item totals based on delivered quantity
-            const salePrice = parseFloat(orderItem.salePrice);
-            const discount = parseFloat(orderItem.discount);
-            const newSubtotal = inputItem.deliveredQuantity * salePrice;
-            const newNet = newSubtotal - discount;
-
-            // Update order item with delivered quantities
-            await tx
-                .update(wholesaleOrderItems)
-                .set({
-                    deliveredQuantity: inputItem.deliveredQuantity,
-                    deliveredFreeQty: inputItem.deliveredFreeQty,
-                    subtotal: newSubtotal.toFixed(2),
-                    net: newNet.toFixed(2),
-                })
-                .where(eq(wholesaleOrderItems.id, inputItem.itemId));
-
-            newGrandTotal += newNet;
-        }
-
-        // Update order status to partial and update total
-        await tx
-            .update(wholesaleOrders)
-            .set({
-                status: "partial",
-                total: newGrandTotal.toFixed(2),
-            })
-            .where(eq(wholesaleOrders.id, orderId));
-
-        // Fetch and return updated order
-        const updatedOrder = await tx.query.wholesaleOrders.findFirst({
-            where: (orders, { eq }) => eq(orders.id, orderId),
-            with: {
-                items: {
-                    with: {
-                        product: true,
-                        brand: true,
-                        batch: true,
-                    },
-                },
-                dsr: true,
-                route: true,
-                category: true,
-                brand: true,
-            },
-        });
-
-        return updatedOrder as OrderWithItems | undefined;
-    });
-};
-
-// Record a payment for an order
-export const recordPayment = async (
-    orderId: number,
-    amount: number,
-    paymentDate: string,
-    paymentMethod?: string,
-    note?: string,
-    collectedBy?: string,
-    collectedByDsrId?: number
-) => {
-    return await db.transaction(async (tx) => {
-        // Get the order
-        const order = await tx.query.wholesaleOrders.findFirst({
-            where: (orders, { eq }) => eq(orders.id, orderId),
-        });
-
-        if (!order) {
-            throw new Error("Order not found");
-        }
-
-        const total = parseFloat(order.total);
-        const currentPaid = parseFloat(order.paidAmount);
-        const newPaidAmount = currentPaid + amount;
-
-        if (newPaidAmount > total) {
-            throw new Error(`Payment amount exceeds remaining due. Max allowed: ${(total - currentPaid).toFixed(2)}`);
-        }
-
-        // Determine payment status
-        let paymentStatus: string;
-        if (newPaidAmount >= total) {
-            paymentStatus = "paid";
-        } else if (newPaidAmount > 0) {
-            paymentStatus = "partial";
-        } else {
-            paymentStatus = "unpaid";
-        }
-
-        // Record the payment
-        await tx.insert(orderPayments).values({
-            orderId,
-            amount: amount.toFixed(2),
-            paymentDate,
-            paymentMethod: paymentMethod || null,
-            note: note || null,
-            collectedBy: collectedBy || null,
-            collectedByDsrId: collectedByDsrId || null,
-        });
-
-        // Update order paid amount, payment status, and order status if fully paid
-        const updateData: any = {
-            paidAmount: newPaidAmount.toFixed(2),
-            paymentStatus,
-        };
-
-        // If order is "due" and now fully paid, change status to "completed"
-        if (order.status === "due" && newPaidAmount >= total) {
-            updateData.status = "completed";
-        }
-
-        await tx
-            .update(wholesaleOrders)
-            .set(updateData)
-            .where(eq(wholesaleOrders.id, orderId));
-
-        // Return updated order
-        const updatedOrder = await tx.query.wholesaleOrders.findFirst({
-            where: (orders, { eq }) => eq(orders.id, orderId),
-            with: {
-                items: {
-                    with: {
-                        product: true,
-                        brand: true,
-                        batch: true,
-                    },
-                },
-                dsr: true,
-                route: true,
-                category: true,
-                brand: true,
-            },
-        });
-
-        return updatedOrder as OrderWithItems | undefined;
-    });
-};
 
 // Get payment history for an order
 export const getPaymentHistory = async (orderId: number) => {
@@ -720,7 +517,7 @@ export const getPaymentHistory = async (orderId: number) => {
     });
 };
 
-// Get orders with outstanding dues
+// Get orders with outstanding dues - computed based on adjustment data
 export const getDueOrders = async (params: {
     dsrId?: number;
     routeId?: number;
@@ -731,8 +528,10 @@ export const getDueOrders = async (params: {
 }) => {
     const conditions: any[] = [];
 
-    // Only orders with status = "due" (pending payment)
-    conditions.push(eq(wholesaleOrders.status, "due"));
+    // Get orders where total > paidAmount (computed due)
+    conditions.push(
+        sql`CAST(${wholesaleOrders.total} AS DECIMAL) > CAST(${wholesaleOrders.paidAmount} AS DECIMAL)`
+    );
 
     if (params.dsrId) {
         conditions.push(eq(wholesaleOrders.dsrId, params.dsrId));
@@ -873,25 +672,12 @@ export const saveOrderAdjustment = async (
             }
         }
 
-        // Calculate new paid amount and payment status
-        const orderTotal = parseFloat(order.total);
-        const adjustedTotal = orderTotal - totalReturnsAmount;
-        const netAdjustment = totalPayments - totalExpensesAmount;
-        const amountDue = Math.max(0, adjustedTotal - netAdjustment);
-
-        let paymentStatus = "unpaid";
-        if (amountDue <= 0) {
-            paymentStatus = "paid";
-        } else if (totalPayments > 0) {
-            paymentStatus = "partial";
-        }
-
-        // Update order with calculated values
+        // Update order with calculated values and set status to "adjusted"
         await tx
             .update(wholesaleOrders)
             .set({
                 paidAmount: totalPayments.toFixed(2),
-                paymentStatus,
+                status: "adjusted",
             })
             .where(eq(wholesaleOrders.id, orderId));
 
