@@ -3,8 +3,8 @@ import { z } from "zod";
 // Unit types for products
 const UNIT_TYPES = ["PCS", "KG", "LTR", "BOX", "CARTON", "DOZEN"] as const;
 
-// Order status types
-export const ORDER_STATUSES = ["pending", "completed", "cancelled", "return", "partial", "due"] as const;
+// Order status types - simplified to pending and adjusted
+export const ORDER_STATUSES = ["pending", "adjusted"] as const;
 export type OrderStatus = typeof ORDER_STATUSES[number];
 
 // Order item schema
@@ -38,22 +38,11 @@ export const updateOrderSchema = createOrderSchema;
 // Update order status schema
 export const updateStatusSchema = z.object({
     status: z.enum(ORDER_STATUSES, {
-        message: "Status must be one of: pending, completed, cancelled, return, partial"
+        message: "Status must be one of: pending, adjusted"
     }),
 });
 
-// Partial completion item schema
-export const partialCompleteItemSchema = z.object({
-    itemId: z.coerce.number().int().positive(),
-    deliveredQuantity: z.coerce.number().int().nonnegative(),
-    deliveredFreeQty: z.coerce.number().int().nonnegative().default(0),
-});
 
-// Partial completion schema
-export const partialCompleteSchema = z.object({
-    items: z.array(partialCompleteItemSchema).min(1, "At least one item is required"),
-    notes: z.string().optional(),
-});
 
 // Query parameters schema
 export const getOrdersQuerySchema = z.object({
@@ -69,15 +58,7 @@ export const getOrdersQuerySchema = z.object({
     offset: z.string().optional().transform((val) => (val ? Number(val) : 0)),
 });
 
-// Payment recording schema
-export const recordPaymentSchema = z.object({
-    amount: z.coerce.number().positive("Amount must be greater than 0"),
-    paymentDate: z.string().min(1, "Payment date is required"),
-    paymentMethod: z.string().optional(),
-    note: z.string().optional(),
-    collectedBy: z.string().optional(),
-    collectedByDsrId: z.coerce.number().int().positive().optional(),
-});
+
 
 // Due orders query schema
 export const getDueOrdersQuerySchema = z.object({
@@ -95,9 +76,6 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
 export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
 export type GetOrdersQuery = z.infer<typeof getOrdersQuerySchema>;
-export type PartialCompleteItemInput = z.infer<typeof partialCompleteItemSchema>;
-export type PartialCompleteInput = z.infer<typeof partialCompleteSchema>;
-export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>;
 export type GetDueOrdersQuery = z.infer<typeof getDueOrdersQuerySchema>;
 
 // ==================== ORDER ADJUSTMENT SCHEMAS ====================
