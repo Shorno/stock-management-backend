@@ -92,8 +92,14 @@ app.patch(
 
 
 
-// Generate invoice PDF
+// Generate invoice PDF (legacy - kept for compatibility)
 app.get("/:id/invoice-pdf", wholesaleController.handleGenerateInvoicePdf);
+
+// Generate Sales Invoice PDF (simple - product list with qty and free qty)
+app.get("/:id/sales-invoice-pdf", wholesaleController.handleGenerateSalesInvoicePdf);
+
+// Generate Main Invoice PDF (detailed - with discounts, subtotals, adjustments)
+app.get("/:id/main-invoice-pdf", wholesaleController.handleGenerateMainInvoicePdf);
 
 // Update wholesale order
 app.put(

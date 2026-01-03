@@ -2,7 +2,8 @@ import type { Context } from "hono";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery } from "./validation";
 import type { WholesaleOrderResponse } from "./types";
 import * as wholesaleService from "./service";
-import { generateInvoicePdf } from "./pdf.service";
+import { generateInvoicePdf, generateSalesInvoicePdf, generateMainInvoicePdf } from "./pdf.service";
+import type { AdjustmentData } from "./pdf.service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 
 type AppContext = Context<
@@ -555,6 +556,122 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
             {
                 success: false,
                 message: error instanceof Error ? error.message : "Failed to save order adjustment",
+            },
+            500
+        );
+    }
+};
+
+// Handle generating Sales Invoice PDF (simple version)
+export const handleGenerateSalesInvoicePdf = async (c: AppContext): Promise<Response> => {
+    try {
+        const id = Number(c.req.param("id"));
+
+        if (isNaN(id)) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Invalid order ID",
+                },
+                400
+            );
+        }
+
+        const order = await wholesaleService.getOrderById(id);
+
+        if (!order) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Wholesale order not found",
+                },
+                404
+            );
+        }
+
+        // Get adjustment data for net quantities
+        const adjustmentData = await wholesaleService.getOrderAdjustment(id);
+        const adjustment: AdjustmentData | null = adjustmentData ? {
+            payments: adjustmentData.payments || [],
+            expenses: adjustmentData.expenses || [],
+            itemsWithCalculations: adjustmentData.itemsWithCalculations || [],
+            summary: adjustmentData.summary,
+        } : null;
+
+        const pdfBuffer = await generateSalesInvoicePdf(order, adjustment);
+
+        return new Response(pdfBuffer, {
+            status: 200,
+            headers: {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": `attachment; filename="SalesInvoice-${order.orderNumber}.pdf"`,
+                "Content-Length": pdfBuffer.length.toString(),
+            },
+        });
+    } catch (error) {
+        console.error("Error generating sales invoice PDF:", error);
+        return c.json<WholesaleOrderResponse>(
+            {
+                success: false,
+                message: error instanceof Error ? error.message : "Failed to generate sales invoice PDF",
+            },
+            500
+        );
+    }
+};
+
+// Handle generating Main Invoice PDF (detailed version)
+export const handleGenerateMainInvoicePdf = async (c: AppContext): Promise<Response> => {
+    try {
+        const id = Number(c.req.param("id"));
+
+        if (isNaN(id)) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Invalid order ID",
+                },
+                400
+            );
+        }
+
+        const order = await wholesaleService.getOrderById(id);
+
+        if (!order) {
+            return c.json<WholesaleOrderResponse>(
+                {
+                    success: false,
+                    message: "Wholesale order not found",
+                },
+                404
+            );
+        }
+
+        // Get adjustment data for calculations
+        const adjustmentData = await wholesaleService.getOrderAdjustment(id);
+        const adjustment: AdjustmentData | null = adjustmentData ? {
+            payments: adjustmentData.payments || [],
+            expenses: adjustmentData.expenses || [],
+            itemsWithCalculations: adjustmentData.itemsWithCalculations || [],
+            summary: adjustmentData.summary,
+        } : null;
+
+        const pdfBuffer = await generateMainInvoicePdf(order, adjustment);
+
+        return new Response(pdfBuffer, {
+            status: 200,
+            headers: {
+                "Content-Type": "application/pdf",
+                "Content-Disposition": `attachment; filename="Invoice-${order.orderNumber}.pdf"`,
+                "Content-Length": pdfBuffer.length.toString(),
+            },
+        });
+    } catch (error) {
+        console.error("Error generating main invoice PDF:", error);
+        return c.json<WholesaleOrderResponse>(
+            {
+                success: false,
+                message: error instanceof Error ? error.message : "Failed to generate main invoice PDF",
             },
             500
         );
