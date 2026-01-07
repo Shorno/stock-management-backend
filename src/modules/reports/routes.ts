@@ -85,6 +85,54 @@ app.get(
     }
 );
 
+// Download DSR Ledger as PDF
+app.get(
+    "/dsr-ledger/pdf",
+    zValidator("query", dsrLedgerQuerySchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Invalid query parameters",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    async (ctx) => {
+        try {
+            const query = ctx.req.valid("query");
+            const data = await reportsService.getDsrLedger(query);
+
+            // Import PDF generator dynamically to avoid circular deps
+            const { generateDsrLedgerPdf } = await import("./pdf.service");
+            const pdfBuffer = await generateDsrLedgerPdf(data);
+
+            return new Response(pdfBuffer, {
+                status: 200,
+                headers: {
+                    "Content-Type": "application/pdf",
+                    "Content-Disposition": `attachment; filename="DSR_Ledger_${data.dsrName.replace(/\s+/g, "_")}.pdf"`,
+                    "Content-Length": pdfBuffer.length.toString(),
+                },
+            });
+        } catch (error) {
+            console.error("Error generating DSR ledger PDF:", error);
+            return ctx.json(
+                {
+                    success: false,
+                    message: error instanceof Error ? error.message : "Failed to generate PDF",
+                },
+                500
+            );
+        }
+    }
+);
+
 // Get DSR Ledger Overview (all DSRs summary)
 app.get(
     "/dsr-ledger-overview",
