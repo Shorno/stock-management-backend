@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte, sql } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
@@ -623,14 +623,16 @@ export const saveOrderAdjustment = async (
             throw new Error("Order not found");
         }
 
-        // Delete existing payments, expenses, and item returns for this order
+        // Delete existing payments, expenses, item returns, and customer dues for this order
         await tx.delete(orderPayments).where(eq(orderPayments.orderId, orderId));
         await tx.delete(orderExpenses).where(eq(orderExpenses.orderId, orderId));
         await tx.delete(orderItemReturns).where(eq(orderItemReturns.orderId, orderId));
+        await tx.delete(orderCustomerDues).where(eq(orderCustomerDues.orderId, orderId));
 
         let totalPayments = 0;
         let totalExpensesAmount = 0;
         let totalReturnsAmount = 0;
+        let totalCustomerDuesAmount = 0;
 
         // Insert new payments
         for (const payment of data.payments) {
@@ -654,6 +656,18 @@ export const saveOrderAdjustment = async (
                     expenseType: expense.type,
                 });
                 totalExpensesAmount += expense.amount;
+            }
+        }
+
+        // Insert new customer dues
+        for (const customerDue of data.customerDues) {
+            if (customerDue.amount > 0) {
+                await tx.insert(orderCustomerDues).values({
+                    orderId,
+                    customerName: customerDue.customerName,
+                    amount: customerDue.amount.toFixed(2),
+                });
+                totalCustomerDuesAmount += customerDue.amount;
             }
         }
 
@@ -722,10 +736,16 @@ export const getOrderAdjustment = async (orderId: number) => {
         where: (r, { eq }) => eq(r.orderId, orderId),
     });
 
+    // Get customer dues
+    const customerDuesData = await db.query.orderCustomerDues.findMany({
+        where: (d, { eq }) => eq(d.orderId, orderId),
+    });
+
     // Calculate totals
     const totalPayments = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
     const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const totalReturns = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount), 0);
+    const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
 
     // Calculate per-item net values
     const itemsWithCalculations = await Promise.all(
@@ -776,8 +796,8 @@ export const getOrderAdjustment = async (orderId: number) => {
     const orderTotal = parseFloat(order.total);
     const netTotalAfterReturns = itemsWithCalculations.reduce((sum, item) => sum + item.netTotal, 0);
 
-    // Adjustment = Payments + Expenses (both reduce what's owed)
-    const totalAdjustment = totalPayments + totalExpenses;
+    // Adjustment = Payments + Expenses + Customer Dues (all reduce what's owed)
+    const totalAdjustment = totalPayments + totalExpenses + totalCustomerDues;
     const due = Math.max(0, netTotalAfterReturns - totalAdjustment);
 
     return {
@@ -791,6 +811,11 @@ export const getOrderAdjustment = async (orderId: number) => {
             id: e.id,
             amount: parseFloat(e.amount),
             type: e.expenseType,
+        })),
+        customerDues: customerDuesData.map(d => ({
+            id: d.id,
+            customerName: d.customerName,
+            amount: parseFloat(d.amount),
         })),
         itemReturns: itemReturnsData.map(r => ({
             id: r.id,
@@ -811,6 +836,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             netTotal: netTotalAfterReturns,
             totalPayments,
             totalExpenses,
+            totalCustomerDues,
             totalAdjustment,
             due,
         },

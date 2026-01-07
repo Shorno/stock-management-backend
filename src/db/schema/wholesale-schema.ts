@@ -269,6 +269,29 @@ export const orderItemReturnsRelations = relations(orderItemReturns, ({ one }) =
 export const wholesaleOrdersExpenseRelation = relations(wholesaleOrders, ({ many }) => ({
     expenses: many(orderExpenses),
     itemReturns: many(orderItemReturns),
+    customerDues: many(orderCustomerDues),
+}));
+
+// ==================== ORDER CUSTOMER DUES ====================
+
+export const orderCustomerDues = pgTable("order_customer_dues", {
+    id: serial("id").primaryKey(),
+    orderId: integer("order_id")
+        .notNull()
+        .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+    customerName: varchar("customer_name", { length: 150 }).notNull(),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    ...timestamps
+}, (table) => ({
+    orderIdx: index("idx_order_customer_dues_order").on(table.orderId),
+}));
+
+// Order customer dues relations
+export const orderCustomerDuesRelations = relations(orderCustomerDues, ({ one }) => ({
+    order: one(wholesaleOrders, {
+        fields: [orderCustomerDues.orderId],
+        references: [wholesaleOrders.id],
+    }),
 }));
 
 // ==================== DAMAGE RETURNS ====================
