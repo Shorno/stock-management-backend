@@ -101,15 +101,24 @@ export const adjustmentItemReturnSchema = z.object({
     returnAmount: z.coerce.number().nonnegative("Return amount must be non-negative").default(0),
 });
 
+// Customer due schema for adjustments
+export const adjustmentCustomerDueSchema = z.object({
+    customerName: z.string().min(1, "Customer name is required"),
+    amount: z.coerce.number().nonnegative("Amount must be non-negative"),
+});
+
 // Complete adjustment save schema
 export const saveAdjustmentSchema = z.object({
     payments: z.array(adjustmentPaymentSchema).default([]),
     expenses: z.array(adjustmentExpenseSchema).default([]),
+    customerDues: z.array(adjustmentCustomerDueSchema).default([]),
     itemReturns: z.array(adjustmentItemReturnSchema).default([]),
     paymentDate: z.string().min(1, "Payment date is required"),
 });
 
 export type AdjustmentPaymentInput = z.infer<typeof adjustmentPaymentSchema>;
 export type AdjustmentExpenseInput = z.infer<typeof adjustmentExpenseSchema>;
+export type AdjustmentCustomerDueInput = z.infer<typeof adjustmentCustomerDueSchema>;
 export type AdjustmentItemReturnInput = z.infer<typeof adjustmentItemReturnSchema>;
 export type SaveAdjustmentInput = z.infer<typeof saveAdjustmentSchema>;
+

@@ -1,5 +1,10 @@
 import type { Context } from "hono";
-import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery } from "./validation";
+import type {
+    CreateOrderInput,
+    UpdateOrderInput,
+    GetOrdersQuery,
+    SaveAdjustmentInput
+} from "./validation";
 import type { WholesaleOrderResponse } from "./types";
 import * as wholesaleService from "./service";
 import { generateInvoicePdf, generateSalesInvoicePdf, generateMainInvoicePdf } from "./pdf.service";
@@ -330,7 +335,7 @@ export const handleGenerateInvoicePdf = async (c: AppContext): Promise<Response>
             status: 200,
             headers: {
                 "Content-Type": "application/pdf",
-                "Content-Disposition": `attachment; filename="Invoice-${order.orderNumber}.pdf"`,
+                "Content-Disposition": `attachment; filename = "Invoice-${order.orderNumber}.pdf"`,
                 "Content-Length": pdfBuffer.length.toString(),
             },
         });
@@ -504,18 +509,7 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
             );
         }
 
-        const validatedData = c.req.valid("json") as {
-            payments: Array<{ amount: number; method: string }>;
-            expenses: Array<{ amount: number; type: string }>;
-            itemReturns: Array<{
-                itemId: number;
-                returnQuantity: number;
-                returnUnit: string;
-                returnFreeQuantity: number;
-                returnAmount: number;
-            }>;
-            paymentDate: string;
-        };
+        const validatedData = c.req.valid("json") as SaveAdjustmentInput;
 
         const result = await wholesaleService.saveOrderAdjustment(id, validatedData);
 
@@ -595,6 +589,7 @@ export const handleGenerateSalesInvoicePdf = async (c: AppContext): Promise<Resp
             payments: adjustmentData.payments || [],
             expenses: adjustmentData.expenses || [],
             itemsWithCalculations: adjustmentData.itemsWithCalculations || [],
+            customerDues: adjustmentData.customerDues || [],
             summary: adjustmentData.summary,
         } : null;
 
@@ -604,7 +599,7 @@ export const handleGenerateSalesInvoicePdf = async (c: AppContext): Promise<Resp
             status: 200,
             headers: {
                 "Content-Type": "application/pdf",
-                "Content-Disposition": `attachment; filename="SalesInvoice-${order.orderNumber}.pdf"`,
+                "Content-Disposition": `attachment; filename = "SalesInvoice-${order.orderNumber}.pdf"`,
                 "Content-Length": pdfBuffer.length.toString(),
             },
         });
@@ -653,6 +648,7 @@ export const handleGenerateMainInvoicePdf = async (c: AppContext): Promise<Respo
             payments: adjustmentData.payments || [],
             expenses: adjustmentData.expenses || [],
             itemsWithCalculations: adjustmentData.itemsWithCalculations || [],
+            customerDues: adjustmentData.customerDues || [],
             summary: adjustmentData.summary,
         } : null;
 
@@ -662,7 +658,7 @@ export const handleGenerateMainInvoicePdf = async (c: AppContext): Promise<Respo
             status: 200,
             headers: {
                 "Content-Type": "application/pdf",
-                "Content-Disposition": `attachment; filename="Invoice-${order.orderNumber}.pdf"`,
+                "Content-Disposition": `attachment; filename = "Invoice-${order.orderNumber}.pdf"`,
                 "Content-Length": pdfBuffer.length.toString(),
             },
         });

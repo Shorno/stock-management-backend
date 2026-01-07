@@ -219,6 +219,12 @@ interface AdjustmentExpense {
     type: string;
 }
 
+interface AdjustmentCustomerDue {
+    id?: number;
+    customerName: string;
+    amount: number;
+}
+
 interface AdjustmentItemWithCalculations {
     id: number;
     productId: number;
@@ -248,6 +254,7 @@ interface AdjustmentSummary {
     netTotal: number;
     totalPayments: number;
     totalExpenses: number;
+    totalCustomerDues: number;
     totalAdjustment: number;
     due: number;
 }
@@ -255,6 +262,7 @@ interface AdjustmentSummary {
 export interface AdjustmentData {
     payments: AdjustmentPayment[];
     expenses: AdjustmentExpense[];
+    customerDues: AdjustmentCustomerDue[];
     itemsWithCalculations: AdjustmentItemWithCalculations[];
     summary: AdjustmentSummary;
 }
@@ -581,6 +589,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 netTotal: parseFloat(order.total),
                 totalPayments: parseFloat(order.paidAmount),
                 totalExpenses: 0,
+                totalCustomerDues: 0,
                 totalAdjustment: parseFloat(order.paidAmount),
                 due: parseFloat(order.total) - parseFloat(order.paidAmount),
             };
@@ -627,6 +636,26 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 currentY += 12;
             }
 
+            currentY += 8;
+
+            // Left column: Customer Dues (NEW)
+            doc.font("Helvetica-Bold").fillColor(darkGray);
+            doc.text("Customer Dues", leftCol, currentY);
+            currentY += 14;
+
+            doc.fontSize(8).font("Helvetica");
+            if (adjustment?.customerDues && adjustment.customerDues.length > 0) {
+                adjustment.customerDues.forEach(due => {
+                    doc.fillColor(mediumGray).text(truncateText(due.customerName, 25), leftCol, currentY);
+                    doc.fillColor(darkGray).text(formatCurrency(due.amount), leftCol + 100, currentY);
+                    currentY += 12;
+                });
+            } else {
+                doc.fillColor(mediumGray).text("No customer dues", leftCol, currentY);
+                currentY += 12;
+            }
+
+
             // Right column - Summary totals (positioned at same Y as payments started)
             let rightY = paymentEndY - (adjustment?.payments?.length || 1) * 12 - 14;
 
@@ -639,6 +668,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 { label: "Net Total", value: summaryData.netTotal, bold: true },
                 { label: "Payments", value: -summaryData.totalPayments, bold: false, color: "#28a745" },
                 { label: "Expenses", value: -summaryData.totalExpenses, bold: false, color: "#dc3545" },
+                { label: "Cust. Dues", value: -summaryData.totalCustomerDues, bold: false, color: "#e67e22" }, // NEW
             ];
 
             summaryItems.forEach(item => {
