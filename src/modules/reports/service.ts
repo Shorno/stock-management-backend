@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, dsr, route, orderPayments } from "../../db/schema";
+import { wholesaleOrders, dsr, route, orderPayments, orderCustomerDues } from "../../db/schema";
 import { eq, and, gte, lte, lt, sql, ne, sum, countDistinct, desc } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
@@ -182,6 +182,7 @@ export interface DsrLedgerItem {
     debit: string;
     credit: string;
     balance: string;
+    customerDues?: { customerName: string; amount: string }[];
 }
 
 export interface DsrLedgerSummary {
@@ -251,6 +252,7 @@ export const getDsrLedger = async (
     // Get sales in date range (excluding cancelled/return)
     const sales = await db
         .select({
+            orderId: wholesaleOrders.id,
             date: wholesaleOrders.orderDate,
             orderNumber: wholesaleOrders.orderNumber,
             total: wholesaleOrders.total,
@@ -265,6 +267,22 @@ export const getDsrLedger = async (
             ne(wholesaleOrders.status, "cancelled"),
             ne(wholesaleOrders.status, "return")
         ));
+
+    // Get all order IDs for fetching customer dues
+    const orderIds = sales.map(s => s.orderId);
+
+    // Fetch customer dues for these orders
+    const customerDuesData = orderIds.length > 0 ? await db.query.orderCustomerDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
+    // Group customer dues by order ID
+    const customerDuesByOrderId = new Map<number, { customerName: string; amount: string }[]>();
+    for (const due of customerDuesData) {
+        const existing = customerDuesByOrderId.get(due.orderId) || [];
+        existing.push({ customerName: due.customerName, amount: due.amount });
+        customerDuesByOrderId.set(due.orderId, existing);
+    }
 
     // Get payments in date range
     const payments = await db
@@ -292,12 +310,15 @@ export const getDsrLedger = async (
         debit: number;
         credit: number;
         sortKey: string;
+        orderId?: number;
+        customerDues?: { customerName: string; amount: string }[];
     }
 
     const transactions: Transaction[] = [];
 
-    // Add sales as debits
+    // Add sales as debits (with customer dues)
     for (const sale of sales) {
+        const dues = customerDuesByOrderId.get(sale.orderId);
         transactions.push({
             date: sale.date,
             type: "sale",
@@ -306,6 +327,8 @@ export const getDsrLedger = async (
             debit: parseFloat(sale.total),
             credit: 0,
             sortKey: `${sale.date}-0-${sale.orderNumber}`,
+            orderId: sale.orderId,
+            customerDues: dues,
         });
     }
 
@@ -357,6 +380,7 @@ export const getDsrLedger = async (
             debit: tx.debit > 0 ? tx.debit.toFixed(2) : "0.00",
             credit: tx.credit > 0 ? tx.credit.toFixed(2) : "0.00",
             balance: runningBalance.toFixed(2),
+            customerDues: tx.customerDues,
         });
     }
 
