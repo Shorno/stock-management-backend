@@ -179,24 +179,43 @@ export interface DsrLedgerItem {
     type: "sale" | "payment" | "opening";
     note: string;
     reference: string;
-    debit: string;
-    credit: string;
-    balance: string;
+    saleAmount: string;
+    collectedAmount: string;
+    dueBalance: string;
     customerDues?: { customerName: string; amount: string }[];
 }
 
 export interface DsrLedgerSummary {
-    openingBalance: string;
-    totalDebit: string;
-    totalCredit: string;
-    closingBalance: string;
+    previousDue: string;
+    totalSales: string;
+    totalCollected: string;
+    currentDue: string;
     transactionCount: number;
+}
+
+// Order-based summary item for DSR ledger
+export interface DsrOrderSummaryItem {
+    orderId: number;
+    orderNumber: string;
+    orderDate: string;
+    routeName: string;
+    orderTotal: string;
+    totalReturns: string;
+    netOrderTotal: string;
+    payments: { method: string; amount: string }[];
+    expenses: { type: string; amount: string }[];
+    customerDues: { customerName: string; amount: string }[];
+    totalPayments: string;
+    totalExpenses: string;
+    totalCustomerDue: string;
+    orderDue: string;
 }
 
 export interface DsrLedgerResponse {
     dsrId: number;
     dsrName: string;
     items: DsrLedgerItem[];
+    orders: DsrOrderSummaryItem[];
     summary: DsrLedgerSummary;
 }
 
@@ -247,7 +266,7 @@ export const getDsrLedger = async (
 
     const salesBefore = parseFloat(salesBeforeResult[0]?.total || "0");
     const paymentsBefore = parseFloat(paymentsBeforeResult[0]?.total || "0");
-    const openingBalance = salesBefore - paymentsBefore;
+    const previousDue = salesBefore - paymentsBefore;
 
     // Get sales in date range (excluding cancelled/return)
     const sales = await db
@@ -268,13 +287,34 @@ export const getDsrLedger = async (
             ne(wholesaleOrders.status, "return")
         ));
 
-    // Get all order IDs for fetching customer dues
+    // Get all order IDs for fetching adjustment data
     const orderIds = sales.map(s => s.orderId);
 
     // Fetch customer dues for these orders
     const customerDuesData = orderIds.length > 0 ? await db.query.orderCustomerDues.findMany({
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
     }) : [];
+
+    // Fetch expenses for these orders
+    const expensesData = orderIds.length > 0 ? await db.query.orderExpenses.findMany({
+        where: (e, { inArray }) => inArray(e.orderId, orderIds),
+    }) : [];
+
+    // Fetch payments for these orders (by orderId)
+    const paymentsForOrders = orderIds.length > 0 ? await db.query.orderPayments.findMany({
+        where: (p, { inArray }) => inArray(p.orderId, orderIds),
+    }) : [];
+
+    // Fetch returns for these orders
+    const returnsData = orderIds.length > 0 ? await db.query.orderItemReturns.findMany({
+        where: (r, { inArray }) => inArray(r.orderId, orderIds),
+    }) : [];
+
+    // Group returns by order ID
+    const returnsByOrderId = new Map<number, number>();
+    for (const ret of returnsData) {
+        returnsByOrderId.set(ret.orderId, (returnsByOrderId.get(ret.orderId) || 0) + parseFloat(ret.returnAmount));
+    }
 
     // Group customer dues by order ID
     const customerDuesByOrderId = new Map<number, { customerName: string; amount: string }[]>();
@@ -283,6 +323,54 @@ export const getDsrLedger = async (
         existing.push({ customerName: due.customerName, amount: due.amount });
         customerDuesByOrderId.set(due.orderId, existing);
     }
+
+    // Group expenses by order ID
+    const expensesByOrderId = new Map<number, { type: string; amount: string }[]>();
+    for (const exp of expensesData) {
+        const existing = expensesByOrderId.get(exp.orderId) || [];
+        existing.push({ type: exp.expenseType, amount: exp.amount });
+        expensesByOrderId.set(exp.orderId, existing);
+    }
+
+    // Group payments by order ID
+    const paymentsByOrderId = new Map<number, { method: string; amount: string }[]>();
+    for (const pay of paymentsForOrders) {
+        const existing = paymentsByOrderId.get(pay.orderId) || [];
+        existing.push({ method: pay.paymentMethod || "Cash", amount: pay.amount });
+        paymentsByOrderId.set(pay.orderId, existing);
+    }
+
+    // Build order-based summary
+    const orders: DsrOrderSummaryItem[] = sales.map(sale => {
+        const orderPaymentsList = paymentsByOrderId.get(sale.orderId) || [];
+        const orderExpensesList = expensesByOrderId.get(sale.orderId) || [];
+        const orderCustomerDues = customerDuesByOrderId.get(sale.orderId) || [];
+        const orderReturns = returnsByOrderId.get(sale.orderId) || 0;
+
+        const totalPayments = orderPaymentsList.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalExpenses = orderExpensesList.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+        const totalCustomerDue = orderCustomerDues.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+        const orderTotal = parseFloat(sale.total);
+        const netOrderTotal = orderTotal - orderReturns; // Deduct returns from total
+        const orderDue = Math.max(0, netOrderTotal - totalPayments - totalExpenses - totalCustomerDue);
+
+        return {
+            orderId: sale.orderId,
+            orderNumber: sale.orderNumber,
+            orderDate: sale.date,
+            routeName: sale.routeName,
+            orderTotal: orderTotal.toFixed(2),
+            totalReturns: orderReturns.toFixed(2),
+            netOrderTotal: netOrderTotal.toFixed(2),
+            payments: orderPaymentsList,
+            expenses: orderExpensesList,
+            customerDues: orderCustomerDues,
+            totalPayments: totalPayments.toFixed(2),
+            totalExpenses: totalExpenses.toFixed(2),
+            totalCustomerDue: totalCustomerDue.toFixed(2),
+            orderDue: orderDue.toFixed(2),
+        };
+    });
 
     // Get payments in date range
     const payments = await db
@@ -348,10 +436,10 @@ export const getDsrLedger = async (
     // Sort by date, then type (sales before payments on same day)
     transactions.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 
-    // Build ledger items with running balance
-    let runningBalance = openingBalance;
-    let totalDebit = 0;
-    let totalCredit = 0;
+    // Build ledger items with running due
+    let runningDue = previousDue;
+    let totalSales = 0;
+    let totalCollected = 0;
 
     const items: DsrLedgerItem[] = [];
 
@@ -359,27 +447,27 @@ export const getDsrLedger = async (
     items.push({
         date: startDate,
         type: "opening",
-        note: "Opening Balance",
+        note: "Previous Due",
         reference: "",
-        debit: "0.00",
-        credit: "0.00",
-        balance: openingBalance.toFixed(2),
+        saleAmount: "0.00",
+        collectedAmount: "0.00",
+        dueBalance: previousDue.toFixed(2),
     });
 
     // Add transaction rows
     for (const tx of transactions) {
-        runningBalance = runningBalance + tx.debit - tx.credit;
-        totalDebit += tx.debit;
-        totalCredit += tx.credit;
+        runningDue = runningDue + tx.debit - tx.credit;
+        totalSales += tx.debit;
+        totalCollected += tx.credit;
 
         items.push({
             date: tx.date,
             type: tx.type,
             note: tx.note,
             reference: tx.reference,
-            debit: tx.debit > 0 ? tx.debit.toFixed(2) : "0.00",
-            credit: tx.credit > 0 ? tx.credit.toFixed(2) : "0.00",
-            balance: runningBalance.toFixed(2),
+            saleAmount: tx.debit > 0 ? tx.debit.toFixed(2) : "0.00",
+            collectedAmount: tx.credit > 0 ? tx.credit.toFixed(2) : "0.00",
+            dueBalance: runningDue.toFixed(2),
             customerDues: tx.customerDues,
         });
     }
@@ -388,11 +476,12 @@ export const getDsrLedger = async (
         dsrId,
         dsrName: dsrInfo.name,
         items,
+        orders,
         summary: {
-            openingBalance: openingBalance.toFixed(2),
-            totalDebit: totalDebit.toFixed(2),
-            totalCredit: totalCredit.toFixed(2),
-            closingBalance: runningBalance.toFixed(2),
+            previousDue: previousDue.toFixed(2),
+            totalSales: totalSales.toFixed(2),
+            totalCollected: totalCollected.toFixed(2),
+            currentDue: runningDue.toFixed(2),
             transactionCount: transactions.length,
         },
     };
@@ -403,20 +492,20 @@ export const getDsrLedger = async (
 export interface DsrLedgerOverviewItem {
     dsrId: number;
     dsrName: string;
-    openingBalance: string;
-    totalDebit: string;
-    totalCredit: string;
-    closingBalance: string;
+    previousDue: string;
+    totalSales: string;
+    totalCollected: string;
+    currentDue: string;
     transactionCount: number;
 }
 
 export interface DsrLedgerOverviewResponse {
     items: DsrLedgerOverviewItem[];
     totals: {
-        totalOpeningBalance: string;
-        totalDebit: string;
-        totalCredit: string;
-        totalClosingBalance: string;
+        totalPreviousDue: string;
+        totalSales: string;
+        totalCollected: string;
+        totalCurrentDue: string;
     };
 }
 
@@ -439,13 +528,13 @@ export const getAllDsrLedgerSummaries = async (
     });
 
     const items: DsrLedgerOverviewItem[] = [];
-    let totalOpeningBalance = 0;
-    let totalDebit = 0;
-    let totalCredit = 0;
-    let totalClosingBalance = 0;
+    let totalPreviousDue = 0;
+    let grandTotalSales = 0;
+    let grandTotalCollected = 0;
+    let totalCurrentDue = 0;
 
     for (const dsrInfo of allDsrs) {
-        // Calculate opening balance (sales - payments before start date)
+        // Calculate previous due (sales - payments before start date)
         const salesBeforeResult = await db
             .select({
                 total: sql<string>`COALESCE(SUM(CAST(${wholesaleOrders.total} AS DECIMAL)), 0)`,
@@ -471,9 +560,9 @@ export const getAllDsrLedgerSummaries = async (
 
         const salesBefore = parseFloat(salesBeforeResult[0]?.total || "0");
         const paymentsBefore = parseFloat(paymentsBeforeResult[0]?.total || "0");
-        const openingBalance = salesBefore - paymentsBefore;
+        const previousDue = salesBefore - paymentsBefore;
 
-        // Get sales in date range (debit)
+        // Get sales in date range (sales)
         const salesInRangeResult = await db
             .select({
                 total: sql<string>`COALESCE(SUM(CAST(${wholesaleOrders.total} AS DECIMAL)), 0)`,
@@ -488,7 +577,7 @@ export const getAllDsrLedgerSummaries = async (
                 ne(wholesaleOrders.status, "return")
             ));
 
-        // Get payments in date range (credit)
+        // Get payments in date range (collected)
         const paymentsInRangeResult = await db
             .select({
                 total: sql<string>`COALESCE(SUM(CAST(${orderPayments.amount} AS DECIMAL)), 0)`,
@@ -502,35 +591,35 @@ export const getAllDsrLedgerSummaries = async (
                 lte(orderPayments.paymentDate, endDate)
             ));
 
-        const debit = parseFloat(salesInRangeResult[0]?.total || "0");
-        const credit = parseFloat(paymentsInRangeResult[0]?.total || "0");
+        const sales = parseFloat(salesInRangeResult[0]?.total || "0");
+        const collected = parseFloat(paymentsInRangeResult[0]?.total || "0");
         const salesCount = Number(salesInRangeResult[0]?.count || 0);
         const paymentsCount = Number(paymentsInRangeResult[0]?.count || 0);
-        const closingBalance = openingBalance + debit - credit;
+        const currentDue = previousDue + sales - collected;
 
         items.push({
             dsrId: dsrInfo.id,
             dsrName: dsrInfo.name,
-            openingBalance: openingBalance.toFixed(2),
-            totalDebit: debit.toFixed(2),
-            totalCredit: credit.toFixed(2),
-            closingBalance: closingBalance.toFixed(2),
+            previousDue: previousDue.toFixed(2),
+            totalSales: sales.toFixed(2),
+            totalCollected: collected.toFixed(2),
+            currentDue: currentDue.toFixed(2),
             transactionCount: salesCount + paymentsCount,
         });
 
-        totalOpeningBalance += openingBalance;
-        totalDebit += debit;
-        totalCredit += credit;
-        totalClosingBalance += closingBalance;
+        totalPreviousDue += previousDue;
+        grandTotalSales += sales;
+        grandTotalCollected += collected;
+        totalCurrentDue += currentDue;
     }
 
     return {
         items,
         totals: {
-            totalOpeningBalance: totalOpeningBalance.toFixed(2),
-            totalDebit: totalDebit.toFixed(2),
-            totalCredit: totalCredit.toFixed(2),
-            totalClosingBalance: totalClosingBalance.toFixed(2),
+            totalPreviousDue: totalPreviousDue.toFixed(2),
+            totalSales: grandTotalSales.toFixed(2),
+            totalCollected: grandTotalCollected.toFixed(2),
+            totalCurrentDue: totalCurrentDue.toFixed(2),
         },
     };
 };
