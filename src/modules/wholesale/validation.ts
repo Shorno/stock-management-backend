@@ -99,6 +99,7 @@ export const adjustmentItemReturnSchema = z.object({
     returnUnit: z.string().min(1, "Return unit is required"),
     returnFreeQuantity: z.coerce.number().int().nonnegative("Return free quantity must be non-negative").default(0),
     returnAmount: z.coerce.number().nonnegative("Return amount must be non-negative").default(0),
+    adjustmentDiscount: z.coerce.number().nonnegative("Adjustment discount must be non-negative").default(0),
 });
 
 // Customer due schema for adjustments

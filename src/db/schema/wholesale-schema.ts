@@ -247,6 +247,7 @@ export const orderItemReturns = pgTable("order_item_returns", {
     returnUnit: varchar("return_unit", { length: 20 }).notNull(),
     returnFreeQuantity: integer("return_free_quantity").notNull().default(0),
     returnAmount: decimal("return_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+    adjustmentDiscount: decimal("adjustment_discount", { precision: 10, scale: 2 }).notNull().default("0"),
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_item_returns_order").on(table.orderId),

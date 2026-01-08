@@ -671,9 +671,10 @@ export const saveOrderAdjustment = async (
             }
         }
 
-        // Insert new item returns
+        // Insert new item returns (also stores discount per item)
         for (const itemReturn of data.itemReturns) {
-            if (itemReturn.returnQuantity > 0 || itemReturn.returnFreeQuantity > 0) {
+            // Create record if there's a return OR discount
+            if (itemReturn.returnQuantity > 0 || itemReturn.returnFreeQuantity > 0 || itemReturn.adjustmentDiscount > 0) {
                 await tx.insert(orderItemReturns).values({
                     orderId,
                     orderItemId: itemReturn.itemId,
@@ -681,6 +682,7 @@ export const saveOrderAdjustment = async (
                     returnUnit: itemReturn.returnUnit,
                     returnFreeQuantity: itemReturn.returnFreeQuantity,
                     returnAmount: itemReturn.returnAmount.toFixed(2),
+                    adjustmentDiscount: itemReturn.adjustmentDiscount.toFixed(2),
                 });
                 totalReturnsAmount += itemReturn.returnAmount;
             }
@@ -746,6 +748,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const totalReturns = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount), 0);
     const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+    const totalAdjustmentDiscount = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.adjustmentDiscount || "0"), 0);
 
     // Calculate per-item net values
     const itemsWithCalculations = await Promise.all(
@@ -755,6 +758,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             const returnUnit = itemReturn?.returnUnit ?? "PCS";
             const returnFreeQuantity = itemReturn?.returnFreeQuantity ?? 0;
             const returnAmount = itemReturn ? parseFloat(itemReturn.returnAmount) : 0;
+            const adjustmentDiscount = itemReturn ? parseFloat(itemReturn.adjustmentDiscount || "0") : 0;
 
             // Get unit multiplier for return unit
             const unitMultiplier = await getUnitMultiplier(returnUnit);
@@ -764,7 +768,8 @@ export const getOrderAdjustment = async (orderId: number) => {
             const netQuantity = Math.max(0, item.quantity - returnQtyInBase);
             const netFreeQuantity = Math.max(0, item.freeQuantity - returnFreeQuantity);
             const salePrice = parseFloat(item.salePrice);
-            const netTotal = netQuantity * salePrice;
+            // Net total = (netQuantity × salePrice) - adjustmentDiscount
+            const netTotal = Math.max(0, (netQuantity * salePrice) - adjustmentDiscount);
 
             return {
                 id: item.id,
@@ -783,6 +788,8 @@ export const getOrderAdjustment = async (orderId: number) => {
                 returnUnit,
                 returnFreeQuantity,
                 returnAmount,
+                // Adjustment discount
+                adjustmentDiscount,
                 // Net values (calculated)
                 netQuantity,
                 netFreeQuantity,
@@ -824,6 +831,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             returnUnit: r.returnUnit,
             returnFreeQuantity: r.returnFreeQuantity,
             returnAmount: parseFloat(r.returnAmount),
+            adjustmentDiscount: parseFloat(r.adjustmentDiscount || "0"),
         })),
         // New: Items with pre-calculated values
         itemsWithCalculations,
@@ -833,6 +841,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             discount: parseFloat(order.discount),
             total: orderTotal,
             totalReturns,
+            totalAdjustmentDiscount,
             netTotal: netTotalAfterReturns,
             totalPayments,
             totalExpenses,
@@ -842,3 +851,4 @@ export const getOrderAdjustment = async (orderId: number) => {
         },
     };
 };
+
