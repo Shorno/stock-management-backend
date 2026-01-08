@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, dsr, route, orderPayments } from "../../db/schema";
-import { eq, and, gte, lte, lt, sql, ne, sum, countDistinct, desc } from "drizzle-orm";
+import { wholesaleOrders, dsr, route } from "../../db/schema";
+import { eq, and, gte, lte, sql, ne, sum, countDistinct, desc } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
 export interface DailySalesCollectionItem {
@@ -174,25 +174,6 @@ export const getDailySalesCollection = async (
 
 // ==================== DSR LEDGER ====================
 
-export interface DsrLedgerItem {
-    date: string;
-    type: "sale" | "payment" | "opening";
-    note: string;
-    reference: string;
-    saleAmount: string;
-    collectedAmount: string;
-    dueBalance: string;
-    customerDues?: { customerName: string; amount: string }[];
-}
-
-export interface DsrLedgerSummary {
-    previousDue: string;
-    totalSales: string;
-    totalCollected: string;
-    currentDue: string;
-    transactionCount: number;
-}
-
 // Order-based summary item for DSR ledger
 export interface DsrOrderSummaryItem {
     orderId: number;
@@ -214,15 +195,11 @@ export interface DsrOrderSummaryItem {
 export interface DsrLedgerResponse {
     dsrId: number;
     dsrName: string;
-    items: DsrLedgerItem[];
     orders: DsrOrderSummaryItem[];
-    summary: DsrLedgerSummary;
 }
 
 /**
- * Get DSR Ledger - shows all transactions for a DSR with running balance
- * Sales = Debit (DSR owes company)
- * Payments = Credit (DSR paid company)
+ * Get DSR Ledger - shows all orders with payments, expenses, and customer dues for a DSR
  */
 export const getDsrLedger = async (
     query: DsrLedgerQuery
@@ -237,36 +214,6 @@ export const getDsrLedger = async (
     if (!dsrInfo) {
         throw new Error(`DSR with ID ${dsrId} not found`);
     }
-
-    // Calculate opening balance (sum of debits - credits before start date)
-    // Debits: Sales before start date (excluding cancelled/return)
-    const salesBeforeResult = await db
-        .select({
-            total: sql<string>`COALESCE(SUM(CAST(${wholesaleOrders.total} AS DECIMAL)), 0)`,
-        })
-        .from(wholesaleOrders)
-        .where(and(
-            eq(wholesaleOrders.dsrId, dsrId),
-            lt(wholesaleOrders.orderDate, startDate),
-            ne(wholesaleOrders.status, "cancelled"),
-            ne(wholesaleOrders.status, "return")
-        ));
-
-    // Credits: Payments before start date
-    const paymentsBeforeResult = await db
-        .select({
-            total: sql<string>`COALESCE(SUM(CAST(${orderPayments.amount} AS DECIMAL)), 0)`,
-        })
-        .from(orderPayments)
-        .innerJoin(wholesaleOrders, eq(orderPayments.orderId, wholesaleOrders.id))
-        .where(and(
-            eq(wholesaleOrders.dsrId, dsrId),
-            lt(orderPayments.paymentDate, startDate)
-        ));
-
-    const salesBefore = parseFloat(salesBeforeResult[0]?.total || "0");
-    const paymentsBefore = parseFloat(paymentsBeforeResult[0]?.total || "0");
-    const previousDue = salesBefore - paymentsBefore;
 
     // Get sales in date range (excluding cancelled/return)
     const sales = await db
@@ -310,10 +257,12 @@ export const getDsrLedger = async (
         where: (r, { inArray }) => inArray(r.orderId, orderIds),
     }) : [];
 
-    // Group returns by order ID
+    // Group returns and adjustment discounts by order ID
     const returnsByOrderId = new Map<number, number>();
+    const adjDiscountsByOrderId = new Map<number, number>();
     for (const ret of returnsData) {
         returnsByOrderId.set(ret.orderId, (returnsByOrderId.get(ret.orderId) || 0) + parseFloat(ret.returnAmount));
+        adjDiscountsByOrderId.set(ret.orderId, (adjDiscountsByOrderId.get(ret.orderId) || 0) + parseFloat(ret.adjustmentDiscount || "0"));
     }
 
     // Group customer dues by order ID
@@ -346,13 +295,16 @@ export const getDsrLedger = async (
         const orderExpensesList = expensesByOrderId.get(sale.orderId) || [];
         const orderCustomerDues = customerDuesByOrderId.get(sale.orderId) || [];
         const orderReturns = returnsByOrderId.get(sale.orderId) || 0;
+        const orderAdjDiscounts = adjDiscountsByOrderId.get(sale.orderId) || 0;
 
         const totalPayments = orderPaymentsList.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const totalExpenses = orderExpensesList.reduce((sum, e) => sum + parseFloat(e.amount), 0);
         const totalCustomerDue = orderCustomerDues.reduce((sum, d) => sum + parseFloat(d.amount), 0);
         const orderTotal = parseFloat(sale.total);
-        const netOrderTotal = orderTotal - orderReturns; // Deduct returns from total
-        const orderDue = Math.max(0, netOrderTotal - totalPayments - totalExpenses - totalCustomerDue);
+        const netOrderTotal = orderTotal - orderReturns - orderAdjDiscounts;
+
+        // Order Due = Customer Dues (what DSR still needs to collect from customers)
+        const orderDue = totalCustomerDue;
 
         return {
             orderId: sale.orderId,
@@ -360,7 +312,7 @@ export const getDsrLedger = async (
             orderDate: sale.date,
             routeName: sale.routeName,
             orderTotal: orderTotal.toFixed(2),
-            totalReturns: orderReturns.toFixed(2),
+            totalReturns: (orderReturns + orderAdjDiscounts).toFixed(2),
             netOrderTotal: netOrderTotal.toFixed(2),
             payments: orderPaymentsList,
             expenses: orderExpensesList,
@@ -372,118 +324,10 @@ export const getDsrLedger = async (
         };
     });
 
-    // Get payments in date range
-    const payments = await db
-        .select({
-            date: orderPayments.paymentDate,
-            amount: orderPayments.amount,
-            note: orderPayments.note,
-            paymentMethod: orderPayments.paymentMethod,
-            orderNumber: wholesaleOrders.orderNumber,
-        })
-        .from(orderPayments)
-        .innerJoin(wholesaleOrders, eq(orderPayments.orderId, wholesaleOrders.id))
-        .where(and(
-            eq(wholesaleOrders.dsrId, dsrId),
-            gte(orderPayments.paymentDate, startDate),
-            lte(orderPayments.paymentDate, endDate)
-        ));
-
-    // Combine and sort transactions
-    interface Transaction {
-        date: string;
-        type: "sale" | "payment";
-        note: string;
-        reference: string;
-        debit: number;
-        credit: number;
-        sortKey: string;
-        orderId?: number;
-        customerDues?: { customerName: string; amount: string }[];
-    }
-
-    const transactions: Transaction[] = [];
-
-    // Add sales as debits (with customer dues)
-    for (const sale of sales) {
-        const dues = customerDuesByOrderId.get(sale.orderId);
-        transactions.push({
-            date: sale.date,
-            type: "sale",
-            note: `Sale - ${sale.routeName}`,
-            reference: sale.orderNumber,
-            debit: parseFloat(sale.total),
-            credit: 0,
-            sortKey: `${sale.date}-0-${sale.orderNumber}`,
-            orderId: sale.orderId,
-            customerDues: dues,
-        });
-    }
-
-    // Add payments as credits
-    for (const payment of payments) {
-        transactions.push({
-            date: payment.date,
-            type: "payment",
-            note: payment.note || `Payment - ${payment.paymentMethod || "Cash"}`,
-            reference: payment.orderNumber,
-            debit: 0,
-            credit: parseFloat(payment.amount),
-            sortKey: `${payment.date}-1-${payment.orderNumber}`,
-        });
-    }
-
-    // Sort by date, then type (sales before payments on same day)
-    transactions.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-
-    // Build ledger items with running due
-    let runningDue = previousDue;
-    let totalSales = 0;
-    let totalCollected = 0;
-
-    const items: DsrLedgerItem[] = [];
-
-    // Add opening balance row
-    items.push({
-        date: startDate,
-        type: "opening",
-        note: "Previous Due",
-        reference: "",
-        saleAmount: "0.00",
-        collectedAmount: "0.00",
-        dueBalance: previousDue.toFixed(2),
-    });
-
-    // Add transaction rows
-    for (const tx of transactions) {
-        runningDue = runningDue + tx.debit - tx.credit;
-        totalSales += tx.debit;
-        totalCollected += tx.credit;
-
-        items.push({
-            date: tx.date,
-            type: tx.type,
-            note: tx.note,
-            reference: tx.reference,
-            saleAmount: tx.debit > 0 ? tx.debit.toFixed(2) : "0.00",
-            collectedAmount: tx.credit > 0 ? tx.credit.toFixed(2) : "0.00",
-            dueBalance: runningDue.toFixed(2),
-            customerDues: tx.customerDues,
-        });
-    }
-
     return {
         dsrId,
         dsrName: dsrInfo.name,
-        items,
         orders,
-        summary: {
-            previousDue: previousDue.toFixed(2),
-            totalSales: totalSales.toFixed(2),
-            totalCollected: totalCollected.toFixed(2),
-            currentDue: runningDue.toFixed(2),
-            transactionCount: transactions.length,
-        },
     };
 };
 
@@ -492,20 +336,21 @@ export const getDsrLedger = async (
 export interface DsrLedgerOverviewItem {
     dsrId: number;
     dsrName: string;
-    previousDue: string;
-    totalSales: string;
+    orderCount: number;
+    totalNetSales: string;
     totalCollected: string;
-    currentDue: string;
-    transactionCount: number;
+    totalExpenses: string;
+    totalDue: string; // Customer dues
 }
 
 export interface DsrLedgerOverviewResponse {
     items: DsrLedgerOverviewItem[];
     totals: {
-        totalPreviousDue: string;
-        totalSales: string;
+        totalOrders: number;
+        totalNetSales: string;
         totalCollected: string;
-        totalCurrentDue: string;
+        totalExpenses: string;
+        totalDue: string;
     };
 }
 
@@ -515,7 +360,7 @@ export interface DsrLedgerOverviewQuery {
 }
 
 /**
- * Get DSR Ledger Overview - shows summary for all DSRs
+ * Get DSR Ledger Overview - shows summary for all DSRs using order-based calculations
  */
 export const getAllDsrLedgerSummaries = async (
     query: DsrLedgerOverviewQuery
@@ -528,46 +373,16 @@ export const getAllDsrLedgerSummaries = async (
     });
 
     const items: DsrLedgerOverviewItem[] = [];
-    let totalPreviousDue = 0;
-    let grandTotalSales = 0;
+    let grandTotalOrders = 0;
+    let grandTotalNetSales = 0;
     let grandTotalCollected = 0;
-    let totalCurrentDue = 0;
+    let grandTotalExpenses = 0;
+    let grandTotalDue = 0;
 
     for (const dsrInfo of allDsrs) {
-        // Calculate previous due (sales - payments before start date)
-        const salesBeforeResult = await db
-            .select({
-                total: sql<string>`COALESCE(SUM(CAST(${wholesaleOrders.total} AS DECIMAL)), 0)`,
-            })
-            .from(wholesaleOrders)
-            .where(and(
-                eq(wholesaleOrders.dsrId, dsrInfo.id),
-                lt(wholesaleOrders.orderDate, startDate),
-                ne(wholesaleOrders.status, "cancelled"),
-                ne(wholesaleOrders.status, "return")
-            ));
-
-        const paymentsBeforeResult = await db
-            .select({
-                total: sql<string>`COALESCE(SUM(CAST(${orderPayments.amount} AS DECIMAL)), 0)`,
-            })
-            .from(orderPayments)
-            .innerJoin(wholesaleOrders, eq(orderPayments.orderId, wholesaleOrders.id))
-            .where(and(
-                eq(wholesaleOrders.dsrId, dsrInfo.id),
-                lt(orderPayments.paymentDate, startDate)
-            ));
-
-        const salesBefore = parseFloat(salesBeforeResult[0]?.total || "0");
-        const paymentsBefore = parseFloat(paymentsBeforeResult[0]?.total || "0");
-        const previousDue = salesBefore - paymentsBefore;
-
-        // Get sales in date range (sales)
-        const salesInRangeResult = await db
-            .select({
-                total: sql<string>`COALESCE(SUM(CAST(${wholesaleOrders.total} AS DECIMAL)), 0)`,
-                count: sql<number>`COUNT(*)`,
-            })
+        // Get orders in date range for this DSR
+        const orders = await db
+            .select({ id: wholesaleOrders.id, total: wholesaleOrders.total })
             .from(wholesaleOrders)
             .where(and(
                 eq(wholesaleOrders.dsrId, dsrInfo.id),
@@ -577,49 +392,67 @@ export const getAllDsrLedgerSummaries = async (
                 ne(wholesaleOrders.status, "return")
             ));
 
-        // Get payments in date range (collected)
-        const paymentsInRangeResult = await db
-            .select({
-                total: sql<string>`COALESCE(SUM(CAST(${orderPayments.amount} AS DECIMAL)), 0)`,
-                count: sql<number>`COUNT(*)`,
-            })
-            .from(orderPayments)
-            .innerJoin(wholesaleOrders, eq(orderPayments.orderId, wholesaleOrders.id))
-            .where(and(
-                eq(wholesaleOrders.dsrId, dsrInfo.id),
-                gte(orderPayments.paymentDate, startDate),
-                lte(orderPayments.paymentDate, endDate)
-            ));
+        const orderIds = orders.map(o => o.id);
+        const orderCount = orders.length;
 
-        const sales = parseFloat(salesInRangeResult[0]?.total || "0");
-        const collected = parseFloat(paymentsInRangeResult[0]?.total || "0");
-        const salesCount = Number(salesInRangeResult[0]?.count || 0);
-        const paymentsCount = Number(paymentsInRangeResult[0]?.count || 0);
-        const currentDue = previousDue + sales - collected;
+        if (orderCount === 0) {
+            // Skip DSRs with no orders in the date range
+            continue;
+        }
+
+        // Fetch returns for these orders
+        const returnsData = await db.query.orderItemReturns.findMany({
+            where: (r, { inArray }) => inArray(r.orderId, orderIds),
+        });
+
+        // Fetch payments for these orders
+        const paymentsData = await db.query.orderPayments.findMany({
+            where: (p, { inArray }) => inArray(p.orderId, orderIds),
+        });
+
+        // Fetch expenses for these orders
+        const expensesData = await db.query.orderExpenses.findMany({
+            where: (e, { inArray }) => inArray(e.orderId, orderIds),
+        });
+
+        // Fetch customer dues for these orders
+        const customerDuesData = await db.query.orderCustomerDues.findMany({
+            where: (d, { inArray }) => inArray(d.orderId, orderIds),
+        });
+
+        // Calculate totals
+        const grossSales = orders.reduce((sum, o) => sum + parseFloat(o.total), 0);
+        const totalReturns = returnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount) + parseFloat(r.adjustmentDiscount || "0"), 0);
+        const totalNetSales = grossSales - totalReturns;
+        const totalCollected = paymentsData.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalExpenses = expensesData.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+        const totalDue = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
 
         items.push({
             dsrId: dsrInfo.id,
             dsrName: dsrInfo.name,
-            previousDue: previousDue.toFixed(2),
-            totalSales: sales.toFixed(2),
-            totalCollected: collected.toFixed(2),
-            currentDue: currentDue.toFixed(2),
-            transactionCount: salesCount + paymentsCount,
+            orderCount,
+            totalNetSales: totalNetSales.toFixed(2),
+            totalCollected: totalCollected.toFixed(2),
+            totalExpenses: totalExpenses.toFixed(2),
+            totalDue: totalDue.toFixed(2),
         });
 
-        totalPreviousDue += previousDue;
-        grandTotalSales += sales;
-        grandTotalCollected += collected;
-        totalCurrentDue += currentDue;
+        grandTotalOrders += orderCount;
+        grandTotalNetSales += totalNetSales;
+        grandTotalCollected += totalCollected;
+        grandTotalExpenses += totalExpenses;
+        grandTotalDue += totalDue;
     }
 
     return {
         items,
         totals: {
-            totalPreviousDue: totalPreviousDue.toFixed(2),
-            totalSales: grandTotalSales.toFixed(2),
+            totalOrders: grandTotalOrders,
+            totalNetSales: grandTotalNetSales.toFixed(2),
             totalCollected: grandTotalCollected.toFixed(2),
-            totalCurrentDue: totalCurrentDue.toFixed(2),
+            totalExpenses: grandTotalExpenses.toFixed(2),
+            totalDue: grandTotalDue.toFixed(2),
         },
     };
 };
