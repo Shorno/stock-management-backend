@@ -498,6 +498,7 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // ----- PROFIT & LOSS -----
     // Net Sales - Cost of Goods Sold
     // For sold items, we need to calculate the cost based on supplier prices
+    // IMPORTANT: Use net quantity (totalQuantity - returnQuantity) to account for returns
     let costOfGoodsSold = 0;
     if (orderIds.length > 0) {
         // Get order items for completed orders
@@ -510,10 +511,28 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
             .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
             .where(sql`${wholesaleOrderItems.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
 
+        // Get return quantities for each order item
+        const returnsResult = await db
+            .select({
+                orderItemId: orderItemReturns.orderItemId,
+                returnQuantity: orderItemReturns.returnQuantity,
+            })
+            .from(orderItemReturns)
+            .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
+
+        // Create a map of order item ID to return quantity
+        const returnQuantityMap = new Map<number, number>();
+        for (const ret of returnsResult) {
+            returnQuantityMap.set(ret.orderItemId, ret.returnQuantity || 0);
+        }
+
         costOfGoodsSold = orderItemsResult.reduce((sum, row) => {
             const supplierPrice = Number(row.batch.supplierPrice || 0);
-            const quantity = row.item.totalQuantity || 0;
-            return sum + (supplierPrice * quantity);
+            const totalQuantity = row.item.totalQuantity || 0;
+            const returnQuantity = returnQuantityMap.get(row.item.id) || 0;
+            // Net quantity = total quantity - returned quantity
+            const netQuantity = totalQuantity - returnQuantity;
+            return sum + (supplierPrice * netQuantity);
         }, 0);
     }
 
