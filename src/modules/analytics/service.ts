@@ -409,6 +409,7 @@ export interface DashboardStats {
     profitLoss: number;
     dsrSalesDue: number;
     cashBalance: number;
+    supplierDue: number;
 }
 
 /**
@@ -576,6 +577,22 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     const totalExpenses = Number(expensesResult[0]?.total || 0);
     const cashBalance = paymentsReceived - totalExpenses;
 
+    // ----- SUPPLIER DUE -----
+    // Total purchases from suppliers - total payments to suppliers
+    const { supplierPurchases, supplierPayments } = await import("../../db/schema/supplier-schema");
+
+    const supplierPurchasesResult = await db
+        .select({ total: sum(supplierPurchases.amount) })
+        .from(supplierPurchases);
+
+    const supplierPaymentsResult = await db
+        .select({ total: sum(supplierPayments.amount) })
+        .from(supplierPayments);
+
+    const totalSupplierPurchases = Number(supplierPurchasesResult[0]?.total || 0);
+    const totalSupplierPayments = Number(supplierPaymentsResult[0]?.total || 0);
+    const supplierDue = totalSupplierPurchases - totalSupplierPayments;
+
     return {
         netSales: Math.round(netSales * 100) / 100,
         netPurchase: Math.round(netPurchase * 100) / 100,
@@ -583,6 +600,8 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         profitLoss: Math.round(profitLoss * 100) / 100,
         dsrSalesDue: Math.round(dsrSalesDue * 100) / 100,
         cashBalance: Math.round(cashBalance * 100) / 100,
+        supplierDue: Math.round(supplierDue * 100) / 100,
     };
 }
+
 
