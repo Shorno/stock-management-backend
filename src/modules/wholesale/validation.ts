@@ -84,12 +84,14 @@ export type GetDueOrdersQuery = z.infer<typeof getDueOrdersQuerySchema>;
 export const adjustmentPaymentSchema = z.object({
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
     method: z.string().min(1, "Payment method is required"),
+    note: z.string().optional(),
 });
 
 // Expense entry schema for adjustments
 export const adjustmentExpenseSchema = z.object({
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
     type: z.string().min(1, "Expense type is required"),
+    note: z.string().optional(),
 });
 
 // Item return schema for adjustments
@@ -104,6 +106,7 @@ export const adjustmentItemReturnSchema = z.object({
 
 // Customer due schema for adjustments
 export const adjustmentCustomerDueSchema = z.object({
+    customerId: z.coerce.number().int().positive("Customer ID must be positive").optional(),
     customerName: z.string().min(1, "Customer name is required"),
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
 });

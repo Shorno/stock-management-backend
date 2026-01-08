@@ -241,6 +241,7 @@ interface AdjustmentItemWithCalculations {
     returnUnit: string;
     returnFreeQuantity: number;
     returnAmount: number;
+    adjustmentDiscount: number;  // Per-item adjustment discount
     netQuantity: number;
     netFreeQuantity: number;
     netTotal: number;
@@ -251,6 +252,7 @@ interface AdjustmentSummary {
     discount: number;
     total: number;
     totalReturns: number;
+    totalAdjustmentDiscount: number;  // Total adjustment discount across all items
     netTotal: number;
     totalPayments: number;
     totalExpenses: number;
@@ -586,6 +588,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 discount: parseFloat(order.discount),
                 total: parseFloat(order.total),
                 totalReturns: 0,
+                totalAdjustmentDiscount: 0,
                 netTotal: parseFloat(order.total),
                 totalPayments: parseFloat(order.paidAmount),
                 totalExpenses: 0,
@@ -665,10 +668,11 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 { label: "Discount", value: -summaryData.discount, bold: false, color: "#dc3545" },
                 { label: "Total", value: summaryData.total, bold: true },
                 { label: "Returns", value: -summaryData.totalReturns, bold: false, color: "#dc3545" },
+                { label: "Adj. Discount", value: -(summaryData.totalAdjustmentDiscount || 0), bold: false, color: "#dc3545" },
                 { label: "Net Total", value: summaryData.netTotal, bold: true },
                 { label: "Payments", value: -summaryData.totalPayments, bold: false, color: "#28a745" },
                 { label: "Expenses", value: -summaryData.totalExpenses, bold: false, color: "#dc3545" },
-                { label: "Cust. Dues", value: -summaryData.totalCustomerDues, bold: false, color: "#e67e22" }, // NEW
+                { label: "Cust. Dues", value: -summaryData.totalCustomerDues, bold: false, color: "#e67e22" },
             ];
 
             summaryItems.forEach(item => {
@@ -686,8 +690,23 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             doc.text("DUE", rightCol, rightY + 2);
             doc.text(formatCurrency(summaryData.due), rightCol + labelWidth, rightY + 2, { width: valueWidth, align: "right" });
 
+            // === AMOUNT TO COLLECT (for DSR) - Left side, prominent display ===
+            const collectY = Math.max(currentY, rightY) + 20;
+
+            // Amount to collect = total customer dues (what DSR should collect from customers)
+            const amountToCollect = summaryData.totalCustomerDues;
+
+            doc.fillColor("#1a5f2a").fontSize(9).font("Helvetica-Bold");
+            doc.text("AMOUNT TO COLLECT", leftCol, collectY);
+
+            doc.fillColor("#1a5f2a").fontSize(22).font("Helvetica-Bold");
+            doc.text(formatCurrency(amountToCollect), leftCol, collectY + 14);
+
+            doc.fillColor(mediumGray).fontSize(8).font("Helvetica");
+            doc.text("(To be collected by DSR from customers)", leftCol, collectY + 40);
+
             // === FOOTER ===
-            const footerY = Math.max(currentY, rightY) + 40;
+            const footerY = collectY + 60;
             doc.moveTo(40, footerY).lineTo(555, footerY).strokeColor(lightGray).lineWidth(1).stroke();
             doc.fillColor(mediumGray).fontSize(7).font("Helvetica")
                 .text(`Generated on ${new Date().toLocaleString()}`, 40, footerY + 8, { align: "center", width: 515 });

@@ -292,6 +292,7 @@ export const getOrders = async (
                 category: true,
                 brand: true,
                 items: true,
+                itemReturns: true,  // Include item returns for calculating net sale
             },
         }),
         db
@@ -300,31 +301,50 @@ export const getOrders = async (
             .where(whereClause),
     ]);
 
-    // Transform orders to include item count and proper naming
+    // Transform orders to include item count, totalReturns, and netTotal
     // Type assertion needed because Drizzle's query type inference doesn't include relations properly
-    const transformedOrders = orders.map((order: any) => ({
-        id: order.id,
-        orderNumber: order.orderNumber,
-        dsrId: order.dsrId,
-        dsrName: order.dsr?.name,
-        routeId: order.routeId,
-        routeName: order.route?.name,
-        orderDate: order.orderDate,
-        categoryId: order.categoryId,
-        categoryName: order.category?.name,
-        brandId: order.brandId,
-        brandName: order.brand?.name,
-        invoiceNote: order.invoiceNote,
-        subtotal: order.subtotal,
-        discount: order.discount,
-        total: order.total,
-        paidAmount: order.paidAmount,
-        paymentStatus: order.paymentStatus,
-        status: order.status,
-        itemCount: order.items?.length || 0,
-        createdAt: order.createdAt,
-        updatedAt: order.updatedAt,
-    }));
+    const transformedOrders = orders.map((order: any) => {
+        // Calculate total returns and adjustment discounts from item returns
+        let totalReturns = 0;
+        let totalAdjustmentDiscount = 0;
+
+        if (order.itemReturns && order.itemReturns.length > 0) {
+            for (const returnItem of order.itemReturns) {
+                totalReturns += parseFloat(returnItem.returnAmount || "0");
+                totalAdjustmentDiscount += parseFloat(returnItem.adjustmentDiscount || "0");
+            }
+        }
+
+        const orderTotal = parseFloat(order.total || "0");
+        const netTotal = orderTotal - totalReturns - totalAdjustmentDiscount;
+
+        return {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            dsrId: order.dsrId,
+            dsrName: order.dsr?.name,
+            routeId: order.routeId,
+            routeName: order.route?.name,
+            orderDate: order.orderDate,
+            categoryId: order.categoryId,
+            categoryName: order.category?.name,
+            brandId: order.brandId,
+            brandName: order.brand?.name,
+            invoiceNote: order.invoiceNote,
+            subtotal: order.subtotal,
+            discount: order.discount,
+            total: order.total,
+            totalReturns: totalReturns.toFixed(2),
+            totalAdjustmentDiscount: totalAdjustmentDiscount.toFixed(2),
+            netTotal: netTotal.toFixed(2),
+            paidAmount: order.paidAmount,
+            paymentStatus: order.paymentStatus,
+            status: order.status,
+            itemCount: order.items?.length || 0,
+            createdAt: order.createdAt,
+            updatedAt: order.updatedAt,
+        };
+    });
 
     return {
         orders: transformedOrders,
@@ -642,6 +662,7 @@ export const saveOrderAdjustment = async (
                     amount: payment.amount.toFixed(2),
                     paymentDate: data.paymentDate,
                     paymentMethod: payment.method,
+                    note: payment.note || null,
                 });
                 totalPayments += payment.amount;
             }
@@ -654,6 +675,7 @@ export const saveOrderAdjustment = async (
                     orderId,
                     amount: expense.amount.toFixed(2),
                     expenseType: expense.type,
+                    note: expense.note || null,
                 });
                 totalExpensesAmount += expense.amount;
             }
@@ -664,6 +686,7 @@ export const saveOrderAdjustment = async (
             if (customerDue.amount > 0) {
                 await tx.insert(orderCustomerDues).values({
                     orderId,
+                    customerId: customerDue.customerId || null,
                     customerName: customerDue.customerName,
                     amount: customerDue.amount.toFixed(2),
                 });
@@ -813,14 +836,17 @@ export const getOrderAdjustment = async (orderId: number) => {
             id: p.id,
             amount: parseFloat(p.amount),
             method: p.paymentMethod || "cash",
+            note: p.note || undefined,
         })),
         expenses: expenses.map(e => ({
             id: e.id,
             amount: parseFloat(e.amount),
             type: e.expenseType,
+            note: e.note || undefined,
         })),
         customerDues: customerDuesData.map(d => ({
             id: d.id,
+            customerId: d.customerId || undefined,
             customerName: d.customerName,
             amount: parseFloat(d.amount),
         })),

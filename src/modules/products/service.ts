@@ -9,6 +9,7 @@ export const createProduct = async (
   data: CreateProductInput
 ): Promise<Product> => {
   const newProduct: NewProduct = {
+    code: data.code,
     name: data.name,
     categoryId: data.categoryId,
     brandId: data.brandId,
@@ -93,6 +94,9 @@ export const updateProduct = async (
 ): Promise<Product | undefined> => {
   const updateData: Partial<NewProduct> = {};
 
+  if (data.code !== undefined) {
+    updateData.code = data.code;
+  }
   if (data.name !== undefined) {
     updateData.name = data.name;
   }

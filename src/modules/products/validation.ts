@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const baseProductSchema = z.object({
+    code: z.string().min(1, "Product code is required").max(50, "Product code is too long"),
     name: z.string().min(1, "Product name is required").max(255, "Product name is too long"),
     categoryId: z.coerce.number().int("Category ID must be an integer").positive("Category ID must be positive"),
     brandId: z.coerce.number().int("Brand ID must be an integer").positive("Brand ID must be positive"),
@@ -12,6 +13,7 @@ export const createProductSchema = baseProductSchema;
 
 
 export const updateProductSchema = z.object({
+    code: z.string().min(1, "Product code is required").max(50, "Product code is too long").optional(),
     name: z.string().min(1, "Product name is required").max(255, "Product name is too long").optional(),
     categoryId: z.coerce.number().int("Category ID must be an integer").positive("Category ID must be positive").optional(),
     brandId: z.coerce.number().int("Brand ID must be an integer").positive("Brand ID must be positive").optional(),

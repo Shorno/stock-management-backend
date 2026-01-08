@@ -19,6 +19,7 @@ export const brand = pgTable("brand", {
 
 export const product = pgTable("product", {
   id: serial("id").primaryKey(),
+  code: varchar("code", { length: 50 }).unique().notNull(),
   name: text("name").notNull(),
   categoryId: integer("category_id")
     .notNull()
@@ -36,6 +37,7 @@ export const productVariant = pgTable("product_variant", {
   productId: integer("product_id")
     .notNull()
     .references(() => product.id, { onDelete: "cascade" }),
+  sku: varchar("sku", { length: 50 }).unique(),                      // Unique SKU for inventory tracking
   variantType: varchar("variant_type", { length: 50 }).notNull(), // "weight", "volume", "pack"
   label: varchar("label", { length: 100 }).notNull(),              // "500g", "1L", "Pack of 6"
   value: numeric("value", { precision: 10, scale: 2 }),            // 500, 1, 6 (numeric value)

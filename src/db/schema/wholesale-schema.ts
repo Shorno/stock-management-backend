@@ -280,11 +280,14 @@ export const orderCustomerDues = pgTable("order_customer_dues", {
     orderId: integer("order_id")
         .notNull()
         .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
-    customerName: varchar("customer_name", { length: 150 }).notNull(),
+    customerId: integer("customer_id")
+        .references(() => customer.id, { onDelete: "set null" }),
+    customerName: varchar("customer_name", { length: 150 }).notNull(),  // Keep for display/fallback
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_customer_dues_order").on(table.orderId),
+    customerIdx: index("idx_order_customer_dues_customer").on(table.customerId),
 }));
 
 // Order customer dues relations
@@ -292,6 +295,10 @@ export const orderCustomerDuesRelations = relations(orderCustomerDues, ({ one })
     order: one(wholesaleOrders, {
         fields: [orderCustomerDues.orderId],
         references: [wholesaleOrders.id],
+    }),
+    customer: one(customer, {
+        fields: [orderCustomerDues.customerId],
+        references: [customer.id],
     }),
 }));
 
