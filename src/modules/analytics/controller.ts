@@ -147,3 +147,26 @@ export const handleGetOrderStatusBreakdown = async (c: AppContext): Promise<Resp
         );
     }
 };
+
+export const handleGetDashboardStats = async (c: AppContext): Promise<Response> => {
+    try {
+        const startDate = c.req.query("startDate");
+        const endDate = c.req.query("endDate");
+
+        const result = await analyticsService.getDashboardStats({ startDate, endDate });
+
+        return c.json({
+            success: true,
+            data: result,
+        });
+    } catch (error) {
+        console.error("Error fetching dashboard stats:", error);
+        return c.json(
+            {
+                success: false,
+                message: "Failed to fetch dashboard stats",
+            },
+            500
+        );
+    }
+};
