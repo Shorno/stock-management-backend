@@ -49,15 +49,29 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
             doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightGray).lineWidth(1).stroke();
             currentY += 15;
 
-            // === SUMMARY BAR ===
-            const summary = ledgerData.summary;
+            // === SUMMARY BAR - Computed from orders ===
+            let totalNetSales = 0;
+            let totalPayments = 0;
+            let totalExpenses = 0;
+            let totalCustomerDues = 0;
+            let totalDue = 0;
+
+            for (const order of ledgerData.orders) {
+                totalNetSales += parseFloat(order.netOrderTotal);
+                totalPayments += parseFloat(order.totalPayments);
+                totalExpenses += parseFloat(order.totalExpenses);
+                totalCustomerDues += parseFloat(order.totalCustomerDue);
+                totalDue += parseFloat(order.orderDue);
+            }
+
             doc.fontSize(9).font("Helvetica");
 
             const summaryItems = [
-                { label: "Previous Due", value: parseFloat(summary.previousDue) },
-                { label: "Total Sales", value: parseFloat(summary.totalSales) },
-                { label: "Total Collected", value: parseFloat(summary.totalCollected), color: "#28a745" },
-                { label: "Current Due", value: parseFloat(summary.currentDue), color: "#dc3545", bold: true },
+                { label: "Net Sales", value: totalNetSales },
+                { label: "Payments", value: totalPayments, color: "#28a745" },
+                { label: "Expenses", value: totalExpenses },
+                { label: "Cust. Dues", value: totalCustomerDues, color: "#e67e22" },
+                { label: "Total Due", value: totalDue, color: "#dc3545", bold: true },
             ];
 
             let summaryX = 40;
@@ -65,8 +79,8 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
                 doc.fillColor(mediumGray).font("Helvetica").text(item.label + ":", summaryX, currentY);
                 doc.fillColor(item.color || darkGray)
                     .font(item.bold ? "Helvetica-Bold" : "Helvetica")
-                    .text(`Tk ${item.value.toFixed(2)}`, summaryX + 80, currentY);
-                summaryX += 130;
+                    .text(`Tk ${item.value.toFixed(2)}`, summaryX + 60, currentY);
+                summaryX += 105;
             });
 
             currentY += 25;
@@ -102,7 +116,7 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
             colX += colWidths.expenses;
             doc.text("Cust. Dues", colX, currentY + 6, { width: colWidths.dues, align: "right" });
             colX += colWidths.dues;
-            doc.text("Total Due", colX, currentY + 6, { width: colWidths.totalDue, align: "right" });
+            doc.text("Due", colX, currentY + 6, { width: colWidths.totalDue, align: "right" });
 
             currentY += 22;
 

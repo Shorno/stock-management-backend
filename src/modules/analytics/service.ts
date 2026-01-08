@@ -298,6 +298,7 @@ export async function getSalesByDSR(dateRange?: DateRange): Promise<SalesByDSRIt
         ? and(validOrderFilter, ...dateFilters)
         : validOrderFilter;
 
+    // Get gross sales by DSR
     const result = await db
         .select({
             dsrId: dsr.id,
@@ -311,10 +312,51 @@ export async function getSalesByDSR(dateRange?: DateRange): Promise<SalesByDSRIt
         .groupBy(dsr.id, dsr.name)
         .orderBy(desc(sum(wholesaleOrders.total)));
 
+    // Get order IDs grouped by DSR to calculate returns
+    const ordersWithDsr = await db
+        .select({
+            orderId: wholesaleOrders.id,
+            dsrId: wholesaleOrders.dsrId,
+        })
+        .from(wholesaleOrders)
+        .where(allFilters);
+
+    const orderIds = ordersWithDsr.map(o => o.orderId);
+
+    // Fetch returns for these orders
+    let returnsByDsr = new Map<number, number>();
+    if (orderIds.length > 0) {
+        const returnsData = await db
+            .select({
+                orderId: orderItemReturns.orderId,
+                totalReturns: sum(orderItemReturns.returnAmount),
+                totalAdjDiscount: sum(orderItemReturns.adjustmentDiscount),
+            })
+            .from(orderItemReturns)
+            .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`)
+            .groupBy(orderItemReturns.orderId);
+
+        // Map order to DSR
+        const orderToDsr = new Map<number, number>();
+        for (const o of ordersWithDsr) {
+            orderToDsr.set(o.orderId, o.dsrId);
+        }
+
+        // Aggregate returns by DSR
+        for (const ret of returnsData) {
+            const dsrId = orderToDsr.get(ret.orderId);
+            if (dsrId) {
+                const currentReturns = returnsByDsr.get(dsrId) || 0;
+                returnsByDsr.set(dsrId, currentReturns + Number(ret.totalReturns || 0) + Number(ret.totalAdjDiscount || 0));
+            }
+        }
+    }
+
+    // Calculate net sales (gross - returns)
     return result.map(r => ({
         dsrId: r.dsrId,
         dsrName: r.dsrName,
-        totalSales: Number(r.totalSales || 0),
+        totalSales: Number(r.totalSales || 0) - (returnsByDsr.get(r.dsrId) || 0),
         orderCount: Number(r.orderCount || 0),
     }));
 }
@@ -327,6 +369,7 @@ export async function getSalesByRoute(dateRange?: DateRange): Promise<SalesByRou
         ? and(validOrderFilter, ...dateFilters)
         : validOrderFilter;
 
+    // Get gross sales by route
     const result = await db
         .select({
             routeId: route.id,
@@ -340,10 +383,51 @@ export async function getSalesByRoute(dateRange?: DateRange): Promise<SalesByRou
         .groupBy(route.id, route.name)
         .orderBy(desc(sum(wholesaleOrders.total)));
 
+    // Get order IDs grouped by route to calculate returns
+    const ordersWithRoute = await db
+        .select({
+            orderId: wholesaleOrders.id,
+            routeId: wholesaleOrders.routeId,
+        })
+        .from(wholesaleOrders)
+        .where(allFilters);
+
+    const orderIds = ordersWithRoute.map(o => o.orderId);
+
+    // Fetch returns for these orders
+    let returnsByRoute = new Map<number, number>();
+    if (orderIds.length > 0) {
+        const returnsData = await db
+            .select({
+                orderId: orderItemReturns.orderId,
+                totalReturns: sum(orderItemReturns.returnAmount),
+                totalAdjDiscount: sum(orderItemReturns.adjustmentDiscount),
+            })
+            .from(orderItemReturns)
+            .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`)
+            .groupBy(orderItemReturns.orderId);
+
+        // Map order to route
+        const orderToRoute = new Map<number, number>();
+        for (const o of ordersWithRoute) {
+            orderToRoute.set(o.orderId, o.routeId);
+        }
+
+        // Aggregate returns by route
+        for (const ret of returnsData) {
+            const routeId = orderToRoute.get(ret.orderId);
+            if (routeId) {
+                const currentReturns = returnsByRoute.get(routeId) || 0;
+                returnsByRoute.set(routeId, currentReturns + Number(ret.totalReturns || 0) + Number(ret.totalAdjDiscount || 0));
+            }
+        }
+    }
+
+    // Calculate net sales (gross - returns)
     return result.map(r => ({
         routeId: r.routeId,
         routeName: r.routeName,
-        totalSales: Number(r.totalSales || 0),
+        totalSales: Number(r.totalSales || 0) - (returnsByRoute.get(r.routeId) || 0),
         orderCount: Number(r.orderCount || 0),
     }));
 }

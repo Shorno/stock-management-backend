@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
-import { dsrTarget, dsr, wholesaleOrders } from "../../db/schema";
-import { eq, and, gte, lt, sum } from "drizzle-orm";
+import { dsrTarget, dsr, wholesaleOrders, orderItemReturns } from "../../db/schema";
+import { eq, and, gte, lt, sum, inArray } from "drizzle-orm";
 
 export interface CreateDsrTargetInput {
     dsrId: number;
@@ -18,7 +18,7 @@ export interface DsrTargetWithProgress {
     dsrName: string;
     targetMonth: string;
     targetAmount: number;
-    actualSales: number;
+    actualSales: number;  // Net sales after returns
     progress: number; // percentage
 }
 
@@ -134,7 +134,7 @@ export async function getTargetsWithProgress(targetMonth?: string): Promise<DsrT
         .innerJoin(dsr, eq(dsrTarget.dsrId, dsr.id))
         .where(eq(dsrTarget.targetMonth, month));
 
-    // Get actual sales for each DSR in the month (separate query)
+    // Get gross sales for each DSR in the month
     const salesByDsr = await db
         .select({
             dsrId: wholesaleOrders.dsrId,
@@ -143,20 +143,62 @@ export async function getTargetsWithProgress(targetMonth?: string): Promise<DsrT
         .from(wholesaleOrders)
         .where(
             and(
-                eq(wholesaleOrders.status, 'completed'),
                 gte(wholesaleOrders.orderDate, startDate),
                 lt(wholesaleOrders.orderDate, endDate)
             )
         )
         .groupBy(wholesaleOrders.dsrId);
 
-    // Create a map of dsrId -> totalSales
-    const salesMap = new Map<number, number>();
-    for (const sale of salesByDsr) {
-        salesMap.set(sale.dsrId, Number(sale.totalSales || 0));
+    // Get order IDs for the date range to fetch returns
+    const ordersInRange = await db
+        .select({ id: wholesaleOrders.id, dsrId: wholesaleOrders.dsrId })
+        .from(wholesaleOrders)
+        .where(
+            and(
+                gte(wholesaleOrders.orderDate, startDate),
+                lt(wholesaleOrders.orderDate, endDate)
+            )
+        );
+
+    const orderIds = ordersInRange.map(o => o.id);
+
+    // Get total returns for these orders
+    let returnsByDsr = new Map<number, number>();
+    if (orderIds.length > 0) {
+        const returnsData = await db
+            .select({
+                orderId: orderItemReturns.orderId,
+                totalReturns: sum(orderItemReturns.returnAmount),
+                totalAdjDiscount: sum(orderItemReturns.adjustmentDiscount),
+            })
+            .from(orderItemReturns)
+            .where(inArray(orderItemReturns.orderId, orderIds))
+            .groupBy(orderItemReturns.orderId);
+
+        // Map returns to DSR
+        const orderToDsr = new Map<number, number>();
+        for (const order of ordersInRange) {
+            orderToDsr.set(order.id, order.dsrId);
+        }
+
+        for (const ret of returnsData) {
+            const dsrId = orderToDsr.get(ret.orderId);
+            if (dsrId) {
+                const currentReturns = returnsByDsr.get(dsrId) || 0;
+                returnsByDsr.set(dsrId, currentReturns + Number(ret.totalReturns || 0) + Number(ret.totalAdjDiscount || 0));
+            }
+        }
     }
 
-    // Combine targets with actual sales
+    // Create a map of dsrId -> net sales (gross - returns)
+    const salesMap = new Map<number, number>();
+    for (const sale of salesByDsr) {
+        const grossSales = Number(sale.totalSales || 0);
+        const returns = returnsByDsr.get(sale.dsrId) || 0;
+        salesMap.set(sale.dsrId, grossSales - returns);
+    }
+
+    // Combine targets with actual net sales
     return targets.map(t => {
         const actualSales = salesMap.get(t.dsrId) || 0;
         const targetAmount = Number(t.targetAmount);
