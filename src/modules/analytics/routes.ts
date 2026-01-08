@@ -21,4 +21,8 @@ analyticsRoutes.get("/top-products", controller.handleGetTopProducts);
 // GET /api/analytics/order-status - Order status breakdown
 analyticsRoutes.get("/order-status", controller.handleGetOrderStatusBreakdown);
 
+// GET /api/analytics/dashboard-stats - Dashboard statistics summary
+analyticsRoutes.get("/dashboard-stats", controller.handleGetDashboardStats);
+
 export default analyticsRoutes;
+

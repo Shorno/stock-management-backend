@@ -1,7 +1,7 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments } from "../../db/schema";
 import { product } from "../../db/schema";
-import { eq, and, gte, lte, desc, sum, count } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 
 export interface DateRange {
     startDate?: string;
@@ -83,39 +83,45 @@ function getPreviousPeriodDates(startDate?: string, endDate?: string): { prevSta
 }
 
 async function calculateSalesMetrics(dateFilters: ReturnType<typeof getDateFilter>) {
-    // Get completed orders sales
-    const completedFilter = eq(wholesaleOrders.status, 'completed');
-    const allCompletedFilters = dateFilters.length > 0
-        ? and(completedFilter, ...dateFilters)
-        : completedFilter;
+    // Get all non-cancelled orders sales (adjustment-based pattern)
+    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    const allFilters = dateFilters.length > 0
+        ? and(validOrderFilter, ...dateFilters)
+        : validOrderFilter;
 
     const salesResult = await db
         .select({
             totalSales: sum(wholesaleOrders.total),
         })
         .from(wholesaleOrders)
-        .where(allCompletedFilters);
+        .where(allFilters);
 
-    // Get total orders count
+    // Get total orders count (excluding cancelled)
     const ordersResult = await db
         .select({
             totalOrders: count(),
         })
         .from(wholesaleOrders)
-        .where(dateFilters.length > 0 ? and(...dateFilters) : undefined);
+        .where(allFilters);
 
-    // Get returns count
-    const returnFilter = eq(wholesaleOrders.status, 'return');
-    const allReturnFilters = dateFilters.length > 0
-        ? and(returnFilter, ...dateFilters)
-        : returnFilter;
-
-    const returnsResult = await db
-        .select({
-            totalReturns: count(),
-        })
+    // Get order IDs for fetching returns from adjustments
+    const orderIdsResult = await db
+        .select({ id: wholesaleOrders.id })
         .from(wholesaleOrders)
-        .where(allReturnFilters);
+        .where(allFilters);
+    const orderIds = orderIdsResult.map(o => o.id);
+
+    // Get returns from order_item_returns (adjustment data)
+    let totalReturns = 0;
+    if (orderIds.length > 0) {
+        const returnsResult = await db
+            .select({
+                totalReturns: sum(orderItemReturns.returnAmount),
+            })
+            .from(orderItemReturns)
+            .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
+        totalReturns = Number(returnsResult[0]?.totalReturns || 0);
+    }
 
     // Calculate profit from order items
     const profitResult = await db
@@ -124,13 +130,15 @@ async function calculateSalesMetrics(dateFilters: ReturnType<typeof getDateFilte
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
-        .where(allCompletedFilters);
+        .where(allFilters);
+
+    const grossSales = Number(salesResult[0]?.totalSales || 0);
 
     return {
-        totalSales: Number(salesResult[0]?.totalSales || 0),
+        totalSales: grossSales - totalReturns, // Net sales after returns
         totalOrders: Number(ordersResult[0]?.totalOrders || 0),
-        totalReturns: Number(returnsResult[0]?.totalReturns || 0),
-        totalProfit: Number(profitResult[0]?.totalProfit || 0) * 0.15, // Simplified profit margin
+        totalReturns: totalReturns, // Return amounts from adjustments
+        totalProfit: Number(profitResult[0]?.totalProfit || 0) - totalReturns,
     };
 }
 
@@ -156,10 +164,10 @@ export async function getSalesByPeriod(
     dateRange?: DateRange
 ): Promise<SalesByPeriodItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
-    const completedFilter = eq(wholesaleOrders.status, 'completed');
+    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
     const allFilters = dateFilters.length > 0
-        ? and(completedFilter, ...dateFilters)
-        : completedFilter;
+        ? and(validOrderFilter, ...dateFilters)
+        : validOrderFilter;
 
     // Get all orders within the date range
     const orders = await db
@@ -284,11 +292,11 @@ function fillMissingDates(
 
 export async function getSalesByDSR(dateRange?: DateRange): Promise<SalesByDSRItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
-    const completedFilter = eq(wholesaleOrders.status, 'completed');
+    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
 
     const allFilters = dateFilters.length > 0
-        ? and(completedFilter, ...dateFilters)
-        : completedFilter;
+        ? and(validOrderFilter, ...dateFilters)
+        : validOrderFilter;
 
     const result = await db
         .select({
@@ -313,11 +321,11 @@ export async function getSalesByDSR(dateRange?: DateRange): Promise<SalesByDSRIt
 
 export async function getSalesByRoute(dateRange?: DateRange): Promise<SalesByRouteItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
-    const completedFilter = eq(wholesaleOrders.status, 'completed');
+    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
 
     const allFilters = dateFilters.length > 0
-        ? and(completedFilter, ...dateFilters)
-        : completedFilter;
+        ? and(validOrderFilter, ...dateFilters)
+        : validOrderFilter;
 
     const result = await db
         .select({
@@ -342,11 +350,11 @@ export async function getSalesByRoute(dateRange?: DateRange): Promise<SalesByRou
 
 export async function getTopProducts(limit: number = 10, dateRange?: DateRange): Promise<TopProductItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
-    const completedFilter = eq(wholesaleOrders.status, 'completed');
+    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
 
     const allFilters = dateFilters.length > 0
-        ? and(completedFilter, ...dateFilters)
-        : completedFilter;
+        ? and(validOrderFilter, ...dateFilters)
+        : validOrderFilter;
 
     const result = await db
         .select({
@@ -391,3 +399,209 @@ export async function getOrderStatusBreakdown(dateRange?: DateRange): Promise<Or
         percentage: total > 0 ? Math.round((Number(r.count) / total) * 100) : 0,
     }));
 }
+
+// ==================== DASHBOARD STATS ====================
+
+export interface DashboardStats {
+    netSales: number;
+    netPurchase: number;
+    currentStock: number;
+    profitLoss: number;
+    dsrSalesDue: number;
+    cashBalance: number;
+    supplierDue: number;
+}
+
+/**
+ * Get dashboard statistics summary
+ * Optionally filtered by date range
+ */
+export async function getDashboardStats(dateRange?: DateRange): Promise<DashboardStats> {
+    const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
+
+    // ----- NET SALES -----
+    // Total sales from all orders (excluding cancelled) minus returns from adjustments
+    // Following the same pattern as getDailySalesCollection in reports service
+    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    const salesFilters = dateFilters.length > 0
+        ? and(validOrderFilter, ...dateFilters)
+        : validOrderFilter;
+
+    // Get total sales
+    const salesResult = await db
+        .select({
+            totalSales: sum(wholesaleOrders.total),
+        })
+        .from(wholesaleOrders)
+        .where(salesFilters);
+
+    const totalSales = Number(salesResult[0]?.totalSales || 0);
+
+    // Get total returns (for orders in date range)
+    const orderIdsResult = await db
+        .select({ id: wholesaleOrders.id })
+        .from(wholesaleOrders)
+        .where(salesFilters);
+
+    const orderIds = orderIdsResult.map(o => o.id);
+
+    let totalReturns = 0;
+    if (orderIds.length > 0) {
+        const returnsResult = await db
+            .select({
+                totalReturns: sum(orderItemReturns.returnAmount),
+            })
+            .from(orderItemReturns)
+            .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
+        totalReturns = Number(returnsResult[0]?.totalReturns || 0);
+    }
+
+    const netSales = totalSales - totalReturns;
+
+    // ----- NET PURCHASE -----
+    // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
+    let purchaseFilters = undefined;
+    if (dateRange?.startDate) {
+        purchaseFilters = and(
+            gte(stockBatch.createdAt, new Date(dateRange.startDate)),
+            dateRange.endDate ? lte(stockBatch.createdAt, new Date(dateRange.endDate + 'T23:59:59')) : undefined
+        );
+    }
+
+    const purchaseResult = await db
+        .select({
+            batch: stockBatch,
+        })
+        .from(stockBatch)
+        .where(purchaseFilters);
+
+    const netPurchase = purchaseResult.reduce((sum, row) => {
+        const supplierPrice = Number(row.batch.supplierPrice || 0);
+        const quantity = row.batch.initialQuantity || 0;
+        return sum + (supplierPrice * quantity);
+    }, 0);
+
+    // ----- CURRENT STOCK -----
+    // Sum of remaining quantity × sell price for all batches (not date filtered - current snapshot)
+    const stockResult = await db
+        .select({
+            batch: stockBatch,
+        })
+        .from(stockBatch);
+
+    const currentStock = stockResult.reduce((sum, row) => {
+        const sellPrice = Number(row.batch.sellPrice || 0);
+        const remainingQty = row.batch.remainingQuantity || 0;
+        return sum + (sellPrice * remainingQty);
+    }, 0);
+
+    // ----- PROFIT & LOSS -----
+    // Net Sales - Cost of Goods Sold
+    // For sold items, we need to calculate the cost based on supplier prices
+    let costOfGoodsSold = 0;
+    if (orderIds.length > 0) {
+        // Get order items for completed orders
+        const orderItemsResult = await db
+            .select({
+                item: wholesaleOrderItems,
+                batch: stockBatch,
+            })
+            .from(wholesaleOrderItems)
+            .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+            .where(sql`${wholesaleOrderItems.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
+
+        costOfGoodsSold = orderItemsResult.reduce((sum, row) => {
+            const supplierPrice = Number(row.batch.supplierPrice || 0);
+            const quantity = row.item.totalQuantity || 0;
+            return sum + (supplierPrice * quantity);
+        }, 0);
+    }
+
+    const profitLoss = netSales - costOfGoodsSold;
+
+    // ----- DSR SALES DUE -----
+    // Total dues from all DSRs (orders total - returns - payments made)
+    // Not date filtered - shows current outstanding balance
+    const dsrOrdersResult = await db
+        .select({
+            totalOrders: sum(wholesaleOrders.total),
+        })
+        .from(wholesaleOrders)
+        .where(ne(wholesaleOrders.status, 'cancelled'));
+
+    // Get all returns
+    const allReturnsResult = await db
+        .select({
+            totalReturns: sum(orderItemReturns.returnAmount),
+        })
+        .from(orderItemReturns);
+
+    const dsrPaymentsResult = await db
+        .select({
+            totalPayments: sum(orderPayments.amount),
+        })
+        .from(orderPayments);
+
+    const totalOrderAmount = Number(dsrOrdersResult[0]?.totalOrders || 0);
+    const allReturns = Number(allReturnsResult[0]?.totalReturns || 0);
+    const totalPaidAmount = Number(dsrPaymentsResult[0]?.totalPayments || 0);
+    const dsrSalesDue = totalOrderAmount - allReturns - totalPaidAmount;
+
+    // ----- CASH BALANCE -----
+    // Total payments received - total expenses
+    let paymentFilters = undefined;
+    let expenseFilters = undefined;
+
+    if (dateRange?.startDate) {
+        paymentFilters = and(
+            gte(orderPayments.paymentDate, dateRange.startDate),
+            dateRange.endDate ? lte(orderPayments.paymentDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const paymentsReceivedResult = await db
+        .select({
+            total: sum(orderPayments.amount),
+        })
+        .from(orderPayments)
+        .where(paymentFilters);
+
+    const expensesResult = await db
+        .select({
+            total: sum(orderExpenses.amount),
+        })
+        .from(orderExpenses)
+        .where(expenseFilters);
+
+    const paymentsReceived = Number(paymentsReceivedResult[0]?.total || 0);
+    const totalExpenses = Number(expensesResult[0]?.total || 0);
+    const cashBalance = paymentsReceived - totalExpenses;
+
+    // ----- SUPPLIER DUE -----
+    // Total purchases from suppliers - total payments to suppliers
+    const { supplierPurchases, supplierPayments } = await import("../../db/schema/supplier-schema");
+
+    const supplierPurchasesResult = await db
+        .select({ total: sum(supplierPurchases.amount) })
+        .from(supplierPurchases);
+
+    const supplierPaymentsResult = await db
+        .select({ total: sum(supplierPayments.amount) })
+        .from(supplierPayments);
+
+    const totalSupplierPurchases = Number(supplierPurchasesResult[0]?.total || 0);
+    const totalSupplierPayments = Number(supplierPaymentsResult[0]?.total || 0);
+    const supplierDue = totalSupplierPurchases - totalSupplierPayments;
+
+    return {
+        netSales: Math.round(netSales * 100) / 100,
+        netPurchase: Math.round(netPurchase * 100) / 100,
+        currentStock: Math.round(currentStock * 100) / 100,
+        profitLoss: Math.round(profitLoss * 100) / 100,
+        dsrSalesDue: Math.round(dsrSalesDue * 100) / 100,
+        cashBalance: Math.round(cashBalance * 100) / 100,
+        supplierDue: Math.round(supplierDue * 100) / 100,
+    };
+}
+
+

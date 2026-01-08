@@ -17,6 +17,7 @@ import reportsRoutes from "./modules/reports/routes";
 import { customerRoutes } from "./modules/customer";
 import damageReturnsRoutes from "./modules/damage-returns/routes";
 import { unitRoutes } from "./modules/unit";
+import { supplierRoutes } from "./modules/supplier";
 
 const app = new Hono<{
     Variables: {
@@ -91,6 +92,8 @@ app.route("/reports", reportsRoutes);
 app.route("/customers", customerRoutes);
 app.route("/damage-returns", damageReturnsRoutes);
 app.route("/units", unitRoutes);
+app.route("/suppliers", supplierRoutes);
+
 
 const port = Number(process.env.PORT) || 3000;
 
