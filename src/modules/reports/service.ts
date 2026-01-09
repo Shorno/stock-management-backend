@@ -648,10 +648,11 @@ export interface ProductWiseSalesItem {
     brandId: number;
     brandName: string;
     unit: string;
-    totalQuantity: number;
-    freeQuantity: number;
+    totalQuantity: number;      // Net quantity after returns
+    freeQuantity: number;       // Net free qty after returns
+    returnQuantity: number;     // Returned quantity
+    returnFreeQuantity: number; // Returned free quantity
     totalSales: string;
-    averagePrice: string;
     orderCount: number;
 }
 
@@ -724,6 +725,8 @@ export const getProductWiseSales = async (
                 COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})
                 - COALESCE(${orderItemReturns.returnFreeQuantity}, 0)
             )`,
+            returnQty: sql<number>`SUM(COALESCE(${orderItemReturns.returnQuantity}, 0))`,
+            returnFreeQty: sql<number>`SUM(COALESCE(${orderItemReturns.returnFreeQuantity}, 0))`,
             totalNet: sql<string>`SUM(
                 CAST(${wholesaleOrderItems.net} AS DECIMAL)
                 - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
@@ -757,8 +760,9 @@ export const getProductWiseSales = async (
     const items: ProductWiseSalesItem[] = results.map((row) => {
         const quantity = Number(row.quantity) || 0;
         const freeQty = Number(row.freeQty) || 0;
+        const returnQty = Number(row.returnQty) || 0;
+        const returnFreeQty = Number(row.returnFreeQty) || 0;
         const net = parseFloat(row.totalNet ?? "0") || 0;
-        const avgPrice = quantity > 0 ? net / quantity : 0;
 
         totalQuantitySold += quantity;
         totalFreeQuantity += freeQty;
@@ -774,8 +778,9 @@ export const getProductWiseSales = async (
             unit: row.unit,
             totalQuantity: quantity,
             freeQuantity: freeQty,
+            returnQuantity: returnQty,
+            returnFreeQuantity: returnFreeQty,
             totalSales: net.toFixed(2),
-            averagePrice: avgPrice.toFixed(2),
             orderCount: row.orderCount,
         };
     });
