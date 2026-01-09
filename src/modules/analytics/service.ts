@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 
@@ -530,17 +530,20 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     const orderIds = orderIdsResult.map(o => o.id);
 
     let totalReturns = 0;
+    let totalAdjustmentDiscounts = 0;
     if (orderIds.length > 0) {
         const returnsResult = await db
             .select({
                 totalReturns: sum(orderItemReturns.returnAmount),
+                totalAdjustmentDiscounts: sum(orderItemReturns.adjustmentDiscount),
             })
             .from(orderItemReturns)
             .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
         totalReturns = Number(returnsResult[0]?.totalReturns || 0);
+        totalAdjustmentDiscounts = Number(returnsResult[0]?.totalAdjustmentDiscounts || 0);
     }
 
-    const netSales = totalSales - totalReturns;
+    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts;
 
     // ----- NET PURCHASE -----
     // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
@@ -623,32 +626,14 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     const profitLoss = netSales - costOfGoodsSold;
 
     // ----- DSR SALES DUE -----
-    // Total dues from all DSRs (orders total - returns - payments made)
-    // Not date filtered - shows current outstanding balance
-    const dsrOrdersResult = await db
+    // Total outstanding customer dues from all orders (what DSRs need to collect)
+    const customerDuesResult = await db
         .select({
-            totalOrders: sum(wholesaleOrders.total),
+            totalDue: sum(orderCustomerDues.amount),
         })
-        .from(wholesaleOrders)
-        .where(ne(wholesaleOrders.status, 'cancelled'));
+        .from(orderCustomerDues);
 
-    // Get all returns
-    const allReturnsResult = await db
-        .select({
-            totalReturns: sum(orderItemReturns.returnAmount),
-        })
-        .from(orderItemReturns);
-
-    const dsrPaymentsResult = await db
-        .select({
-            totalPayments: sum(orderPayments.amount),
-        })
-        .from(orderPayments);
-
-    const totalOrderAmount = Number(dsrOrdersResult[0]?.totalOrders || 0);
-    const allReturns = Number(allReturnsResult[0]?.totalReturns || 0);
-    const totalPaidAmount = Number(dsrPaymentsResult[0]?.totalPayments || 0);
-    const dsrSalesDue = totalOrderAmount - allReturns - totalPaidAmount;
+    const dsrSalesDue = Number(customerDuesResult[0]?.totalDue || 0);
 
     // ----- CASH BALANCE -----
     // Total payments received - total expenses

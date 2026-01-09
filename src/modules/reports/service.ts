@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, dsr, route } from "../../db/schema";
-import { eq, and, gte, lte, sql, ne, sum, countDistinct, desc } from "drizzle-orm";
+import { wholesaleOrders, dsr, route, orderItemReturns } from "../../db/schema";
+import { eq, and, gte, lte, sql, ne, countDistinct, desc } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
 export interface DailySalesCollectionItem {
@@ -19,13 +19,14 @@ export interface DailySalesCollectionItem {
 }
 
 export interface DailySalesCollectionSummary {
-    totalSales: string;
-    totalReturns: string;
-    totalDiscount: string;
-    totalGrandTotal: string;
+    totalSales: string;           // Sum of all order totals
+    totalReturns: string;         // Sum of return amounts ONLY (not adjustment discounts)
+    totalAdjustmentDiscount: string; // Sum of adjustment discounts
+    totalDiscount: string;        // Sum of order-level discounts
+    totalGrandTotal: string;      // Net sales after returns and adjustments
     totalExpenses: string;
     totalReceived: string;
-    totalDue: string;
+    totalDue: string;             // Sum of customer dues
     orderCount: number;
 }
 
@@ -82,7 +83,7 @@ export const getDailySalesCollection = async (
     // Get all order IDs for batch queries
     const orderIds = orders.map(o => o.orderId);
 
-    // Fetch all payments, expenses, and returns for these orders
+    // Fetch all payments, expenses, returns, and customer dues for these orders
     const allPayments = orderIds.length > 0 ? await db.query.orderPayments.findMany({
         where: (p, { inArray }) => inArray(p.orderId, orderIds),
     }) : [];
@@ -93,6 +94,10 @@ export const getDailySalesCollection = async (
 
     const allReturns = orderIds.length > 0 ? await db.query.orderItemReturns.findMany({
         where: (r, { inArray }) => inArray(r.orderId, orderIds),
+    }) : [];
+
+    const allCustomerDues = orderIds.length > 0 ? await db.query.orderCustomerDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
     }) : [];
 
     // Group by order ID for quick lookup
@@ -106,14 +111,23 @@ export const getDailySalesCollection = async (
         expensesByOrder.set(e.orderId, (expensesByOrder.get(e.orderId) || 0) + parseFloat(e.amount));
     }
 
-    const returnsByOrder = new Map<number, number>();
+    const returnsByOrder = new Map<number, { returnAmount: number; adjustmentDiscount: number }>();
     for (const r of allReturns) {
-        returnsByOrder.set(r.orderId, (returnsByOrder.get(r.orderId) || 0) + parseFloat(r.returnAmount));
+        const current = returnsByOrder.get(r.orderId) || { returnAmount: 0, adjustmentDiscount: 0 };
+        current.returnAmount += parseFloat(r.returnAmount);
+        current.adjustmentDiscount += parseFloat(r.adjustmentDiscount || "0");
+        returnsByOrder.set(r.orderId, current);
+    }
+
+    const duesByOrder = new Map<number, number>();
+    for (const d of allCustomerDues) {
+        duesByOrder.set(d.orderId, (duesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
     }
 
     // Transform data and calculate amounts
     let totalSales = 0;
-    let totalReturns = 0;
+    let totalReturns = 0;              // Only return amounts
+    let totalAdjustmentDiscount = 0;   // Only adjustment discounts
     let totalDiscount = 0;
     let totalGrandTotal = 0;
     let totalExpenses = 0;
@@ -123,18 +137,21 @@ export const getDailySalesCollection = async (
     const items: DailySalesCollectionItem[] = orders.map((order) => {
         const sale = parseFloat(order.total);
         const discount = parseFloat(order.discount);
-        const returnAmount = returnsByOrder.get(order.orderId) || 0;
+        const returns = returnsByOrder.get(order.orderId) || { returnAmount: 0, adjustmentDiscount: 0 };
+        const returnAmount = returns.returnAmount;              // Only return amount
+        const adjustmentDiscount = returns.adjustmentDiscount;  // Separate adjustment discount
         const expense = expensesByOrder.get(order.orderId) || 0;
         const received = paymentsByOrder.get(order.orderId) || 0;
+        // Due = Customer Dues (what DSR needs to collect from customers)
+        const due = duesByOrder.get(order.orderId) || 0;
 
-        // Grand Total = Sale - Returns - Discount
-        const grandTotal = sale - returnAmount;
-        // Due = Grand Total - Received
-        const due = Math.max(0, grandTotal - received);
+        // Grand Total = Sale - Returns - Adjustment Discounts
+        const grandTotal = sale - returnAmount - adjustmentDiscount;
 
         // Aggregate totals
         totalSales += sale;
-        totalReturns += returnAmount;
+        totalReturns += returnAmount;                    // Only return amount
+        totalAdjustmentDiscount += adjustmentDiscount;   // Separate adjustment discount
         totalDiscount += discount;
         totalGrandTotal += grandTotal;
         totalExpenses += expense;
@@ -148,7 +165,7 @@ export const getDailySalesCollection = async (
             routeId: order.routeId,
             routeName: order.routeName,
             sale: sale.toFixed(2),
-            returnAmount: returnAmount.toFixed(2),
+            returnAmount: returnAmount.toFixed(2),       // Only return amount (not combined)
             discount: discount.toFixed(2),
             grandTotal: grandTotal.toFixed(2),
             expense: expense.toFixed(2),
@@ -162,6 +179,7 @@ export const getDailySalesCollection = async (
         summary: {
             totalSales: totalSales.toFixed(2),
             totalReturns: totalReturns.toFixed(2),
+            totalAdjustmentDiscount: totalAdjustmentDiscount.toFixed(2),
             totalDiscount: totalDiscount.toFixed(2),
             totalGrandTotal: totalGrandTotal.toFixed(2),
             totalExpenses: totalExpenses.toFixed(2),
@@ -486,43 +504,67 @@ export interface DsrDueSummaryResponse {
 export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
     const today = new Date();
 
-    // Get all orders with dues (unpaid or partial payment, excluding cancelled/return/completed)
-    const ordersWithDues = await db
+    // Get all orders with dues (unpaid or partial payment, excluding cancelled/return)
+    const orders = await db
         .select({
+            orderId: wholesaleOrders.id,
             dsrId: wholesaleOrders.dsrId,
             dsrName: dsr.name,
             orderDate: wholesaleOrders.orderDate,
             total: wholesaleOrders.total,
             paidAmount: wholesaleOrders.paidAmount,
-            status: wholesaleOrders.status,
-            paymentStatus: wholesaleOrders.paymentStatus,
         })
         .from(wholesaleOrders)
         .innerJoin(dsr, eq(wholesaleOrders.dsrId, dsr.id))
         .where(and(
             ne(wholesaleOrders.status, "cancelled"),
-            ne(wholesaleOrders.status, "return"),
-            ne(wholesaleOrders.status, "completed"),
-            ne(wholesaleOrders.paymentStatus, "paid")
+            ne(wholesaleOrders.status, "return")
         ))
         .orderBy(dsr.name, wholesaleOrders.orderDate);
+
+    if (orders.length === 0) {
+        return {
+            items: [],
+            totals: { totalDsrs: 0, totalOrders: 0, grandTotalDue: "0.00", averageAgeDays: 0 },
+        };
+    }
+
+    const orderIds = orders.map(o => o.orderId);
+
+    // Fetch all customer dues for these orders
+    const allCustomerDues = await db.query.orderCustomerDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    });
+
+    // Group customer dues by order
+    const duesByOrder = new Map<number, number>();
+    for (const d of allCustomerDues) {
+        duesByOrder.set(d.orderId, (duesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
+    }
 
     // Group by DSR
     const dsrMap = new Map<number, {
         dsrName: string;
         orders: Array<{
+            orderId: number;
             orderDate: string;
             total: number;
             paidAmount: number;
+            due: number;
         }>;
     }>();
 
-    for (const order of ordersWithDues) {
+    for (const order of orders) {
+        const orderDue = duesByOrder.get(order.orderId) || 0;
+        if (orderDue <= 0) continue; // Skip orders with no due
+
         const existing = dsrMap.get(order.dsrId);
         const orderData = {
+            orderId: order.orderId,
             orderDate: order.orderDate,
             total: parseFloat(order.total),
             paidAmount: parseFloat(order.paidAmount),
+            due: orderDue,
         };
 
         if (existing) {
@@ -538,25 +580,25 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
     // Build summary items
     const items: DsrDueSummaryItem[] = [];
     let grandTotalDue = 0;
-    let totalAgeDays = 0;
-    let totalOrders = 0;
+    let totalAgeDaysSum = 0;
+    let totalCountWithAge = 0;
+    let totalOrderCount = 0;
 
     for (const [dsrId, data] of dsrMap) {
         let totalOrderAmount = 0;
         let totalPaid = 0;
+        let totalDsrDue = 0;
         let oldestDate: Date | null = null;
 
         for (const order of data.orders) {
             totalOrderAmount += order.total;
             totalPaid += order.paidAmount;
+            totalDsrDue += order.due;
 
             const orderDate = new Date(order.orderDate);
-            if (!oldestDate || orderDate < oldestDate) {
-                oldestDate = orderDate;
-            }
+            if (!oldestDate || orderDate < oldestDate) oldestDate = orderDate;
         }
 
-        const due = totalOrderAmount - totalPaid;
         const ageDays = oldestDate
             ? Math.floor((today.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24))
             : 0;
@@ -567,14 +609,17 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
             orderCount: data.orders.length,
             totalOrderAmount: totalOrderAmount.toFixed(2),
             totalPaid: totalPaid.toFixed(2),
-            totalDue: due.toFixed(2),
-            oldestDueDate: (oldestDate !== null ? oldestDate.toISOString().split("T")[0] : null) as string | null,
+            totalDue: totalDsrDue.toFixed(2),
+            oldestDueDate: oldestDate ? oldestDate.toISOString().split("T")[0] : null,
             dueAgeDays: ageDays,
         });
 
-        grandTotalDue += due;
-        totalAgeDays += ageDays;
-        totalOrders += data.orders.length;
+        grandTotalDue += totalDsrDue;
+        totalOrderCount += data.orders.length;
+        if (ageDays > 0) {
+            totalAgeDaysSum += ageDays;
+            totalCountWithAge++;
+        }
     }
 
     // Sort by due amount descending (prioritize high-value collections)
@@ -584,9 +629,9 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
         items,
         totals: {
             totalDsrs: items.length,
-            totalOrders,
+            totalOrders: totalOrderCount,
             grandTotalDue: grandTotalDue.toFixed(2),
-            averageAgeDays: items.length > 0 ? Math.round(totalAgeDays / items.length) : 0,
+            averageAgeDays: totalCountWithAge > 0 ? Math.round(totalAgeDaysSum / totalCountWithAge) : 0,
         },
     };
 };
@@ -660,6 +705,7 @@ export const getProductWiseSales = async (
     }
 
     // Query order items grouped by product
+    // Join with returns to subtract returned quantities
     const results = await db
         .select({
             productId: wholesaleOrderItems.productId,
@@ -669,9 +715,20 @@ export const getProductWiseSales = async (
             brandId: wholesaleOrderItems.brandId,
             brandName: brand.name,
             unit: wholesaleOrderItems.unit,
-            quantity: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity}))`,
-            freeQty: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity}))`,
-            totalNet: sum(wholesaleOrderItems.net),
+            // Sum delivered (or original) quantity minus returned quantity
+            quantity: sql<number>`SUM(
+                COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})
+                - COALESCE(${orderItemReturns.returnQuantity}, 0)
+            )`,
+            freeQty: sql<number>`SUM(
+                COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})
+                - COALESCE(${orderItemReturns.returnFreeQuantity}, 0)
+            )`,
+            totalNet: sql<string>`SUM(
+                CAST(${wholesaleOrderItems.net} AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
+            )`,
             orderCount: countDistinct(wholesaleOrderItems.orderId),
         })
         .from(wholesaleOrderItems)
@@ -679,6 +736,7 @@ export const getProductWiseSales = async (
         .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
         .leftJoin(category, eq(product.categoryId, category.id))
         .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
         .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])))
         .groupBy(
             wholesaleOrderItems.productId,
@@ -689,7 +747,7 @@ export const getProductWiseSales = async (
             brand.name,
             wholesaleOrderItems.unit
         )
-        .orderBy(desc(sum(wholesaleOrderItems.net)));
+        .orderBy(desc(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL) - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL))`));
 
     // Transform and calculate
     let totalQuantitySold = 0;
@@ -781,22 +839,35 @@ export const getBrandWiseSales = async (
     }
 
     // Query order items grouped by brand
+    // Join with returns to subtract returned quantities
     const results = await db
         .select({
             brandId: wholesaleOrderItems.brandId,
             brandName: brand.name,
-            quantity: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity}))`,
-            freeQty: sql<number>`SUM(COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity}))`,
-            totalNet: sum(wholesaleOrderItems.net),
+            // Sum delivered (or original) quantity minus returned quantity
+            quantity: sql<number>`SUM(
+                COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})
+                - COALESCE(${orderItemReturns.returnQuantity}, 0)
+            )`,
+            freeQty: sql<number>`SUM(
+                COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})
+                - COALESCE(${orderItemReturns.returnFreeQuantity}, 0)
+            )`,
+            totalNet: sql<string>`SUM(
+                CAST(${wholesaleOrderItems.net} AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
+            )`,
             orderCount: countDistinct(wholesaleOrderItems.orderId),
             productCount: countDistinct(wholesaleOrderItems.productId),
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
         .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
         .where(and(...orderConditions))
         .groupBy(wholesaleOrderItems.brandId, brand.name)
-        .orderBy(desc(sum(wholesaleOrderItems.net)));
+        .orderBy(desc(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL) - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL))`));
 
     // Transform and calculate
     let totalQuantitySold = 0;
@@ -946,7 +1017,11 @@ export const getDailySettlement = async (
         where: (r, { inArray }) => inArray(r.orderId, orderIds),
     }) : [];
 
-    // Group payments/returns by order
+    const allCustomerDues = orderIds.length > 0 ? await db.query.orderCustomerDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
+    // Group payments/returns/dues by order
     const paymentsByOrder = new Map<number, { cash: number; mobileBank: number; bank: number; total: number }>();
     for (const p of allPayments) {
         const existing = paymentsByOrder.get(p.orderId) || { cash: 0, mobileBank: 0, bank: 0, total: 0 };
@@ -959,9 +1034,17 @@ export const getDailySettlement = async (
         paymentsByOrder.set(p.orderId, existing);
     }
 
-    const returnsByOrder = new Map<number, number>();
+    const returnsByOrder = new Map<number, { returnAmount: number; adjustmentDiscount: number }>();
     for (const r of allReturns) {
-        returnsByOrder.set(r.orderId, (returnsByOrder.get(r.orderId) || 0) + parseFloat(r.returnAmount));
+        const current = returnsByOrder.get(r.orderId) || { returnAmount: 0, adjustmentDiscount: 0 };
+        current.returnAmount += parseFloat(r.returnAmount);
+        current.adjustmentDiscount += parseFloat(r.adjustmentDiscount || "0");
+        returnsByOrder.set(r.orderId, current);
+    }
+
+    const duesByOrder = new Map<number, number>();
+    for (const d of allCustomerDues) {
+        duesByOrder.set(d.orderId, (duesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
     }
 
     // Build Net Sales items
@@ -972,11 +1055,13 @@ export const getDailySettlement = async (
     const netSales: NetSalesItem[] = orders.map((order) => {
         const sale = parseFloat(order.total);
         const discount = parseFloat(order.discount);
-        const returnAmount = returnsByOrder.get(order.orderId) || 0;
+        const returns = returnsByOrder.get(order.orderId) || { returnAmount: 0, adjustmentDiscount: 0 };
+        const returnAmount = returns.returnAmount;
+        const adjustmentDiscount = returns.adjustmentDiscount;
         const payments = paymentsByOrder.get(order.orderId) || { cash: 0, mobileBank: 0, bank: 0, total: 0 };
+        const due = duesByOrder.get(order.orderId) || 0;
 
-        const netSalesAmount = sale - returnAmount - discount;
-        const due = Math.max(0, netSalesAmount - payments.total);
+        const netSalesAmount = sale - returnAmount - adjustmentDiscount;
 
         totalNetSales += netSalesAmount;
         totalReceived += payments.total;
@@ -989,7 +1074,7 @@ export const getDailySettlement = async (
             routeId: order.routeId,
             routeName: order.routeName,
             sale: sale.toFixed(2),
-            returnAmount: returnAmount.toFixed(2),
+            returnAmount: returnAmount.toFixed(2), // Only return amount
             discount: discount.toFixed(2),
             netSales: netSalesAmount.toFixed(2),
             totalReceived: payments.total.toFixed(2),
