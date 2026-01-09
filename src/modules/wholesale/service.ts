@@ -626,11 +626,15 @@ export const getDsrTotalDue = async (dsrId: number) => {
     }
 
     // Calculate total due as sum of customer dues (what DSR needs to collect)
+    // Subtract collectedAmount to reflect already collected dues
     const customerDuesResult = await db.query.orderCustomerDues.findMany({
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
     });
 
-    const totalDue = customerDuesResult.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+    const totalDue = customerDuesResult.reduce(
+        (sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)),
+        0
+    );
 
     return {
         dsrId,
@@ -837,7 +841,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     const totalPayments = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
     const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const totalReturns = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount), 0);
-    const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+    const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0);
     const totalAdjustmentDiscount = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.adjustmentDiscount || "0"), 0);
 
     // Calculate per-item net values

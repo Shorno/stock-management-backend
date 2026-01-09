@@ -610,7 +610,7 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
             totalOrderAmount: totalOrderAmount.toFixed(2),
             totalPaid: totalPaid.toFixed(2),
             totalDue: totalDsrDue.toFixed(2),
-            oldestDueDate: oldestDate ? oldestDate.toISOString().split("T")[0] : null,
+            oldestDueDate: oldestDate ? oldestDate.toISOString().split("T")[0] ?? null : null,
             dueAgeDays: ageDays,
         });
 
