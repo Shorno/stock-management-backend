@@ -1,0 +1,89 @@
+import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
+import * as dueCollectionService from "./service";
+import {
+    getCustomersWithDuesQuerySchema,
+    collectDueInputSchema,
+    getCollectionHistoryQuerySchema,
+} from "./validation";
+
+const dueCollectionRoutes = new Hono();
+
+// Get customers with outstanding dues
+dueCollectionRoutes.get(
+    "/customers",
+    zValidator("query", getCustomersWithDuesQuerySchema),
+    async (c) => {
+        try {
+            const query = c.req.valid("query");
+            const customers = await dueCollectionService.getCustomersWithDues(query);
+            return c.json({ success: true, data: customers });
+        } catch (error) {
+            console.error("Error fetching customers with dues:", error);
+            return c.json({ success: false, error: "Failed to fetch customers" }, 500);
+        }
+    }
+);
+
+// Get customer due details
+dueCollectionRoutes.get("/customers/:customerId", async (c) => {
+    try {
+        const customerId = Number(c.req.param("customerId"));
+        if (isNaN(customerId)) {
+            return c.json({ success: false, error: "Invalid customer ID" }, 400);
+        }
+
+        const details = await dueCollectionService.getCustomerDueDetails(customerId);
+        if (!details) {
+            return c.json({ success: false, error: "Customer not found" }, 404);
+        }
+
+        return c.json({ success: true, data: details });
+    } catch (error) {
+        console.error("Error fetching customer due details:", error);
+        return c.json({ success: false, error: "Failed to fetch customer details" }, 500);
+    }
+});
+
+// Collect due
+dueCollectionRoutes.post(
+    "/collect",
+    zValidator("json", collectDueInputSchema),
+    async (c) => {
+        try {
+            const input = c.req.valid("json");
+            const result = await dueCollectionService.collectDue(input);
+
+            if (!result.success) {
+                return c.json({ success: false, error: result.message }, 400);
+            }
+
+            return c.json({
+                success: true,
+                message: result.message,
+                collectionId: result.collectionId
+            });
+        } catch (error) {
+            console.error("Error collecting due:", error);
+            return c.json({ success: false, error: "Failed to record collection" }, 500);
+        }
+    }
+);
+
+// Get collection history
+dueCollectionRoutes.get(
+    "/history",
+    zValidator("query", getCollectionHistoryQuerySchema),
+    async (c) => {
+        try {
+            const query = c.req.valid("query");
+            const history = await dueCollectionService.getCollectionHistory(query);
+            return c.json({ success: true, data: history });
+        } catch (error) {
+            console.error("Error fetching collection history:", error);
+            return c.json({ success: false, error: "Failed to fetch history" }, 500);
+        }
+    }
+);
+
+export { dueCollectionRoutes };

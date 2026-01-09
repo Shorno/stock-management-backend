@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
-import { customer, route } from "../../db/schema";
-import { eq, ilike, count, and, or } from "drizzle-orm";
+import { customer, route, orderCustomerDues } from "../../db/schema";
+import { eq, ilike, count, and, or, sql } from "drizzle-orm";
 import type { CreateCustomerInput, UpdateCustomerInput, GetCustomersQuery } from "./validation";
 import type { Customer, NewCustomer } from "./types";
 
@@ -22,6 +22,7 @@ export const createCustomer = async (data: CreateCustomerInput): Promise<Custome
 
 export interface CustomerWithRoute extends Customer {
     route?: { id: number; name: string } | null;
+    totalDue?: string;
 }
 
 export const getCustomers = async (
@@ -45,7 +46,7 @@ export const getCustomers = async (
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [customers, totalResult] = await Promise.all([
+    const [customersResult, totalResult] = await Promise.all([
         db
             .select({
                 id: customer.id,
@@ -72,6 +73,28 @@ export const getCustomers = async (
             .from(customer)
             .where(whereClause),
     ]);
+
+    // Get customer IDs to fetch dues
+    const customerIds = customersResult.map(c => c.id);
+
+    // Fetch total dues for these customers using inArray
+    const duesResult = customerIds.length > 0 ? await db
+        .select({
+            customerId: orderCustomerDues.customerId,
+            totalDue: sql<string>`SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL))`,
+        })
+        .from(orderCustomerDues)
+        .where(sql`${orderCustomerDues.customerId} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`)
+        .groupBy(orderCustomerDues.customerId) : [];
+
+    // Create a map of customer dues
+    const duesMap = new Map(duesResult.map(d => [d.customerId, d.totalDue]));
+
+    // Merge dues with customers
+    const customers = customersResult.map(c => ({
+        ...c,
+        totalDue: duesMap.get(c.id) || "0",
+    }));
 
     return {
         customers,

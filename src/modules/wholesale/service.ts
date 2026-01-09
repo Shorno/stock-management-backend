@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
 import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues } from "../../db/schema";
-import { eq, and, or, ilike, count, gte, lte, sql } from "drizzle-orm";
+import { eq, and, or, ilike, count, gte, lte, sql, ne } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 
@@ -601,27 +601,45 @@ export const getDueOrders = async (params: {
     };
 };
 
-// Get total outstanding due for a specific DSR
+// Get total outstanding due for a specific DSR (sum of customer dues)
 export const getDsrTotalDue = async (dsrId: number) => {
-    // Calculate total due = SUM(total - paidAmount) for all orders where there's still unpaid amount
-    const result = await db
-        .select({
-            totalDue: sql<string>`COALESCE(SUM(CAST(${wholesaleOrders.total} AS DECIMAL) - CAST(${wholesaleOrders.paidAmount} AS DECIMAL)), 0)`,
-            orderCount: count(),
-        })
+    // Get all orders for this DSR
+    const orders = await db
+        .select({ id: wholesaleOrders.id })
         .from(wholesaleOrders)
         .where(
             and(
                 eq(wholesaleOrders.dsrId, dsrId),
-                // Only include orders that have outstanding balance (payment not complete)
-                sql`CAST(${wholesaleOrders.total} AS DECIMAL) > CAST(${wholesaleOrders.paidAmount} AS DECIMAL)`
+                ne(wholesaleOrders.status, "cancelled"),
+                ne(wholesaleOrders.status, "return")
             )
         );
 
+    const orderIds = orders.map(o => o.id);
+
+    if (orderIds.length === 0) {
+        return {
+            dsrId,
+            totalDue: 0,
+            orderCount: 0,
+        };
+    }
+
+    // Calculate total due as sum of customer dues (what DSR needs to collect)
+    // Subtract collectedAmount to reflect already collected dues
+    const customerDuesResult = await db.query.orderCustomerDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    });
+
+    const totalDue = customerDuesResult.reduce(
+        (sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)),
+        0
+    );
+
     return {
         dsrId,
-        totalDue: parseFloat(result[0]?.totalDue || "0"),
-        orderCount: result[0]?.orderCount || 0,
+        totalDue,
+        orderCount: orders.length,
     };
 };
 
@@ -633,7 +651,7 @@ export const saveOrderAdjustment = async (
     data: SaveAdjustmentInput
 ) => {
     return await db.transaction(async (tx) => {
-        // Get the order
+        // Get the order with items (need batchId for stock updates)
         const order = await tx.query.wholesaleOrders.findFirst({
             where: (orders, { eq }) => eq(orders.id, orderId),
             with: { items: true },
@@ -641,6 +659,39 @@ export const saveOrderAdjustment = async (
 
         if (!order) {
             throw new Error("Order not found");
+        }
+
+        // Create a map of order items for quick lookup
+        const orderItemsMap = new Map<number, { batchId: number; unit: string }>();
+        for (const item of order.items) {
+            orderItemsMap.set(item.id, { batchId: item.batchId, unit: item.unit });
+        }
+
+        // Get existing returns BEFORE deleting (to reverse their stock impact)
+        const existingReturns = await tx.query.orderItemReturns.findMany({
+            where: (returns, { eq }) => eq(returns.orderId, orderId),
+        });
+
+        // Reverse existing returns (subtract quantities from stock - undoing previous addition)
+        for (const existingReturn of existingReturns) {
+            if (existingReturn.returnQuantity > 0 || existingReturn.returnFreeQuantity > 0) {
+                const orderItem = orderItemsMap.get(existingReturn.orderItemId);
+                if (orderItem) {
+                    // Get unit multiplier for the item
+                    const unitMultiplier = FALLBACK_UNIT_MULTIPLIERS[orderItem.unit.toUpperCase()] || 1;
+                    const returnQtyInBase = existingReturn.returnQuantity * unitMultiplier;
+                    const returnFreeQtyInBase = existingReturn.returnFreeQuantity;
+
+                    // Subtract from stock (undo the previous return's stock increase)
+                    await tx
+                        .update(stockBatch)
+                        .set({
+                            remainingQuantity: sql`${stockBatch.remainingQuantity} - ${returnQtyInBase}`,
+                            remainingFreeQty: sql`${stockBatch.remainingFreeQty} - ${returnFreeQtyInBase}`,
+                        })
+                        .where(eq(stockBatch.id, orderItem.batchId));
+                }
+            }
         }
 
         // Delete existing payments, expenses, item returns, and customer dues for this order
@@ -694,7 +745,7 @@ export const saveOrderAdjustment = async (
             }
         }
 
-        // Insert new item returns (also stores discount per item)
+        // Insert new item returns (also stores discount per item) and update stock
         for (const itemReturn of data.itemReturns) {
             // Create record if there's a return OR discount
             if (itemReturn.returnQuantity > 0 || itemReturn.returnFreeQuantity > 0 || itemReturn.adjustmentDiscount > 0) {
@@ -708,6 +759,26 @@ export const saveOrderAdjustment = async (
                     adjustmentDiscount: itemReturn.adjustmentDiscount.toFixed(2),
                 });
                 totalReturnsAmount += itemReturn.returnAmount;
+
+                // Subtract new return quantities from stock
+                if (itemReturn.returnQuantity > 0 || itemReturn.returnFreeQuantity > 0) {
+                    const orderItem = orderItemsMap.get(itemReturn.itemId);
+                    if (orderItem) {
+                        const unitMultiplier = FALLBACK_UNIT_MULTIPLIERS[orderItem.unit.toUpperCase()] || 1;
+                        const returnQtyInBase = itemReturn.returnQuantity * unitMultiplier;
+                        const returnFreeQtyInBase = itemReturn.returnFreeQuantity;
+
+                        // Subtract from stock (returns are still "out" of stock until processed)
+                        // Actually, RETURNED items should be ADDED back to stock!
+                        await tx
+                            .update(stockBatch)
+                            .set({
+                                remainingQuantity: sql`${stockBatch.remainingQuantity} + ${returnQtyInBase}`,
+                                remainingFreeQty: sql`${stockBatch.remainingFreeQty} + ${returnFreeQtyInBase}`,
+                            })
+                            .where(eq(stockBatch.id, orderItem.batchId));
+                    }
+                }
             }
         }
 
@@ -770,7 +841,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     const totalPayments = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
     const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const totalReturns = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount), 0);
-    const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+    const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0);
     const totalAdjustmentDiscount = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.adjustmentDiscount || "0"), 0);
 
     // Calculate per-item net values
