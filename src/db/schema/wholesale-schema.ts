@@ -284,6 +284,7 @@ export const orderCustomerDues = pgTable("order_customer_dues", {
         .references(() => customer.id, { onDelete: "set null" }),
     customerName: varchar("customer_name", { length: 150 }).notNull(),  // Keep for display/fallback
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    collectedAmount: decimal("collected_amount", { precision: 10, scale: 2 }).notNull().default("0"),
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_customer_dues_order").on(table.orderId),
@@ -367,5 +368,50 @@ export const damageReturnItemsRelations = relations(damageReturnItems, ({ one })
     batch: one(stockBatch, {
         fields: [damageReturnItems.batchId],
         references: [stockBatch.id],
+    }),
+}));
+
+// ==================== DUE COLLECTIONS ====================
+
+export const dueCollections = pgTable("due_collections", {
+    id: serial("id").primaryKey(),
+    customerDueId: integer("customer_due_id")
+        .references(() => orderCustomerDues.id, { onDelete: "set null" }),
+    customerId: integer("customer_id")
+        .references(() => customer.id, { onDelete: "set null" }),
+    orderId: integer("order_id")
+        .references(() => wholesaleOrders.id, { onDelete: "set null" }),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    collectionDate: date("collection_date").notNull(),
+    paymentMethod: varchar("payment_method", { length: 50 }),
+    collectedByDsrId: integer("collected_by_dsr_id")
+        .references(() => dsr.id, { onDelete: "set null" }),
+    note: text("note"),
+    ...timestamps
+}, (table) => ({
+    customerDueIdx: index("idx_due_collections_customer_due").on(table.customerDueId),
+    customerIdx: index("idx_due_collections_customer").on(table.customerId),
+    orderIdx: index("idx_due_collections_order").on(table.orderId),
+    dateIdx: index("idx_due_collections_date").on(table.collectionDate),
+    dsrIdx: index("idx_due_collections_dsr").on(table.collectedByDsrId),
+}));
+
+// Due collections relations
+export const dueCollectionsRelations = relations(dueCollections, ({ one }) => ({
+    customerDue: one(orderCustomerDues, {
+        fields: [dueCollections.customerDueId],
+        references: [orderCustomerDues.id],
+    }),
+    customer: one(customer, {
+        fields: [dueCollections.customerId],
+        references: [customer.id],
+    }),
+    order: one(wholesaleOrders, {
+        fields: [dueCollections.orderId],
+        references: [wholesaleOrders.id],
+    }),
+    collectedByDsr: one(dsr, {
+        fields: [dueCollections.collectedByDsrId],
+        references: [dsr.id],
     }),
 }));
