@@ -949,3 +949,55 @@ export const getOrderAdjustment = async (orderId: number) => {
     };
 };
 
+// ==================== OVERDUE PENDING ORDERS ====================
+
+/**
+ * Get pending orders that are overdue (older than threshold days without adjustment)
+ */
+export const getOverduePendingOrders = async (thresholdDays: number) => {
+    // Calculate the cutoff date (orders before this date are considered overdue)
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - thresholdDays);
+    const cutoffDateStr: string = cutoffDate.toISOString().split("T")[0] as string;
+
+    const orders = await db.query.wholesaleOrders.findMany({
+        where: and(
+            eq(wholesaleOrders.status, "pending"),
+            lte(wholesaleOrders.orderDate, cutoffDateStr)
+
+        ),
+        with: {
+            dsr: true,
+            route: true,
+        },
+        orderBy: (orders, { asc }) => [asc(orders.orderDate)],
+    });
+
+    // Transform orders to include days overdue
+    const today = new Date();
+    const transformedOrders = orders.map((order: any) => {
+        const orderDate = new Date(order.orderDate);
+        const diffTime = today.getTime() - orderDate.getTime();
+        const daysOverdue = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+        return {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            dsrId: order.dsrId,
+            dsrName: order.dsr?.name,
+            routeId: order.routeId,
+            routeName: order.route?.name,
+            orderDate: order.orderDate,
+            total: order.total,
+            status: order.status,
+            daysOverdue,
+            createdAt: order.createdAt,
+        };
+    });
+
+    return {
+        orders: transformedOrders,
+        total: transformedOrders.length,
+        thresholdDays,
+    };
+};
