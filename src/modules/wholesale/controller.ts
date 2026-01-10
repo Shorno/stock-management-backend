@@ -673,3 +673,39 @@ export const handleGenerateMainInvoicePdf = async (c: AppContext): Promise<Respo
         );
     }
 };
+
+// Handle getting overdue pending orders
+export const handleGetOverduePendingOrders = async (c: AppContext): Promise<Response> => {
+    try {
+        // Get threshold days from query param (default to 3 if not provided)
+        const thresholdDays = Number(c.req.query("thresholdDays")) || 3;
+
+        if (thresholdDays < 1 || thresholdDays > 30) {
+            return c.json(
+                {
+                    success: false,
+                    message: "Threshold days must be between 1 and 30",
+                },
+                400
+            );
+        }
+
+        const result = await wholesaleService.getOverduePendingOrders(thresholdDays);
+
+        return c.json({
+            success: true,
+            data: result.orders,
+            total: result.total,
+            thresholdDays: result.thresholdDays,
+        });
+    } catch (error) {
+        console.error("Error fetching overdue pending orders:", error);
+        return c.json(
+            {
+                success: false,
+                message: "Failed to fetch overdue pending orders",
+            },
+            500
+        );
+    }
+};
