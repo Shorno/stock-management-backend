@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import * as supplierService from "./service";
 
-// ==================== SUPPLIER HANDLERS ====================
+// ==================== COMPANY (BRAND) AS SUPPLIER HANDLERS ====================
 
 export async function handleGetAllSuppliers(c: Context) {
     try {
@@ -19,7 +19,7 @@ export async function handleGetSupplierById(c: Context) {
         const supplier = await supplierService.getSupplierById(id);
 
         if (!supplier) {
-            return c.json({ success: false, error: "Supplier not found" }, 404);
+            return c.json({ success: false, error: "Company not found" }, 404);
         }
 
         return c.json({ success: true, data: supplier });
@@ -29,63 +29,18 @@ export async function handleGetSupplierById(c: Context) {
     }
 }
 
-export async function handleCreateSupplier(c: Context) {
-    try {
-        const body = await c.req.json();
-
-        if (!body.name) {
-            return c.json({ success: false, error: "Supplier name is required" }, 400);
-        }
-
-        const supplier = await supplierService.createSupplier(body);
-        return c.json({ success: true, data: supplier }, 201);
-    } catch (error) {
-        console.error("Error creating supplier:", error);
-        return c.json({ success: false, error: "Failed to create supplier" }, 500);
-    }
-}
-
-export async function handleUpdateSupplier(c: Context) {
-    try {
-        const id = Number(c.req.param("id"));
-        const body = await c.req.json();
-
-        const supplier = await supplierService.updateSupplier(id, body);
-
-        if (!supplier) {
-            return c.json({ success: false, error: "Supplier not found" }, 404);
-        }
-
-        return c.json({ success: true, data: supplier });
-    } catch (error) {
-        console.error("Error updating supplier:", error);
-        return c.json({ success: false, error: "Failed to update supplier" }, 500);
-    }
-}
-
-export async function handleDeleteSupplier(c: Context) {
-    try {
-        const id = Number(c.req.param("id"));
-        await supplierService.deleteSupplier(id);
-        return c.json({ success: true, message: "Supplier deleted successfully" });
-    } catch (error) {
-        console.error("Error deleting supplier:", error);
-        return c.json({ success: false, error: "Failed to delete supplier" }, 500);
-    }
-}
-
 // ==================== PURCHASE HANDLERS ====================
 
 export async function handleAddPurchase(c: Context) {
     try {
-        const supplierId = Number(c.req.param("id"));
+        const brandId = Number(c.req.param("id"));
         const body = await c.req.json();
 
         if (!body.amount || !body.purchaseDate) {
             return c.json({ success: false, error: "Amount and purchase date are required" }, 400);
         }
 
-        const purchase = await supplierService.addPurchase(supplierId, body);
+        const purchase = await supplierService.addPurchase(brandId, body);
         return c.json({ success: true, data: purchase }, 201);
     } catch (error) {
         console.error("Error adding purchase:", error);
@@ -108,14 +63,14 @@ export async function handleDeletePurchase(c: Context) {
 
 export async function handleAddPayment(c: Context) {
     try {
-        const supplierId = Number(c.req.param("id"));
+        const brandId = Number(c.req.param("id"));
         const body = await c.req.json();
 
         if (!body.amount || !body.paymentDate) {
             return c.json({ success: false, error: "Amount and payment date are required" }, 400);
         }
 
-        const payment = await supplierService.addPayment(supplierId, body);
+        const payment = await supplierService.addPayment(brandId, body);
         return c.json({ success: true, data: payment }, 201);
     } catch (error) {
         console.error("Error adding payment:", error);
