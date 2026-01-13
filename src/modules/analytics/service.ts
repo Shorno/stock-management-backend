@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 
@@ -543,7 +543,29 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         totalAdjustmentDiscounts = Number(returnsResult[0]?.totalAdjustmentDiscounts || 0);
     }
 
-    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts;
+    // Get damage returns (approved only)
+    const damageReturnsFilters = [eq(damageReturns.status, 'approved')];
+    if (dateRange?.startDate) {
+        damageReturnsFilters.push(gte(damageReturns.returnDate, dateRange.startDate));
+    }
+    if (dateRange?.endDate) {
+        damageReturnsFilters.push(lte(damageReturns.returnDate, dateRange.endDate));
+    }
+
+    const damageReturnsResult = await db
+        .select({
+            totalProfit: sql<number>`sum((COALESCE(${stockBatch.sellPrice}, 0) - ${damageReturnItems.unitPrice}) * ${damageReturnItems.quantity})`,
+        })
+        .from(damageReturns)
+        .innerJoin(damageReturnItems, eq(damageReturns.id, damageReturnItems.returnId))
+        .leftJoin(stockBatch, eq(damageReturnItems.batchId, stockBatch.id))
+        .where(and(...damageReturnsFilters));
+
+    const totalDamageProfit = Number(damageReturnsResult[0]?.totalProfit || 0);
+
+    // Subtract Order Returns (Adjustments) and Damage Returns Profit from Net Sales
+    // User logic: effectively only removing the profit margin of the damaged item from the total sales
+    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit;
 
     // ----- NET PURCHASE -----
     // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
