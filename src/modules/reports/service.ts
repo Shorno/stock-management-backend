@@ -203,11 +203,14 @@ export interface DsrOrderSummaryItem {
     netOrderTotal: string;
     payments: { method: string; amount: string }[];
     expenses: { type: string; amount: string }[];
-    customerDues: { customerName: string; amount: string }[];
+    customerDues: { customerName: string; amount: string; collectedAmount: string; remainingDue: string }[];
+    collections: { date: string; amount: string; method: string | null; collectedBy: string | null }[];
     totalPayments: string;
     totalExpenses: string;
-    totalCustomerDue: string;
-    orderDue: string;
+    totalCustomerDue: string;        // Original due amount
+    totalCollectedFromDues: string;  // Amount collected against customer dues
+    remainingCustomerDue: string;    // Remaining = original - collected
+    orderDue: string;                // Same as remainingCustomerDue for compatibility
 }
 
 export interface DsrLedgerResponse {
@@ -275,6 +278,14 @@ export const getDsrLedger = async (
         where: (r, { inArray }) => inArray(r.orderId, orderIds),
     }) : [];
 
+    // Fetch due collections for these orders
+    const dueCollectionsData = orderIds.length > 0 ? await db.query.dueCollections.findMany({
+        where: (c, { inArray }) => inArray(c.orderId, orderIds),
+        with: {
+            collectedByDsr: true,
+        },
+    }) : [];
+
     // Group returns and adjustment discounts by order ID
     const returnsByOrderId = new Map<number, number>();
     const adjDiscountsByOrderId = new Map<number, number>();
@@ -283,12 +294,32 @@ export const getDsrLedger = async (
         adjDiscountsByOrderId.set(ret.orderId, (adjDiscountsByOrderId.get(ret.orderId) || 0) + parseFloat(ret.adjustmentDiscount || "0"));
     }
 
-    // Group customer dues by order ID
-    const customerDuesByOrderId = new Map<number, { customerName: string; amount: string }[]>();
+    // Group customer dues by order ID (with collected amounts)
+    const customerDuesByOrderId = new Map<number, { customerName: string; amount: string; collectedAmount: string; remainingDue: string }[]>();
     for (const due of customerDuesData) {
         const existing = customerDuesByOrderId.get(due.orderId) || [];
-        existing.push({ customerName: due.customerName, amount: due.amount });
+        const remaining = parseFloat(due.amount) - parseFloat(due.collectedAmount);
+        existing.push({
+            customerName: due.customerName,
+            amount: due.amount,
+            collectedAmount: due.collectedAmount,
+            remainingDue: remaining.toFixed(2)
+        });
         customerDuesByOrderId.set(due.orderId, existing);
+    }
+
+    // Group collections by order ID
+    const collectionsByOrderId = new Map<number, { date: string; amount: string; method: string | null; collectedBy: string | null }[]>();
+    for (const col of dueCollectionsData) {
+        if (!col.orderId) continue;
+        const existing = collectionsByOrderId.get(col.orderId) || [];
+        existing.push({
+            date: col.collectionDate,
+            amount: col.amount,
+            method: col.paymentMethod,
+            collectedBy: col.collectedByDsr?.name || null
+        });
+        collectionsByOrderId.set(col.orderId, existing);
     }
 
     // Group expenses by order ID
@@ -312,17 +343,17 @@ export const getDsrLedger = async (
         const orderPaymentsList = paymentsByOrderId.get(sale.orderId) || [];
         const orderExpensesList = expensesByOrderId.get(sale.orderId) || [];
         const orderCustomerDues = customerDuesByOrderId.get(sale.orderId) || [];
+        const orderCollections = collectionsByOrderId.get(sale.orderId) || [];
         const orderReturns = returnsByOrderId.get(sale.orderId) || 0;
         const orderAdjDiscounts = adjDiscountsByOrderId.get(sale.orderId) || 0;
 
         const totalPayments = orderPaymentsList.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const totalExpenses = orderExpensesList.reduce((sum, e) => sum + parseFloat(e.amount), 0);
         const totalCustomerDue = orderCustomerDues.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+        const totalCollectedFromDues = orderCustomerDues.reduce((sum, d) => sum + parseFloat(d.collectedAmount), 0);
+        const remainingCustomerDue = totalCustomerDue - totalCollectedFromDues;
         const orderTotal = parseFloat(sale.total);
         const netOrderTotal = orderTotal - orderReturns - orderAdjDiscounts;
-
-        // Order Due = Customer Dues (what DSR still needs to collect from customers)
-        const orderDue = totalCustomerDue;
 
         return {
             orderId: sale.orderId,
@@ -335,10 +366,13 @@ export const getDsrLedger = async (
             payments: orderPaymentsList,
             expenses: orderExpensesList,
             customerDues: orderCustomerDues,
+            collections: orderCollections,
             totalPayments: totalPayments.toFixed(2),
             totalExpenses: totalExpenses.toFixed(2),
             totalCustomerDue: totalCustomerDue.toFixed(2),
-            orderDue: orderDue.toFixed(2),
+            totalCollectedFromDues: totalCollectedFromDues.toFixed(2),
+            remainingCustomerDue: remainingCustomerDue.toFixed(2),
+            orderDue: remainingCustomerDue.toFixed(2), // Now shows remaining due, not original
         };
     });
 
@@ -444,7 +478,10 @@ export const getAllDsrLedgerSummaries = async (
         const totalNetSales = grossSales - totalReturns;
         const totalCollected = paymentsData.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const totalExpenses = expensesData.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-        const totalDue = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+        // Calculate remaining due (original - collected)
+        const totalOriginalDue = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+        const totalCollectedFromDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.collectedAmount), 0);
+        const totalDue = totalOriginalDue - totalCollectedFromDues;
 
         items.push({
             dsrId: dsrInfo.id,

@@ -5,6 +5,8 @@ import {
     getCustomersWithDuesQuerySchema,
     collectDueInputSchema,
     getCollectionHistoryQuerySchema,
+    getDSRDueSummaryQuerySchema,
+    getDSRCollectionHistoryQuerySchema,
 } from "./validation";
 
 const dueCollectionRoutes = new Hono();
@@ -82,6 +84,64 @@ dueCollectionRoutes.get(
         } catch (error) {
             console.error("Error fetching collection history:", error);
             return c.json({ success: false, error: "Failed to fetch history" }, 500);
+        }
+    }
+);
+
+// ==================== DSR DUE TRACKING ROUTES ====================
+
+// Get DSR due summary (all DSRs with their outstanding dues)
+dueCollectionRoutes.get(
+    "/dsr-summary",
+    zValidator("query", getDSRDueSummaryQuerySchema),
+    async (c) => {
+        try {
+            const query = c.req.valid("query");
+            const summary = await dueCollectionService.getDSRDueSummary(query);
+            return c.json({ success: true, data: summary });
+        } catch (error) {
+            console.error("Error fetching DSR due summary:", error);
+            return c.json({ success: false, error: "Failed to fetch DSR summary" }, 500);
+        }
+    }
+);
+
+// Get detailed dues for a specific DSR's orders
+dueCollectionRoutes.get("/dsr/:dsrId/dues", async (c) => {
+    try {
+        const dsrId = Number(c.req.param("dsrId"));
+        if (isNaN(dsrId)) {
+            return c.json({ success: false, error: "Invalid DSR ID" }, 400);
+        }
+
+        const details = await dueCollectionService.getDSRDueDetails(dsrId);
+        return c.json({ success: true, data: details });
+    } catch (error) {
+        console.error("Error fetching DSR due details:", error);
+        return c.json({ success: false, error: "Failed to fetch DSR details" }, 500);
+    }
+});
+
+// Get collection history for a specific DSR's orders
+dueCollectionRoutes.get(
+    "/dsr/:dsrId/collections",
+    zValidator("query", getDSRCollectionHistoryQuerySchema),
+    async (c) => {
+        try {
+            const dsrId = Number(c.req.param("dsrId"));
+            if (isNaN(dsrId)) {
+                return c.json({ success: false, error: "Invalid DSR ID" }, 400);
+            }
+
+            const query = c.req.valid("query");
+            const history = await dueCollectionService.getDSRCollectionHistory({
+                ...query,
+                dsrId
+            });
+            return c.json({ success: true, data: history });
+        } catch (error) {
+            console.error("Error fetching DSR collection history:", error);
+            return c.json({ success: false, error: "Failed to fetch DSR collection history" }, 500);
         }
     }
 );
