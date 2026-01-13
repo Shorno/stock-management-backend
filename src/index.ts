@@ -19,6 +19,7 @@ import damageReturnsRoutes from "./modules/damage-returns/routes";
 import { unitRoutes } from "./modules/unit";
 import { supplierRoutes } from "./modules/supplier";
 import { dueCollectionRoutes } from "./modules/due-collection";
+import { stockAdjustmentRoutes } from "./modules/stock-adjustments";
 import { settingsRoutes } from "./modules/settings";
 
 const app = new Hono<{
@@ -96,6 +97,7 @@ app.route("/damage-returns", damageReturnsRoutes);
 app.route("/units", unitRoutes);
 app.route("/suppliers", supplierRoutes);
 app.route("/due-collection", dueCollectionRoutes);
+app.route("/stock-adjustments", stockAdjustmentRoutes);
 app.route("/settings", settingsRoutes);
 
 
