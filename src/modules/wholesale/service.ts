@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDamageItems } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte, sql, ne } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
@@ -694,16 +694,18 @@ export const saveOrderAdjustment = async (
             }
         }
 
-        // Delete existing payments, expenses, item returns, and customer dues for this order
+        // Delete existing payments, expenses, item returns, customer dues, and damage items for this order
         await tx.delete(orderPayments).where(eq(orderPayments.orderId, orderId));
         await tx.delete(orderExpenses).where(eq(orderExpenses.orderId, orderId));
         await tx.delete(orderItemReturns).where(eq(orderItemReturns.orderId, orderId));
         await tx.delete(orderCustomerDues).where(eq(orderCustomerDues.orderId, orderId));
+        await tx.delete(orderDamageItems).where(eq(orderDamageItems.orderId, orderId));
 
         let totalPayments = 0;
         let totalExpensesAmount = 0;
         let totalReturnsAmount = 0;
         let totalCustomerDuesAmount = 0;
+        let totalDamageAmount = 0;
 
         // Insert new payments
         for (const payment of data.payments) {
@@ -779,6 +781,25 @@ export const saveOrderAdjustment = async (
                             .where(eq(stockBatch.id, orderItem.batchId));
                     }
                 }
+            }
+        }
+
+        // Insert new damage items
+        for (const damageItem of data.damageReturns || []) {
+            if (damageItem.quantity > 0) {
+                const total = damageItem.quantity * damageItem.unitPrice;
+                await tx.insert(orderDamageItems).values({
+                    orderId,
+                    orderItemId: damageItem.orderItemId || null,
+                    productId: damageItem.productId || null,
+                    productName: damageItem.productName,
+                    brandName: damageItem.brandName,
+                    quantity: damageItem.quantity,
+                    unitPrice: damageItem.unitPrice.toFixed(2),
+                    total: total.toFixed(2),
+                    reason: damageItem.reason || null,
+                });
+                totalDamageAmount += total;
             }
         }
 
