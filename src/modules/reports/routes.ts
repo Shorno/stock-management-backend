@@ -237,6 +237,46 @@ app.get(
     }
 );
 
+// Get Product Wise Sales with Variants (for expandable rows)
+app.get(
+    "/product-wise-sales-with-variants",
+    zValidator("query", productWiseSalesQuerySchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Invalid query parameters",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    async (ctx) => {
+        try {
+            const query = ctx.req.valid("query");
+            const data = await reportsService.getProductWiseSalesWithVariants(query);
+
+            return ctx.json({
+                success: true,
+                data,
+            });
+        } catch (error) {
+            console.error("Error fetching product wise sales with variants:", error);
+            return ctx.json(
+                {
+                    success: false,
+                    message: error instanceof Error ? error.message : "Failed to fetch product wise sales report",
+                },
+                500
+            );
+        }
+    }
+);
+
 // Get Brand Wise Sales report
 app.get(
     "/brand-wise-sales",
