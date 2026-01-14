@@ -668,10 +668,10 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     const profitLoss = netSales - costOfGoodsSold - totalBills;
 
     // ----- DSR SALES DUE -----
-    // Total outstanding customer dues from all orders (what DSRs need to collect)
+    // Total outstanding customer dues from all orders (amount - collectedAmount)
     const customerDuesResult = await db
         .select({
-            totalDue: sum(orderCustomerDues.amount),
+            totalDue: sql<string>`SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL))`,
         })
         .from(orderCustomerDues);
 
