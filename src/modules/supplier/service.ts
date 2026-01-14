@@ -1,20 +1,9 @@
 import { db } from "../../db/config";
-import { suppliers, supplierPurchases, supplierPayments } from "../../db/schema";
+import { brand } from "../../db/schema/product-schema";
+import { supplierPurchases, supplierPayments } from "../../db/schema";
 import { eq, desc, sum } from "drizzle-orm";
 
 // ==================== TYPES ====================
-
-export interface CreateSupplierDto {
-    name: string;
-    phone?: string;
-    address?: string;
-}
-
-export interface UpdateSupplierDto {
-    name?: string;
-    phone?: string;
-    address?: string;
-}
 
 export interface CreatePurchaseDto {
     amount: number;
@@ -29,98 +18,78 @@ export interface CreatePaymentDto {
     note?: string;
 }
 
-export interface SupplierWithBalance {
+export interface CompanyWithBalance {
     id: number;
     name: string;
-    phone: string | null;
-    address: string | null;
+    slug: string;
     totalPurchases: number;
     totalPayments: number;
     balance: number;
     createdAt: Date | null;
 }
 
-// ==================== SUPPLIER CRUD ====================
+// ==================== GET ALL COMPANIES (BRANDS) AS SUPPLIERS ====================
 
-export async function getAllSuppliers(): Promise<SupplierWithBalance[]> {
-    const allSuppliers = await db.query.suppliers.findMany({
-        orderBy: [desc(suppliers.createdAt)],
-    });
+export async function getAllSuppliers(): Promise<CompanyWithBalance[]> {
+    const allBrands = await db.select().from(brand).orderBy(desc(brand.createdAt));
 
-    // Calculate balances for each supplier
-    const result: SupplierWithBalance[] = [];
+    // Calculate balances for each brand
+    const result: CompanyWithBalance[] = [];
 
-    for (const supplier of allSuppliers) {
-        const balance = await getSupplierBalance(supplier.id);
+    for (const b of allBrands) {
+        const balance = await getSupplierBalance(b.id);
         result.push({
-            ...supplier,
+            id: b.id,
+            name: b.name,
+            slug: b.slug,
             ...balance,
+            createdAt: b.createdAt,
         });
     }
 
     return result;
 }
 
-export async function getSupplierById(id: number) {
-    const supplier = await db.query.suppliers.findFirst({
-        where: eq(suppliers.id, id),
-        with: {
-            purchases: {
-                orderBy: [desc(supplierPurchases.purchaseDate)],
-            },
-            payments: {
-                orderBy: [desc(supplierPayments.paymentDate)],
-            },
-        },
-    });
+// ==================== GET SINGLE COMPANY (BRAND) WITH TRANSACTIONS ====================
 
-    if (!supplier) return null;
+export async function getSupplierById(brandId: number) {
+    const [b] = await db.select().from(brand).where(eq(brand.id, brandId)).limit(1);
 
-    const balance = await getSupplierBalance(id);
+    if (!b) return null;
+
+    // Get purchases and payments for this brand
+    const purchases = await db.select()
+        .from(supplierPurchases)
+        .where(eq(supplierPurchases.brandId, brandId))
+        .orderBy(desc(supplierPurchases.purchaseDate));
+
+    const payments = await db.select()
+        .from(supplierPayments)
+        .where(eq(supplierPayments.brandId, brandId))
+        .orderBy(desc(supplierPayments.paymentDate));
+
+    const balance = await getSupplierBalance(brandId);
 
     return {
-        ...supplier,
+        id: b.id,
+        name: b.name,
+        slug: b.slug,
+        phone: null, // Brands don't have phone/address - can be extended later
+        address: null,
+        purchases,
+        payments,
         ...balance,
+        createdAt: b.createdAt,
     };
-}
-
-export async function createSupplier(data: CreateSupplierDto) {
-    const [supplier] = await db
-        .insert(suppliers)
-        .values({
-            name: data.name,
-            phone: data.phone,
-            address: data.address,
-        })
-        .returning();
-
-    return supplier;
-}
-
-export async function updateSupplier(id: number, data: UpdateSupplierDto) {
-    const [supplier] = await db
-        .update(suppliers)
-        .set({
-            ...data,
-            updatedAt: new Date(),
-        })
-        .where(eq(suppliers.id, id))
-        .returning();
-
-    return supplier;
-}
-
-export async function deleteSupplier(id: number) {
-    await db.delete(suppliers).where(eq(suppliers.id, id));
 }
 
 // ==================== PURCHASES ====================
 
-export async function addPurchase(supplierId: number, data: CreatePurchaseDto) {
+export async function addPurchase(brandId: number, data: CreatePurchaseDto) {
     const [purchase] = await db
         .insert(supplierPurchases)
         .values({
-            supplierId,
+            brandId,
             amount: data.amount.toString(),
             purchaseDate: data.purchaseDate,
             description: data.description,
@@ -130,9 +99,9 @@ export async function addPurchase(supplierId: number, data: CreatePurchaseDto) {
     return purchase;
 }
 
-export async function getPurchasesBySupplierId(supplierId: number) {
+export async function getPurchasesByBrandId(brandId: number) {
     return db.query.supplierPurchases.findMany({
-        where: eq(supplierPurchases.supplierId, supplierId),
+        where: eq(supplierPurchases.brandId, brandId),
         orderBy: [desc(supplierPurchases.purchaseDate)],
     });
 }
@@ -143,11 +112,11 @@ export async function deletePurchase(id: number) {
 
 // ==================== PAYMENTS ====================
 
-export async function addPayment(supplierId: number, data: CreatePaymentDto) {
+export async function addPayment(brandId: number, data: CreatePaymentDto) {
     const [payment] = await db
         .insert(supplierPayments)
         .values({
-            supplierId,
+            brandId,
             amount: data.amount.toString(),
             paymentDate: data.paymentDate,
             paymentMethod: data.paymentMethod,
@@ -158,9 +127,9 @@ export async function addPayment(supplierId: number, data: CreatePaymentDto) {
     return payment;
 }
 
-export async function getPaymentsBySupplierId(supplierId: number) {
+export async function getPaymentsByBrandId(brandId: number) {
     return db.query.supplierPayments.findMany({
-        where: eq(supplierPayments.supplierId, supplierId),
+        where: eq(supplierPayments.brandId, brandId),
         orderBy: [desc(supplierPayments.paymentDate)],
     });
 }
@@ -171,20 +140,23 @@ export async function deletePayment(id: number) {
 
 // ==================== BALANCE CALCULATION ====================
 
-export async function getSupplierBalance(supplierId: number) {
+export async function getSupplierBalance(brandId: number) {
     const purchasesResult = await db
         .select({ total: sum(supplierPurchases.amount) })
         .from(supplierPurchases)
-        .where(eq(supplierPurchases.supplierId, supplierId));
+        .where(eq(supplierPurchases.brandId, brandId));
 
     const paymentsResult = await db
         .select({ total: sum(supplierPayments.amount) })
         .from(supplierPayments)
-        .where(eq(supplierPayments.supplierId, supplierId));
+        .where(eq(supplierPayments.brandId, brandId));
 
     const totalPurchases = Number(purchasesResult[0]?.total || 0);
     const totalPayments = Number(paymentsResult[0]?.total || 0);
-    const balance = totalPurchases - totalPayments;
+    // Balance = Payments - Purchases
+    // Positive = Supplier owes us (we've overpaid)
+    // Negative = We owe supplier (need to pay more)
+    const balance = totalPayments - totalPurchases;
 
     return { totalPurchases, totalPayments, balance };
 }
@@ -203,5 +175,6 @@ export async function getTotalSupplierDue(): Promise<number> {
     const totalPurchases = Number(purchasesResult[0]?.total || 0);
     const totalPayments = Number(paymentsResult[0]?.total || 0);
 
-    return totalPurchases - totalPayments;
+    // Positive = Suppliers owe us, Negative = We owe suppliers
+    return totalPayments - totalPurchases;
 }

@@ -61,6 +61,23 @@ export const stockBatch = pgTable("stock_batch", {
   ...timestamps
 });
 
+// Stock adjustments for return restocking, damage, manual adjustments
+export const stockAdjustments = pgTable("stock_adjustments", {
+  id: serial("id").primaryKey(),
+  batchId: integer("batch_id").references(() => stockBatch.id, { onDelete: "set null" }),
+  variantId: integer("variant_id")
+    .notNull()
+    .references(() => productVariant.id, { onDelete: "cascade" }),
+  adjustmentType: varchar("adjustment_type", { length: 50 }).notNull(), // 'return_restock' | 'damage' | 'manual'
+  quantity: integer("quantity").notNull(),         // +/- adjustment amount
+  freeQuantity: integer("free_quantity").notNull().default(0),
+  orderId: integer("order_id"),                    // Link to original order (optional)
+  returnId: integer("return_id"),                  // Link to orderItemReturns (optional)
+  note: text("note"),
+  createdBy: integer("created_by"),                // User who made the adjustment
+  ...timestamps
+});
+
 export const categoryRelations = relations(category, ({ many }) => ({
   products: many(product),
 }));
@@ -87,11 +104,24 @@ export const productVariantRelations = relations(productVariant, ({ one, many })
     references: [product.id],
   }),
   stockBatches: many(stockBatch),
+  stockAdjustments: many(stockAdjustments),
 }));
 
-export const stockBatchRelations = relations(stockBatch, ({ one }) => ({
+export const stockBatchRelations = relations(stockBatch, ({ one, many }) => ({
   variant: one(productVariant, {
     fields: [stockBatch.variantId],
+    references: [productVariant.id],
+  }),
+  adjustments: many(stockAdjustments),
+}));
+
+export const stockAdjustmentsRelations = relations(stockAdjustments, ({ one }) => ({
+  batch: one(stockBatch, {
+    fields: [stockAdjustments.batchId],
+    references: [stockBatch.id],
+  }),
+  variant: one(productVariant, {
+    fields: [stockAdjustments.variantId],
     references: [productVariant.id],
   }),
 }));

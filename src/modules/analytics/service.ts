@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 
@@ -543,7 +543,29 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         totalAdjustmentDiscounts = Number(returnsResult[0]?.totalAdjustmentDiscounts || 0);
     }
 
-    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts;
+    // Get damage returns (approved only)
+    const damageReturnsFilters = [eq(damageReturns.status, 'approved')];
+    if (dateRange?.startDate) {
+        damageReturnsFilters.push(gte(damageReturns.returnDate, dateRange.startDate));
+    }
+    if (dateRange?.endDate) {
+        damageReturnsFilters.push(lte(damageReturns.returnDate, dateRange.endDate));
+    }
+
+    const damageReturnsResult = await db
+        .select({
+            totalProfit: sql<number>`sum((COALESCE(${stockBatch.sellPrice}, 0) - ${damageReturnItems.unitPrice}) * ${damageReturnItems.quantity})`,
+        })
+        .from(damageReturns)
+        .innerJoin(damageReturnItems, eq(damageReturns.id, damageReturnItems.returnId))
+        .leftJoin(stockBatch, eq(damageReturnItems.batchId, stockBatch.id))
+        .where(and(...damageReturnsFilters));
+
+    const totalDamageProfit = Number(damageReturnsResult[0]?.totalProfit || 0);
+
+    // Subtract Order Returns (Adjustments) and Damage Returns Profit from Net Sales
+    // User logic: effectively only removing the profit margin of the damaged item from the total sales
+    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit;
 
     // ----- NET PURCHASE -----
     // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
@@ -623,13 +645,33 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         }, 0);
     }
 
-    const profitLoss = netSales - costOfGoodsSold;
+    // ----- BILLS -----
+    // Fetch bills for the date range and deduct from profit
+    let billsFilters = undefined;
+    if (dateRange?.startDate) {
+        billsFilters = and(
+            gte(bills.billDate, dateRange.startDate),
+            dateRange.endDate ? lte(bills.billDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const billsResult = await db
+        .select({
+            totalBills: sum(bills.amount),
+        })
+        .from(bills)
+        .where(billsFilters);
+
+    const totalBills = Number(billsResult[0]?.totalBills || 0);
+
+    // Profit = Net Sales - Cost of Goods Sold - Bills
+    const profitLoss = netSales - costOfGoodsSold - totalBills;
 
     // ----- DSR SALES DUE -----
-    // Total outstanding customer dues from all orders (what DSRs need to collect)
+    // Total outstanding customer dues from all orders (amount - collectedAmount)
     const customerDuesResult = await db
         .select({
-            totalDue: sum(orderCustomerDues.amount),
+            totalDue: sql<string>`SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL))`,
         })
         .from(orderCustomerDues);
 
@@ -663,7 +705,6 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const paymentsReceived = Number(paymentsReceivedResult[0]?.total || 0);
     const totalExpenses = Number(expensesResult[0]?.total || 0);
-    const cashBalance = paymentsReceived - totalExpenses;
 
     // ----- SUPPLIER DUE -----
     // Total purchases from suppliers - total payments to suppliers
@@ -679,7 +720,11 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalSupplierPurchases = Number(supplierPurchasesResult[0]?.total || 0);
     const totalSupplierPayments = Number(supplierPaymentsResult[0]?.total || 0);
-    const supplierDue = totalSupplierPurchases - totalSupplierPayments;
+    // Positive = Supplier owes us (we've overpaid), Negative = We owe supplier
+    const supplierDue = totalSupplierPayments - totalSupplierPurchases;
+
+    // Cash Balance = Payments Received - Expenses - Supplier Payments
+    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPayments;
 
     return {
         netSales: Math.round(netSales * 100) / 100,

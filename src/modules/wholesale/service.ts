@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDamageItems } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte, sql, ne } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
@@ -361,7 +361,11 @@ export const getOrderById = async (id: number): Promise<OrderWithItems | undefin
                 with: {
                     product: true,
                     brand: true,
-                    batch: true,
+                    batch: {
+                        with: {
+                            variant: true,
+                        },
+                    },
                 },
             },
             dsr: true,
@@ -694,16 +698,18 @@ export const saveOrderAdjustment = async (
             }
         }
 
-        // Delete existing payments, expenses, item returns, and customer dues for this order
+        // Delete existing payments, expenses, item returns, customer dues, and damage items for this order
         await tx.delete(orderPayments).where(eq(orderPayments.orderId, orderId));
         await tx.delete(orderExpenses).where(eq(orderExpenses.orderId, orderId));
         await tx.delete(orderItemReturns).where(eq(orderItemReturns.orderId, orderId));
         await tx.delete(orderCustomerDues).where(eq(orderCustomerDues.orderId, orderId));
+        await tx.delete(orderDamageItems).where(eq(orderDamageItems.orderId, orderId));
 
         let totalPayments = 0;
         let totalExpensesAmount = 0;
         let totalReturnsAmount = 0;
         let totalCustomerDuesAmount = 0;
+        let totalDamageAmount = 0;
 
         // Insert new payments
         for (const payment of data.payments) {
@@ -782,6 +788,27 @@ export const saveOrderAdjustment = async (
             }
         }
 
+        // Insert new damage items
+        for (const damageItem of data.damageReturns || []) {
+            if (damageItem.quantity > 0) {
+                const total = damageItem.quantity * damageItem.unitPrice;
+                await tx.insert(orderDamageItems).values({
+                    orderId,
+                    orderItemId: damageItem.orderItemId || null,
+                    productId: damageItem.productId || null,
+                    variantId: damageItem.variantId || null,
+                    productName: damageItem.productName,
+                    variantName: damageItem.variantName || null,
+                    brandName: damageItem.brandName,
+                    quantity: damageItem.quantity,
+                    unitPrice: damageItem.unitPrice.toFixed(2),
+                    total: total.toFixed(2),
+                    reason: damageItem.reason || null,
+                });
+                totalDamageAmount += total;
+            }
+        }
+
         // Update order with calculated values and set status to "adjusted"
         await tx
             .update(wholesaleOrders)
@@ -834,6 +861,11 @@ export const getOrderAdjustment = async (orderId: number) => {
 
     // Get customer dues
     const customerDuesData = await db.query.orderCustomerDues.findMany({
+        where: (d, { eq }) => eq(d.orderId, orderId),
+    });
+
+    // Get damage items
+    const damageItemsData = await db.query.orderDamageItems.findMany({
         where: (d, { eq }) => eq(d.orderId, orderId),
     });
 
@@ -929,6 +961,18 @@ export const getOrderAdjustment = async (orderId: number) => {
             returnFreeQuantity: r.returnFreeQuantity,
             returnAmount: parseFloat(r.returnAmount),
             adjustmentDiscount: parseFloat(r.adjustmentDiscount || "0"),
+        })),
+        damageReturns: damageItemsData.map(d => ({
+            id: d.id,
+            orderItemId: d.orderItemId || undefined,
+            productId: d.productId || undefined,
+            variantId: d.variantId || undefined,
+            productName: d.productName,
+            variantName: d.variantName || undefined,
+            brandName: d.brandName,
+            quantity: d.quantity,
+            unitPrice: parseFloat(d.unitPrice),
+            reason: d.reason || undefined,
         })),
         // New: Items with pre-calculated values
         itemsWithCalculations,

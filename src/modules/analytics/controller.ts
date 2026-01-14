@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import * as analyticsService from "./service";
+import { getReturnsList } from "./returns-list.service";
 
 type AppContext = Context<{
     Variables: {
@@ -165,6 +166,33 @@ export const handleGetDashboardStats = async (c: AppContext): Promise<Response> 
             {
                 success: false,
                 message: "Failed to fetch dashboard stats",
+            },
+            500
+        );
+    }
+};
+
+export const handleGetReturnsList = async (c: AppContext): Promise<Response> => {
+    try {
+        const { startDate, endDate, limit, offset, brandId, dsrId, routeId } = c.req.query();
+
+        const result = await getReturnsList({
+            startDate,
+            endDate,
+            limit: limit ? parseInt(limit) : 50,
+            offset: offset ? parseInt(offset) : 0,
+            brandId,
+            dsrId,
+            routeId
+        });
+
+        return c.json(result);
+    } catch (error) {
+        console.error("Error fetching returns list:", error);
+        return c.json(
+            {
+                success: false,
+                message: "Failed to fetch returns list",
             },
             500
         );

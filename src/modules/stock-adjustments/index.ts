@@ -1,0 +1,1 @@
+export { stockAdjustmentRoutes } from "./routes";

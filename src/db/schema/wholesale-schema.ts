@@ -303,7 +303,45 @@ export const orderCustomerDuesRelations = relations(orderCustomerDues, ({ one })
     }),
 }));
 
-// ==================== DAMAGE RETURNS ====================
+// ==================== ORDER DAMAGE ITEMS ====================
+
+export const orderDamageItems = pgTable("order_damage_items", {
+    id: serial("id").primaryKey(),
+    orderId: integer("order_id")
+        .notNull()
+        .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+    orderItemId: integer("order_item_id")
+        .references(() => wholesaleOrderItems.id, { onDelete: "set null" }), // Optional - only set if from order item
+    productId: integer("product_id")
+        .references(() => product.id, { onDelete: "set null" }), // Product ID for any product
+    variantId: integer("variant_id")
+        .references(() => productVariant.id, { onDelete: "set null" }), // Variant ID for variant info
+    productName: varchar("product_name", { length: 200 }).notNull(),
+    variantName: varchar("variant_name", { length: 100 }), // Variant label (e.g., "100G", "500ml")
+    brandName: varchar("brand_name", { length: 100 }).notNull(),
+    quantity: integer("quantity").notNull(),
+    unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+    total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+    reason: text("reason"),
+    ...timestamps
+}, (table) => ({
+    orderIdx: index("idx_order_damage_items_order").on(table.orderId),
+    itemIdx: index("idx_order_damage_items_item").on(table.orderItemId),
+    productIdx: index("idx_order_damage_items_product").on(table.productId),
+}));
+
+// Order damage items relations
+export const orderDamageItemsRelations = relations(orderDamageItems, ({ one }) => ({
+    order: one(wholesaleOrders, {
+        fields: [orderDamageItems.orderId],
+        references: [wholesaleOrders.id],
+    }),
+    orderItem: one(wholesaleOrderItems, {
+        fields: [orderDamageItems.orderItemId],
+        references: [wholesaleOrderItems.id],
+    }),
+}));
+
 
 export const damageReturns = pgTable("damage_returns", {
     id: serial("id").primaryKey(),

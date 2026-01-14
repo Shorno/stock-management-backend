@@ -24,5 +24,8 @@ analyticsRoutes.get("/order-status", controller.handleGetOrderStatusBreakdown);
 // GET /api/analytics/dashboard-stats - Dashboard statistics summary
 analyticsRoutes.get("/dashboard-stats", controller.handleGetDashboardStats);
 
+// GET /api/analytics/returns-list - Combined returns list with adjustment amounts
+analyticsRoutes.get("/returns-list", controller.handleGetReturnsList);
+
 export default analyticsRoutes;
 

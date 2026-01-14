@@ -1,7 +1,7 @@
 import { db } from "../../db/config";
 import { damageReturns, damageReturnItems } from "../../db/schema";
 import { stockBatch } from "../../db/schema";
-import { eq, and, gte, lte, count, desc } from "drizzle-orm";
+import { eq, and, gte, lte, count, desc, sql } from "drizzle-orm";
 import type { CreateDamageReturnInput, UpdateReturnStatusInput, GetDamageReturnsQuery } from "./validation";
 
 // Generate return number
@@ -24,9 +24,22 @@ const generateReturnNumber = async (): Promise<string> => {
 export const createDamageReturn = async (data: CreateDamageReturnInput) => {
     const returnNumber = await generateReturnNumber();
 
-    // Calculate total
+    // Fetch batches to get supplier prices
+    const batchIds = data.items.map(i => i.batchId).filter(id => id !== undefined && id !== null) as number[];
+    const batches = batchIds.length > 0 ? await db.query.stockBatch.findMany({
+        where: sql`${stockBatch.id} IN (${sql.join(batchIds.map(id => sql`${id}`), sql`, `)})`,
+    }) : [];
+
+    const batchMap = new Map<number, typeof batches[0]>();
+    batches.forEach(b => batchMap.set(b.id, b));
+
+    // Calculate total using supplier prices where available
     const totalAmount = data.items.reduce((sum, item) => {
-        return sum + (item.quantity * item.unitPrice);
+        let price = item.unitPrice; // Default to input price
+        if (item.batchId && batchMap.has(item.batchId)) {
+            price = Number(batchMap.get(item.batchId)?.supplierPrice || 0);
+        }
+        return sum + (item.quantity * price);
     }, 0);
 
     // Insert return
@@ -45,16 +58,22 @@ export const createDamageReturn = async (data: CreateDamageReturnInput) => {
     }
 
     // Insert items
-    const itemsToInsert = data.items.map(item => ({
-        returnId: createdReturn.id,
-        variantId: item.variantId,
-        batchId: item.batchId,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice.toFixed(2),
-        total: (item.quantity * item.unitPrice).toFixed(2),
-        condition: item.condition,
-        reason: item.reason,
-    }));
+    const itemsToInsert = data.items.map(item => {
+        let price = item.unitPrice;
+        if (item.batchId && batchMap.has(item.batchId)) {
+            price = Number(batchMap.get(item.batchId)?.supplierPrice || 0);
+        }
+        return {
+            returnId: createdReturn.id,
+            variantId: item.variantId,
+            batchId: item.batchId,
+            quantity: item.quantity,
+            unitPrice: price.toFixed(2),
+            total: (item.quantity * price).toFixed(2),
+            condition: item.condition,
+            reason: item.reason,
+        };
+    });
 
     await db.insert(damageReturnItems).values(itemsToInsert);
 

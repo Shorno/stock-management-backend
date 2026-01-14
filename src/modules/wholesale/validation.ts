@@ -111,11 +111,25 @@ export const adjustmentCustomerDueSchema = z.object({
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
 });
 
+// Damage return schema for adjustments
+export const adjustmentDamageReturnSchema = z.object({
+    orderItemId: z.coerce.number().int().positive().optional(), // Optional - only if from order item
+    productId: z.coerce.number().int().positive().optional(),   // Product ID for any product
+    variantId: z.coerce.number().int().positive().optional(),   // Variant ID
+    productName: z.string().min(1, "Product name is required"),
+    variantName: z.string().optional(), // Variant label (e.g., "100G")
+    brandName: z.string().min(1, "Brand name is required"),
+    quantity: z.coerce.number().int().positive("Quantity must be positive"),
+    unitPrice: z.coerce.number().nonnegative("Unit price must be non-negative"),
+    reason: z.string().optional(),
+});
+
 // Complete adjustment save schema
 export const saveAdjustmentSchema = z.object({
     payments: z.array(adjustmentPaymentSchema).default([]),
     expenses: z.array(adjustmentExpenseSchema).default([]),
     customerDues: z.array(adjustmentCustomerDueSchema).default([]),
+    damageReturns: z.array(adjustmentDamageReturnSchema).default([]),
     itemReturns: z.array(adjustmentItemReturnSchema).default([]),
     paymentDate: z.string().min(1, "Payment date is required"),
 });
@@ -123,6 +137,6 @@ export const saveAdjustmentSchema = z.object({
 export type AdjustmentPaymentInput = z.infer<typeof adjustmentPaymentSchema>;
 export type AdjustmentExpenseInput = z.infer<typeof adjustmentExpenseSchema>;
 export type AdjustmentCustomerDueInput = z.infer<typeof adjustmentCustomerDueSchema>;
+export type AdjustmentDamageReturnInput = z.infer<typeof adjustmentDamageReturnSchema>;
 export type AdjustmentItemReturnInput = z.infer<typeof adjustmentItemReturnSchema>;
 export type SaveAdjustmentInput = z.infer<typeof saveAdjustmentSchema>;
-

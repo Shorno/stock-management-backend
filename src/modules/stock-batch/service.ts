@@ -1,8 +1,9 @@
 import { db } from "../../db/config";
-import { stockBatch } from "../../db/schema";
+import { stockBatch, supplierPurchases } from "../../db/schema";
 import { eq, count } from "drizzle-orm";
 import type { CreateStockBatchInput, UpdateStockBatchInput, GetStockBatchesQuery } from "./validation";
 import type { StockBatch, NewStockBatch } from "./types";
+import { format } from "date-fns";
 
 export const createStockBatch = async (
     variantId: number,
@@ -22,6 +23,34 @@ export const createStockBatch = async (
     if (!createdBatch) {
         throw new Error("Failed to create stock batch");
     }
+
+    // Auto-create supplier purchase for the brand
+    // Get variant → product → brand chain
+    const variant = await db.query.productVariant.findFirst({
+        where: (v, { eq }) => eq(v.id, variantId),
+        with: {
+            product: {
+                with: {
+                    brand: true,
+                },
+            },
+        },
+    });
+
+    if (variant?.product?.brand?.id) {
+        const purchaseAmount = data.supplierPrice * data.quantity;
+        const productName = variant.product.name;
+        const variantLabel = variant.label;
+
+        // Create supplier purchase entry
+        await db.insert(supplierPurchases).values({
+            brandId: variant.product.brand.id,
+            amount: purchaseAmount.toString(),
+            purchaseDate: format(new Date(), "yyyy-MM-dd"),
+            description: `Stock batch: ${productName} (${variantLabel}) - ${data.quantity} units @ ৳${data.supplierPrice}`,
+        });
+    }
+
     return createdBatch;
 };
 

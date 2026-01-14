@@ -40,6 +40,7 @@ export const getProducts = async (
     conditions.push(
       or(
         ilike(product.name, `%${query.search}%`),
+        ilike(product.code, `%${query.search}%`)
       )
     );
   }

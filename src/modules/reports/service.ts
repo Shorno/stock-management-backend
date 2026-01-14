@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, dsr, route, orderItemReturns } from "../../db/schema";
+import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant } from "../../db/schema";
 import { eq, and, gte, lte, sql, ne, countDistinct, desc } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
@@ -203,11 +203,14 @@ export interface DsrOrderSummaryItem {
     netOrderTotal: string;
     payments: { method: string; amount: string }[];
     expenses: { type: string; amount: string }[];
-    customerDues: { customerName: string; amount: string }[];
+    customerDues: { customerName: string; amount: string; collectedAmount: string; remainingDue: string }[];
+    collections: { date: string; amount: string; method: string | null; collectedBy: string | null }[];
     totalPayments: string;
     totalExpenses: string;
-    totalCustomerDue: string;
-    orderDue: string;
+    totalCustomerDue: string;        // Original due amount
+    totalCollectedFromDues: string;  // Amount collected against customer dues
+    remainingCustomerDue: string;    // Remaining = original - collected
+    orderDue: string;                // Same as remainingCustomerDue for compatibility
 }
 
 export interface DsrLedgerResponse {
@@ -275,6 +278,14 @@ export const getDsrLedger = async (
         where: (r, { inArray }) => inArray(r.orderId, orderIds),
     }) : [];
 
+    // Fetch due collections for these orders
+    const dueCollectionsData = orderIds.length > 0 ? await db.query.dueCollections.findMany({
+        where: (c, { inArray }) => inArray(c.orderId, orderIds),
+        with: {
+            collectedByDsr: true,
+        },
+    }) : [];
+
     // Group returns and adjustment discounts by order ID
     const returnsByOrderId = new Map<number, number>();
     const adjDiscountsByOrderId = new Map<number, number>();
@@ -283,12 +294,32 @@ export const getDsrLedger = async (
         adjDiscountsByOrderId.set(ret.orderId, (adjDiscountsByOrderId.get(ret.orderId) || 0) + parseFloat(ret.adjustmentDiscount || "0"));
     }
 
-    // Group customer dues by order ID
-    const customerDuesByOrderId = new Map<number, { customerName: string; amount: string }[]>();
+    // Group customer dues by order ID (with collected amounts)
+    const customerDuesByOrderId = new Map<number, { customerName: string; amount: string; collectedAmount: string; remainingDue: string }[]>();
     for (const due of customerDuesData) {
         const existing = customerDuesByOrderId.get(due.orderId) || [];
-        existing.push({ customerName: due.customerName, amount: due.amount });
+        const remaining = parseFloat(due.amount) - parseFloat(due.collectedAmount);
+        existing.push({
+            customerName: due.customerName,
+            amount: due.amount,
+            collectedAmount: due.collectedAmount,
+            remainingDue: remaining.toFixed(2)
+        });
         customerDuesByOrderId.set(due.orderId, existing);
+    }
+
+    // Group collections by order ID
+    const collectionsByOrderId = new Map<number, { date: string; amount: string; method: string | null; collectedBy: string | null }[]>();
+    for (const col of dueCollectionsData) {
+        if (!col.orderId) continue;
+        const existing = collectionsByOrderId.get(col.orderId) || [];
+        existing.push({
+            date: col.collectionDate,
+            amount: col.amount,
+            method: col.paymentMethod,
+            collectedBy: col.collectedByDsr?.name || null
+        });
+        collectionsByOrderId.set(col.orderId, existing);
     }
 
     // Group expenses by order ID
@@ -312,17 +343,17 @@ export const getDsrLedger = async (
         const orderPaymentsList = paymentsByOrderId.get(sale.orderId) || [];
         const orderExpensesList = expensesByOrderId.get(sale.orderId) || [];
         const orderCustomerDues = customerDuesByOrderId.get(sale.orderId) || [];
+        const orderCollections = collectionsByOrderId.get(sale.orderId) || [];
         const orderReturns = returnsByOrderId.get(sale.orderId) || 0;
         const orderAdjDiscounts = adjDiscountsByOrderId.get(sale.orderId) || 0;
 
         const totalPayments = orderPaymentsList.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const totalExpenses = orderExpensesList.reduce((sum, e) => sum + parseFloat(e.amount), 0);
         const totalCustomerDue = orderCustomerDues.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+        const totalCollectedFromDues = orderCustomerDues.reduce((sum, d) => sum + parseFloat(d.collectedAmount), 0);
+        const remainingCustomerDue = totalCustomerDue - totalCollectedFromDues;
         const orderTotal = parseFloat(sale.total);
         const netOrderTotal = orderTotal - orderReturns - orderAdjDiscounts;
-
-        // Order Due = Customer Dues (what DSR still needs to collect from customers)
-        const orderDue = totalCustomerDue;
 
         return {
             orderId: sale.orderId,
@@ -335,10 +366,13 @@ export const getDsrLedger = async (
             payments: orderPaymentsList,
             expenses: orderExpensesList,
             customerDues: orderCustomerDues,
+            collections: orderCollections,
             totalPayments: totalPayments.toFixed(2),
             totalExpenses: totalExpenses.toFixed(2),
             totalCustomerDue: totalCustomerDue.toFixed(2),
-            orderDue: orderDue.toFixed(2),
+            totalCollectedFromDues: totalCollectedFromDues.toFixed(2),
+            remainingCustomerDue: remainingCustomerDue.toFixed(2),
+            orderDue: remainingCustomerDue.toFixed(2), // Now shows remaining due, not original
         };
     });
 
@@ -444,7 +478,10 @@ export const getAllDsrLedgerSummaries = async (
         const totalNetSales = grossSales - totalReturns;
         const totalCollected = paymentsData.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const totalExpenses = expensesData.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-        const totalDue = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+        // Calculate remaining due (original - collected)
+        const totalOriginalDue = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+        const totalCollectedFromDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.collectedAmount), 0);
+        const totalDue = totalOriginalDue - totalCollectedFromDues;
 
         items.push({
             dsrId: dsrInfo.id,
@@ -660,6 +697,7 @@ export interface ProductWiseSalesSummary {
     totalProducts: number;
     totalQuantitySold: number;
     totalFreeQuantity: number;
+    totalDiscount: string;
     grandTotal: string;
 }
 
@@ -791,6 +829,212 @@ export const getProductWiseSales = async (
             totalProducts: items.length,
             totalQuantitySold,
             totalFreeQuantity,
+            totalDiscount: "0",
+            grandTotal: grandTotal.toFixed(2),
+        },
+    };
+};
+
+// ==================== PRODUCT WISE SALES WITH VARIANTS ====================
+
+export interface VariantSalesItem {
+    variantId: number;
+    variantLabel: string;
+    totalQuantity: number;
+    freeQuantity: number;
+    returnQuantity: number;
+    totalDiscount: string;
+    totalSales: string;
+    orderCount: number;
+}
+
+export interface ProductWithVariantsSalesItem {
+    productId: number;
+    productName: string;
+    categoryId: number | null;
+    categoryName: string | null;
+    brandId: number;
+    brandName: string;
+    unit: string;
+    totalQuantity: number;
+    freeQuantity: number;
+    returnQuantity: number;
+    totalDiscount: string;
+    totalSales: string;
+    orderCount: number;
+    variantCount: number;
+    variants: VariantSalesItem[];
+}
+
+export interface ProductWiseSalesWithVariantsResponse {
+    items: ProductWithVariantsSalesItem[];
+    summary: ProductWiseSalesSummary;
+}
+
+/**
+ * Get product-wise sales report with variant breakdown
+ */
+export const getProductWiseSalesWithVariants = async (
+    query: ProductWiseSalesQuery
+): Promise<ProductWiseSalesWithVariantsResponse> => {
+    // Build base conditions for orders
+    const orderConditions = [
+        gte(wholesaleOrders.orderDate, query.startDate),
+        lte(wholesaleOrders.orderDate, query.endDate),
+        ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "return"),
+    ];
+
+    if (query.dsrId) {
+        orderConditions.push(eq(wholesaleOrders.dsrId, query.dsrId));
+    }
+
+    if (query.routeId) {
+        orderConditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    // Build item conditions
+    const itemConditions: any[] = [];
+
+    if (query.categoryId) {
+        itemConditions.push(eq(product.categoryId, query.categoryId));
+    }
+
+    if (query.brandId) {
+        itemConditions.push(eq(wholesaleOrderItems.brandId, query.brandId));
+    }
+
+    if (query.productId) {
+        itemConditions.push(eq(wholesaleOrderItems.productId, query.productId));
+    }
+
+    // Query order items grouped by product AND variant (via batch)
+    const results = await db
+        .select({
+            productId: wholesaleOrderItems.productId,
+            productName: product.name,
+            categoryId: product.categoryId,
+            categoryName: category.name,
+            brandId: wholesaleOrderItems.brandId,
+            brandName: brand.name,
+            unit: wholesaleOrderItems.unit,
+            variantId: productVariant.id,
+            variantLabel: productVariant.label,
+            quantity: sql<number>`SUM(
+                COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})
+                - COALESCE(${orderItemReturns.returnQuantity}, 0)
+            )`,
+            freeQty: sql<number>`SUM(
+                COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})
+                - COALESCE(${orderItemReturns.returnFreeQuantity}, 0)
+            )`,
+            returnQty: sql<number>`SUM(COALESCE(${orderItemReturns.returnQuantity}, 0))`,
+            totalDiscount: sql<string>`SUM(
+                CAST(${wholesaleOrderItems.discount} AS DECIMAL)
+                + CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
+            )`,
+            totalNet: sql<string>`SUM(
+                CAST(${wholesaleOrderItems.net} AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
+            )`,
+            orderCount: countDistinct(wholesaleOrderItems.orderId),
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
+        .leftJoin(category, eq(product.categoryId, category.id))
+        .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+        .innerJoin(productVariant, eq(stockBatch.variantId, productVariant.id))
+        .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
+        .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])))
+        .groupBy(
+            wholesaleOrderItems.productId,
+            product.name,
+            product.categoryId,
+            category.name,
+            wholesaleOrderItems.brandId,
+            brand.name,
+            wholesaleOrderItems.unit,
+            productVariant.id,
+            productVariant.label
+        )
+        .orderBy(desc(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL) - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL))`));
+
+    // Group results by product and aggregate variants
+    const productMap = new Map<number, ProductWithVariantsSalesItem>();
+
+    let totalQuantitySold = 0;
+    let totalFreeQuantity = 0;
+    let totalDiscountSum = 0;
+    let grandTotal = 0;
+
+    for (const row of results) {
+        const quantity = Number(row.quantity) || 0;
+        const freeQty = Number(row.freeQty) || 0;
+        const returnQty = Number(row.returnQty) || 0;
+        const discount = parseFloat(row.totalDiscount ?? "0") || 0;
+        const net = parseFloat(row.totalNet ?? "0") || 0;
+
+        totalQuantitySold += quantity;
+        totalFreeQuantity += freeQty;
+        totalDiscountSum += discount;
+        grandTotal += net;
+
+        const variantItem: VariantSalesItem = {
+            variantId: row.variantId,
+            variantLabel: row.variantLabel,
+            totalQuantity: quantity,
+            freeQuantity: freeQty,
+            returnQuantity: returnQty,
+            totalDiscount: discount.toFixed(2),
+            totalSales: net.toFixed(2),
+            orderCount: row.orderCount,
+        };
+
+        const existing = productMap.get(row.productId);
+        if (existing) {
+            existing.totalQuantity += quantity;
+            existing.freeQuantity += freeQty;
+            existing.returnQuantity += returnQty;
+            existing.totalDiscount = (parseFloat(existing.totalDiscount) + discount).toFixed(2);
+            existing.totalSales = (parseFloat(existing.totalSales) + net).toFixed(2);
+            existing.orderCount = Math.max(existing.orderCount, row.orderCount);
+            existing.variantCount++;
+            existing.variants.push(variantItem);
+        } else {
+            productMap.set(row.productId, {
+                productId: row.productId,
+                productName: row.productName,
+                categoryId: row.categoryId,
+                categoryName: row.categoryName,
+                brandId: row.brandId,
+                brandName: row.brandName,
+                unit: row.unit,
+                totalQuantity: quantity,
+                freeQuantity: freeQty,
+                returnQuantity: returnQty,
+                totalDiscount: discount.toFixed(2),
+                totalSales: net.toFixed(2),
+                orderCount: row.orderCount,
+                variantCount: 1,
+                variants: [variantItem],
+            });
+        }
+    }
+
+    const items = Array.from(productMap.values()).sort(
+        (a, b) => parseFloat(b.totalSales) - parseFloat(a.totalSales)
+    );
+
+    return {
+        items,
+        summary: {
+            totalProducts: items.length,
+            totalQuantitySold,
+            totalFreeQuantity,
+            totalDiscount: totalDiscountSum.toFixed(2),
             grandTotal: grandTotal.toFixed(2),
         },
     };
