@@ -126,6 +126,7 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
             orderDate: wholesaleOrders.orderDate,
             orderNumber: wholesaleOrders.orderNumber,
             productName: orderDamageItems.productName,
+            variantName: orderDamageItems.variantName,
             brandName: orderDamageItems.brandName,
             categoryName: category.name,
             quantity: orderDamageItems.quantity,
@@ -177,7 +178,7 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
         return {
             id: `ODM-${item.id}`,
             returnDate: item.orderDate,
-            productName: item.productName,
+            productName: item.variantName ? `${item.productName} (${item.variantName})` : item.productName,
             brandName: item.brandName,
             categoryName: item.categoryName || 'N/A',
             returnAmount: Number(item.total || 0),
@@ -186,8 +187,6 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
             type: 'Order Damage' as const,
             referenceNumber: item.orderNumber,
             dsrName: item.dsrName,
-            unitPrice: buyingPrice,
-            sellPrice: sellingPrice,
         };
     });
 

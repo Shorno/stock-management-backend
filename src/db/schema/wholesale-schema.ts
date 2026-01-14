@@ -314,7 +314,10 @@ export const orderDamageItems = pgTable("order_damage_items", {
         .references(() => wholesaleOrderItems.id, { onDelete: "set null" }), // Optional - only set if from order item
     productId: integer("product_id")
         .references(() => product.id, { onDelete: "set null" }), // Product ID for any product
+    variantId: integer("variant_id")
+        .references(() => productVariant.id, { onDelete: "set null" }), // Variant ID for variant info
     productName: varchar("product_name", { length: 200 }).notNull(),
+    variantName: varchar("variant_name", { length: 100 }), // Variant label (e.g., "100G", "500ml")
     brandName: varchar("brand_name", { length: 100 }).notNull(),
     quantity: integer("quantity").notNull(),
     unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),

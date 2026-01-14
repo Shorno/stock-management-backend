@@ -361,7 +361,11 @@ export const getOrderById = async (id: number): Promise<OrderWithItems | undefin
                 with: {
                     product: true,
                     brand: true,
-                    batch: true,
+                    batch: {
+                        with: {
+                            variant: true,
+                        },
+                    },
                 },
             },
             dsr: true,
@@ -792,7 +796,9 @@ export const saveOrderAdjustment = async (
                     orderId,
                     orderItemId: damageItem.orderItemId || null,
                     productId: damageItem.productId || null,
+                    variantId: damageItem.variantId || null,
                     productName: damageItem.productName,
+                    variantName: damageItem.variantName || null,
                     brandName: damageItem.brandName,
                     quantity: damageItem.quantity,
                     unitPrice: damageItem.unitPrice.toFixed(2),
@@ -855,6 +861,11 @@ export const getOrderAdjustment = async (orderId: number) => {
 
     // Get customer dues
     const customerDuesData = await db.query.orderCustomerDues.findMany({
+        where: (d, { eq }) => eq(d.orderId, orderId),
+    });
+
+    // Get damage items
+    const damageItemsData = await db.query.orderDamageItems.findMany({
         where: (d, { eq }) => eq(d.orderId, orderId),
     });
 
@@ -950,6 +961,18 @@ export const getOrderAdjustment = async (orderId: number) => {
             returnFreeQuantity: r.returnFreeQuantity,
             returnAmount: parseFloat(r.returnAmount),
             adjustmentDiscount: parseFloat(r.adjustmentDiscount || "0"),
+        })),
+        damageReturns: damageItemsData.map(d => ({
+            id: d.id,
+            orderItemId: d.orderItemId || undefined,
+            productId: d.productId || undefined,
+            variantId: d.variantId || undefined,
+            productName: d.productName,
+            variantName: d.variantName || undefined,
+            brandName: d.brandName,
+            quantity: d.quantity,
+            unitPrice: parseFloat(d.unitPrice),
+            reason: d.reason || undefined,
         })),
         // New: Items with pre-calculated values
         itemsWithCalculations,
