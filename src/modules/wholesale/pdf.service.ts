@@ -225,6 +225,16 @@ interface AdjustmentCustomerDue {
     amount: number;
 }
 
+interface DamageReturn {
+    id?: number;
+    productName: string;
+    variantName?: string;
+    brandName: string;
+    quantity: number;
+    unitPrice: number;
+    reason?: string;
+}
+
 interface AdjustmentItemWithCalculations {
     id: number;
     productId: number;
@@ -265,6 +275,7 @@ export interface AdjustmentData {
     payments: AdjustmentPayment[];
     expenses: AdjustmentExpense[];
     customerDues: AdjustmentCustomerDue[];
+    damageReturns?: DamageReturn[];
     itemsWithCalculations: AdjustmentItemWithCalculations[];
     summary: AdjustmentSummary;
 }
@@ -656,6 +667,33 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             } else {
                 doc.fillColor(mediumGray).text("No customer dues", leftCol, currentY);
                 currentY += 12;
+            }
+
+            currentY += 8;
+
+            // Left column: Damage Returns (NEW)
+            if (adjustment?.damageReturns && adjustment.damageReturns.length > 0) {
+                doc.font("Helvetica-Bold").fillColor("#dc3545");
+                doc.text("Damage Returns", leftCol, currentY);
+                currentY += 14;
+
+                doc.fontSize(8).font("Helvetica");
+                let totalDamage = 0;
+                adjustment.damageReturns.forEach(item => {
+                    const itemTotal = item.quantity * item.unitPrice;
+                    totalDamage += itemTotal;
+                    const label = item.variantName
+                        ? `${truncateText(item.productName, 15)} (${item.variantName}) x${item.quantity}`
+                        : `${truncateText(item.productName, 20)} x${item.quantity}`;
+                    doc.fillColor(mediumGray).text(label, leftCol, currentY);
+                    doc.fillColor("#dc3545").text(formatCurrency(itemTotal), leftCol + 130, currentY);
+                    currentY += 12;
+                });
+                // Total damage line
+                doc.fillColor("#dc3545").font("Helvetica-Bold");
+                doc.text("Total:", leftCol, currentY);
+                doc.text(formatCurrency(totalDamage), leftCol + 130, currentY);
+                currentY += 16;
             }
 
 

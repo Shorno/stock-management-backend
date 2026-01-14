@@ -649,6 +649,7 @@ export const handleGenerateMainInvoicePdf = async (c: AppContext): Promise<Respo
             expenses: adjustmentData.expenses || [],
             itemsWithCalculations: adjustmentData.itemsWithCalculations || [],
             customerDues: adjustmentData.customerDues || [],
+            damageReturns: adjustmentData.damageReturns || [],
             summary: adjustmentData.summary,
         } : null;
 
