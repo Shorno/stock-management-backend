@@ -37,6 +37,8 @@ export interface ReturnListItem {
     type: 'Order Adjustment' | 'Damage Return' | 'Order Damage';
     referenceNumber: string; // Order Number or Return Number
     dsrName?: string;
+    unitPrice?: number; // Buying/cost price
+    sellPrice?: number; // Selling price
 }
 
 export interface ReturnsListResponse {
@@ -187,6 +189,8 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
             type: 'Order Damage' as const,
             referenceNumber: item.orderNumber,
             dsrName: item.dsrName,
+            unitPrice: buyingPrice,
+            sellPrice: sellingPrice,
         };
     });
 
