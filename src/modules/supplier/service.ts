@@ -153,7 +153,10 @@ export async function getSupplierBalance(brandId: number) {
 
     const totalPurchases = Number(purchasesResult[0]?.total || 0);
     const totalPayments = Number(paymentsResult[0]?.total || 0);
-    const balance = totalPurchases - totalPayments;
+    // Balance = Payments - Purchases
+    // Positive = Supplier owes us (we've overpaid)
+    // Negative = We owe supplier (need to pay more)
+    const balance = totalPayments - totalPurchases;
 
     return { totalPurchases, totalPayments, balance };
 }
@@ -172,5 +175,6 @@ export async function getTotalSupplierDue(): Promise<number> {
     const totalPurchases = Number(purchasesResult[0]?.total || 0);
     const totalPayments = Number(paymentsResult[0]?.total || 0);
 
-    return totalPurchases - totalPayments;
+    // Positive = Suppliers owe us, Negative = We owe suppliers
+    return totalPayments - totalPurchases;
 }
