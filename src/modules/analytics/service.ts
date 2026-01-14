@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 
@@ -645,7 +645,27 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         }, 0);
     }
 
-    const profitLoss = netSales - costOfGoodsSold;
+    // ----- BILLS -----
+    // Fetch bills for the date range and deduct from profit
+    let billsFilters = undefined;
+    if (dateRange?.startDate) {
+        billsFilters = and(
+            gte(bills.billDate, dateRange.startDate),
+            dateRange.endDate ? lte(bills.billDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const billsResult = await db
+        .select({
+            totalBills: sum(bills.amount),
+        })
+        .from(bills)
+        .where(billsFilters);
+
+    const totalBills = Number(billsResult[0]?.totalBills || 0);
+
+    // Profit = Net Sales - Cost of Goods Sold - Bills
+    const profitLoss = netSales - costOfGoodsSold - totalBills;
 
     // ----- DSR SALES DUE -----
     // Total outstanding customer dues from all orders (what DSRs need to collect)

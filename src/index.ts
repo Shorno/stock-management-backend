@@ -21,6 +21,7 @@ import { supplierRoutes } from "./modules/supplier";
 import { dueCollectionRoutes } from "./modules/due-collection";
 import { stockAdjustmentRoutes } from "./modules/stock-adjustments";
 import { settingsRoutes } from "./modules/settings";
+import { billsRoutes } from "./modules/bills";
 
 const app = new Hono<{
     Variables: {
@@ -99,6 +100,7 @@ app.route("/suppliers", supplierRoutes);
 app.route("/due-collection", dueCollectionRoutes);
 app.route("/stock-adjustments", stockAdjustmentRoutes);
 app.route("/settings", settingsRoutes);
+app.route("/bills", billsRoutes);
 
 
 const port = Number(process.env.PORT) || 3000;
