@@ -6,6 +6,8 @@ export const createCustomerSchema = z.object({
     mobile: z.string().max(20).optional(),
     address: z.string().optional(),
     routeId: z.number().int().positive().optional(),
+    profileImageUrl: z.string().url().optional().nullable(),
+    locationUrl: z.string().url().optional().nullable(),
 });
 
 export const updateCustomerSchema = z.object({
@@ -14,6 +16,8 @@ export const updateCustomerSchema = z.object({
     mobile: z.string().max(20).optional().nullable(),
     address: z.string().optional().nullable(),
     routeId: z.number().int().positive().optional().nullable(),
+    profileImageUrl: z.string().url().optional().nullable(),
+    locationUrl: z.string().url().optional().nullable(),
 });
 
 export const getCustomersQuerySchema = z.object({

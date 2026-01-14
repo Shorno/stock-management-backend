@@ -22,6 +22,7 @@ import { dueCollectionRoutes } from "./modules/due-collection";
 import { stockAdjustmentRoutes } from "./modules/stock-adjustments";
 import { settingsRoutes } from "./modules/settings";
 import { billsRoutes } from "./modules/bills";
+import { cloudinaryRoutes } from "./modules/cloudinary";
 
 const app = new Hono<{
     Variables: {
@@ -101,6 +102,7 @@ app.route("/due-collection", dueCollectionRoutes);
 app.route("/stock-adjustments", stockAdjustmentRoutes);
 app.route("/settings", settingsRoutes);
 app.route("/bills", billsRoutes);
+app.route("/cloudinary", cloudinaryRoutes);
 
 
 const port = Number(process.env.PORT) || 3000;

@@ -11,6 +11,8 @@ export const createCustomer = async (data: CreateCustomerInput): Promise<Custome
         mobile: data.mobile || null,
         address: data.address || null,
         routeId: data.routeId || null,
+        profileImageUrl: data.profileImageUrl || null,
+        locationUrl: data.locationUrl || null,
     };
 
     const [created] = await db.insert(customer).values(newCustomer).returning();
@@ -54,6 +56,8 @@ export const getCustomers = async (
                 shopName: customer.shopName,
                 mobile: customer.mobile,
                 address: customer.address,
+                profileImageUrl: customer.profileImageUrl,
+                locationUrl: customer.locationUrl,
                 routeId: customer.routeId,
                 createdAt: customer.createdAt,
                 updatedAt: customer.updatedAt,
@@ -110,6 +114,8 @@ export const getCustomerById = async (id: number): Promise<CustomerWithRoute | u
             shopName: customer.shopName,
             mobile: customer.mobile,
             address: customer.address,
+            profileImageUrl: customer.profileImageUrl,
+            locationUrl: customer.locationUrl,
             routeId: customer.routeId,
             createdAt: customer.createdAt,
             updatedAt: customer.updatedAt,
@@ -136,6 +142,8 @@ export const updateCustomer = async (
     if (data.mobile !== undefined) updateData.mobile = data.mobile;
     if (data.address !== undefined) updateData.address = data.address;
     if (data.routeId !== undefined) updateData.routeId = data.routeId;
+    if (data.profileImageUrl !== undefined) updateData.profileImageUrl = data.profileImageUrl;
+    if (data.locationUrl !== undefined) updateData.locationUrl = data.locationUrl;
 
     const [updated] = await db
         .update(customer)
