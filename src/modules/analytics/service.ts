@@ -721,7 +721,8 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalSupplierPurchases = Number(supplierPurchasesResult[0]?.total || 0);
     const totalSupplierPayments = Number(supplierPaymentsResult[0]?.total || 0);
-    const supplierDue = totalSupplierPurchases - totalSupplierPayments;
+    // Positive = Supplier owes us (we've overpaid), Negative = We owe supplier
+    const supplierDue = totalSupplierPayments - totalSupplierPurchases;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
