@@ -697,6 +697,7 @@ export interface ProductWiseSalesSummary {
     totalProducts: number;
     totalQuantitySold: number;
     totalFreeQuantity: number;
+    totalDiscount: string;
     grandTotal: string;
 }
 
@@ -828,6 +829,7 @@ export const getProductWiseSales = async (
             totalProducts: items.length,
             totalQuantitySold,
             totalFreeQuantity,
+            totalDiscount: "0",
             grandTotal: grandTotal.toFixed(2),
         },
     };
@@ -841,6 +843,7 @@ export interface VariantSalesItem {
     totalQuantity: number;
     freeQuantity: number;
     returnQuantity: number;
+    totalDiscount: string;
     totalSales: string;
     orderCount: number;
 }
@@ -856,6 +859,7 @@ export interface ProductWithVariantsSalesItem {
     totalQuantity: number;
     freeQuantity: number;
     returnQuantity: number;
+    totalDiscount: string;
     totalSales: string;
     orderCount: number;
     variantCount: number;
@@ -925,6 +929,10 @@ export const getProductWiseSalesWithVariants = async (
                 - COALESCE(${orderItemReturns.returnFreeQuantity}, 0)
             )`,
             returnQty: sql<number>`SUM(COALESCE(${orderItemReturns.returnQuantity}, 0))`,
+            totalDiscount: sql<string>`SUM(
+                CAST(${wholesaleOrderItems.discount} AS DECIMAL)
+                + CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
+            )`,
             totalNet: sql<string>`SUM(
                 CAST(${wholesaleOrderItems.net} AS DECIMAL)
                 - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
@@ -959,16 +967,19 @@ export const getProductWiseSalesWithVariants = async (
 
     let totalQuantitySold = 0;
     let totalFreeQuantity = 0;
+    let totalDiscountSum = 0;
     let grandTotal = 0;
 
     for (const row of results) {
         const quantity = Number(row.quantity) || 0;
         const freeQty = Number(row.freeQty) || 0;
         const returnQty = Number(row.returnQty) || 0;
+        const discount = parseFloat(row.totalDiscount ?? "0") || 0;
         const net = parseFloat(row.totalNet ?? "0") || 0;
 
         totalQuantitySold += quantity;
         totalFreeQuantity += freeQty;
+        totalDiscountSum += discount;
         grandTotal += net;
 
         const variantItem: VariantSalesItem = {
@@ -977,6 +988,7 @@ export const getProductWiseSalesWithVariants = async (
             totalQuantity: quantity,
             freeQuantity: freeQty,
             returnQuantity: returnQty,
+            totalDiscount: discount.toFixed(2),
             totalSales: net.toFixed(2),
             orderCount: row.orderCount,
         };
@@ -986,6 +998,7 @@ export const getProductWiseSalesWithVariants = async (
             existing.totalQuantity += quantity;
             existing.freeQuantity += freeQty;
             existing.returnQuantity += returnQty;
+            existing.totalDiscount = (parseFloat(existing.totalDiscount) + discount).toFixed(2);
             existing.totalSales = (parseFloat(existing.totalSales) + net).toFixed(2);
             existing.orderCount = Math.max(existing.orderCount, row.orderCount);
             existing.variantCount++;
@@ -1002,6 +1015,7 @@ export const getProductWiseSalesWithVariants = async (
                 totalQuantity: quantity,
                 freeQuantity: freeQty,
                 returnQuantity: returnQty,
+                totalDiscount: discount.toFixed(2),
                 totalSales: net.toFixed(2),
                 orderCount: row.orderCount,
                 variantCount: 1,
@@ -1020,6 +1034,7 @@ export const getProductWiseSalesWithVariants = async (
             totalProducts: items.length,
             totalQuantitySold,
             totalFreeQuantity,
+            totalDiscount: totalDiscountSum.toFixed(2),
             grandTotal: grandTotal.toFixed(2),
         },
     };
