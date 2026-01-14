@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { stockBatch, productVariant, product, supplierPurchases } from "../../db/schema";
+import { stockBatch, supplierPurchases } from "../../db/schema";
 import { eq, count } from "drizzle-orm";
 import type { CreateStockBatchInput, UpdateStockBatchInput, GetStockBatchesQuery } from "./validation";
 import type { StockBatch, NewStockBatch } from "./types";
