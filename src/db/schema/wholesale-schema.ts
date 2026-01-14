@@ -37,6 +37,8 @@ export const customer = pgTable("customer", {
     shopName: varchar("shop_name", { length: 150 }),
     mobile: varchar("mobile", { length: 20 }),
     address: text("address"),
+    profileImageUrl: text("profile_image_url"),
+    locationUrl: text("location_url"),
     routeId: integer("route_id")
         .references(() => route.id, { onDelete: "set null" }),
     ...timestamps
