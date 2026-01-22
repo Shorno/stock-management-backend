@@ -6,6 +6,7 @@ import {
     getCustomersQuerySchema,
 } from "./validation";
 import * as customerService from "./service";
+import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
 
@@ -106,9 +107,10 @@ app.post(
     }
 );
 
-// Update customer
+// Update customer (Admin only)
 app.put(
     "/:id",
+    requireRole(["admin"]),
     zValidator("json", updateCustomerSchema, (result, ctx) => {
         if (!result.success) {
             return ctx.json(
@@ -156,8 +158,8 @@ app.put(
     }
 );
 
-// Delete customer
-app.delete("/:id", async (ctx) => {
+// Delete customer (Admin only)
+app.delete("/:id", requireRole(["admin"]), async (ctx) => {
     try {
         const id = parseInt(ctx.req.param("id"));
         if (isNaN(id)) {

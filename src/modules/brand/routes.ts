@@ -6,6 +6,7 @@ import {
   getBrandsQuerySchema,
 } from "./validation";
 import * as brandController from "./controller";
+import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
 
@@ -51,8 +52,10 @@ app.get(
 
 app.get("/:id", brandController.handleGetBrandById);
 
+// Update a brand (Admin only)
 app.put(
   "/:id",
+  requireRole(["admin"]),
   zValidator("json", updateBrandSchema, (result, ctx) => {
     if (!result.success) {
       return ctx.json(
@@ -71,7 +74,8 @@ app.put(
   brandController.handleUpdateBrand
 );
 
-app.delete("/:id", brandController.handleDeleteBrand);
+// Delete a brand (Admin only)
+app.delete("/:id", requireRole(["admin"]), brandController.handleDeleteBrand);
 
 export default app;
 

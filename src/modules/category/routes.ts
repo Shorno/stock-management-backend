@@ -6,6 +6,7 @@ import {
   getCategoriesQuerySchema,
 } from "./validation";
 import * as categoryController from "./controller";
+import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
 
@@ -51,8 +52,10 @@ app.get(
 
 app.get("/:id", categoryController.handleGetCategoryById);
 
+// Update a category (Admin only)
 app.put(
   "/:id",
+  requireRole(["admin"]),
   zValidator("json", updateCategorySchema, (result, ctx) => {
     if (!result.success) {
       return ctx.json(
@@ -71,7 +74,8 @@ app.put(
   categoryController.handleUpdateCategory
 );
 
-app.delete("/:id", categoryController.handleDeleteCategory);
+// Delete a category (Admin only)
+app.delete("/:id", requireRole(["admin"]), categoryController.handleDeleteCategory);
 
 export default app;
 

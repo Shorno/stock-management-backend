@@ -6,6 +6,7 @@ import {
   getDsrsQuerySchema,
 } from "./validation";
 import * as dsrController from "./controller";
+import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
 
@@ -51,8 +52,10 @@ app.get(
 
 app.get("/:id", dsrController.handleGetDsrById);
 
+// Update a DSR (Admin only)
 app.put(
   "/:id",
+  requireRole(["admin"]),
   zValidator("json", updateDsrSchema, (result, ctx) => {
     if (!result.success) {
       return ctx.json(
@@ -71,7 +74,8 @@ app.put(
   dsrController.handleUpdateDsr
 );
 
-app.delete("/:id", dsrController.handleDeleteDsr);
+// Delete a DSR (Admin only)
+app.delete("/:id", requireRole(["admin"]), dsrController.handleDeleteDsr);
 
 export default app;
 

@@ -104,9 +104,10 @@ app.get("/:id/sales-invoice-pdf", wholesaleController.handleGenerateSalesInvoice
 // Generate Main Invoice PDF (detailed - with discounts, subtotals, adjustments)
 app.get("/:id/main-invoice-pdf", wholesaleController.handleGenerateMainInvoicePdf);
 
-// Update wholesale order
+// Update wholesale order (Admin only)
 app.put(
     "/:id",
+    requireRole(["admin"]),
     zValidator("json", updateOrderSchema, (result, ctx) => {
         if (!result.success) {
             return ctx.json(
@@ -125,8 +126,8 @@ app.put(
     wholesaleController.handleUpdateOrder
 );
 
-// Delete wholesale order
-app.delete("/:id", wholesaleController.handleDeleteOrder);
+// Delete wholesale order (Admin only)
+app.delete("/:id", requireRole(["admin"]), wholesaleController.handleDeleteOrder);
 
 
 

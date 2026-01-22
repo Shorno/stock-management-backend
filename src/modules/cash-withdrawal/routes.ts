@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import * as withdrawalService from "./service";
 import { getWithdrawalsQuerySchema, createWithdrawalInputSchema } from "./validation";
+import { requireRole } from "../../lib/auth-middleware";
 
 const cashWithdrawalRoutes = new Hono();
 
@@ -62,8 +63,8 @@ cashWithdrawalRoutes.post(
     }
 );
 
-// Delete a withdrawal
-cashWithdrawalRoutes.delete("/:id", async (c) => {
+// Delete a withdrawal (Admin only)
+cashWithdrawalRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
     try {
         const withdrawalId = Number(c.req.param("id"));
         if (isNaN(withdrawalId)) {

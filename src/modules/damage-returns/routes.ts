@@ -6,6 +6,7 @@ import {
     getDamageReturnsQuerySchema,
 } from "./validation";
 import * as damageReturnService from "./service";
+import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
 
@@ -91,9 +92,10 @@ app.post(
     }
 );
 
-// Update damage return status (approve/reject)
+// Update damage return status (approve/reject) - Admin only
 app.patch(
     "/:id/status",
+    requireRole(["admin"]),
     zValidator("json", updateReturnStatusSchema, (result, ctx) => {
         if (!result.success) {
             return ctx.json({
@@ -129,8 +131,8 @@ app.patch(
     }
 );
 
-// Delete damage return (only pending)
-app.delete("/:id", async (ctx) => {
+// Delete damage return (only pending) - Admin only
+app.delete("/:id", requireRole(["admin"]), async (ctx) => {
     try {
         const id = parseInt(ctx.req.param("id"));
         if (isNaN(id)) {

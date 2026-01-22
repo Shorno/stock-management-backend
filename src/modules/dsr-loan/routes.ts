@@ -7,6 +7,7 @@ import {
     createLoanInputSchema,
     createRepaymentInputSchema,
 } from "./validation";
+import { requireRole } from "../../lib/auth-middleware";
 
 const dsrLoanRoutes = new Hono();
 
@@ -120,8 +121,8 @@ dsrLoanRoutes.post(
     }
 );
 
-// Delete a transaction
-dsrLoanRoutes.delete("/transactions/:id", async (c) => {
+// Delete a transaction (Admin only)
+dsrLoanRoutes.delete("/transactions/:id", requireRole(["admin"]), async (c) => {
     try {
         const transactionId = Number(c.req.param("id"));
         if (isNaN(transactionId)) {

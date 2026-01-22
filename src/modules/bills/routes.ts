@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import * as billsService from "./service";
 import { createBillSchema, getBillsQuerySchema } from "./validation";
+import { requireRole } from "../../lib/auth-middleware";
 
 const billsRoutes = new Hono();
 
@@ -53,8 +54,8 @@ billsRoutes.post(
     }
 );
 
-// Delete a bill
-billsRoutes.delete("/:id", async (c) => {
+// Delete a bill (Admin only)
+billsRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
     try {
         const id = Number(c.req.param("id"));
         if (isNaN(id)) {
