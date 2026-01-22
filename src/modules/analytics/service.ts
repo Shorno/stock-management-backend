@@ -669,8 +669,8 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     let expenseFilters = undefined;
     if (dateRange?.startDate) {
         expenseFilters = and(
-            gte(orderExpenses.createdAt, dateRange.startDate),
-            dateRange.endDate ? lte(orderExpenses.createdAt, dateRange.endDate) : undefined
+            gte(orderExpenses.createdAt, new Date(dateRange.startDate)),
+            dateRange.endDate ? lte(orderExpenses.createdAt, new Date(dateRange.endDate + 'T23:59:59')) : undefined
         );
     }
 
