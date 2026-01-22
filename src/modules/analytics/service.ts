@@ -723,8 +723,27 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // Positive = Supplier owes us (we've overpaid), Negative = We owe supplier
     const supplierDue = totalSupplierPayments - totalSupplierPurchases;
 
-    // Cash Balance = Payments Received - Expenses - Supplier Payments
-    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPayments;
+    // ----- CASH WITHDRAWALS -----
+    // Subtract all cash withdrawals from cash balance
+    const { cashWithdrawals } = await import("../../db/schema");
+
+    let withdrawalFilters = undefined;
+    if (dateRange?.startDate) {
+        withdrawalFilters = and(
+            gte(cashWithdrawals.withdrawalDate, dateRange.startDate),
+            dateRange.endDate ? lte(cashWithdrawals.withdrawalDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const withdrawalsResult = await db
+        .select({ total: sum(cashWithdrawals.amount) })
+        .from(cashWithdrawals)
+        .where(withdrawalFilters);
+
+    const totalWithdrawals = Number(withdrawalsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received - Expenses - Supplier Payments - Cash Withdrawals
+    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPayments - totalWithdrawals;
 
     return {
         netSales: Math.round(netSales * 100) / 100,

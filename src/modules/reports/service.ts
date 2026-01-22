@@ -1196,6 +1196,8 @@ export interface DailySettlementSummary {
     netTotalSales: string;
     totalExpenses: string;
     totalPaymentReceived: string;
+    totalWithdrawals: string;
+    cashBalance: string;
     totalDue: string;
 }
 
@@ -1392,6 +1394,21 @@ export const getDailySettlement = async (
 
     const paymentsReceived = Array.from(paymentGroups.values());
 
+    // 4. Get Cash Withdrawals for the date range
+    const { cashWithdrawals } = await import("../../db/schema");
+    const withdrawalConditions = [
+        gte(cashWithdrawals.withdrawalDate, startDate!),
+        lte(cashWithdrawals.withdrawalDate, endDate!),
+    ];
+
+    const withdrawals = await db
+        .select({ amount: cashWithdrawals.amount })
+        .from(cashWithdrawals)
+        .where(and(...withdrawalConditions));
+
+    const totalWithdrawals = withdrawals.reduce((sum, w) => sum + parseFloat(w.amount), 0);
+    const cashBalance = totalReceived - totalExpenses - totalWithdrawals;
+
     return {
         netSales,
         expenses,
@@ -1400,6 +1417,8 @@ export const getDailySettlement = async (
             netTotalSales: totalNetSales.toFixed(2),
             totalExpenses: totalExpenses.toFixed(2),
             totalPaymentReceived: totalReceived.toFixed(2),
+            totalWithdrawals: totalWithdrawals.toFixed(2),
+            cashBalance: cashBalance.toFixed(2),
             totalDue: totalDue.toFixed(2),
         },
     };

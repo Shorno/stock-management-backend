@@ -483,3 +483,15 @@ export const dsrLoanTransactionsRelations = relations(dsrLoanTransactions, ({ on
         references: [dsr.id],
     }),
 }));
+
+// ==================== CASH WITHDRAWALS ====================
+
+export const cashWithdrawals = pgTable("cash_withdrawals", {
+    id: serial("id").primaryKey(),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    withdrawalDate: date("withdrawal_date").notNull(),
+    note: text("note"),
+    ...timestamps
+}, (table) => ({
+    dateIdx: index("idx_cash_withdrawals_date").on(table.withdrawalDate),
+}));
