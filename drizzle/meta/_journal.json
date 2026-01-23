@@ -15,6 +15,13 @@
       "when": 1769197064644,
       "tag": "0001_rich_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1769204105392,
+      "tag": "0002_icy_eddie_brock",
+      "breakpoints": true
     }
   ]
 }

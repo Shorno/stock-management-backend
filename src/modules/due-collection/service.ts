@@ -1,6 +1,7 @@
 import { db } from "../../db/config";
 import {
     orderCustomerDues,
+    orderDsrDues,
     dueCollections,
     customer,
     wholesaleOrders,
@@ -76,6 +77,7 @@ export interface DSRDueSummary {
     totalCollected: string;
     pendingDuesCount: number;
     ordersWithDuesCount: number;
+    dsrDuesAmount: string; // New: DSR dues from adjustments
 }
 
 export interface DSRDueDetail {
@@ -429,9 +431,8 @@ export const getCollectionHistory = async (
 export const getDSRDueSummary = async (
     _query: GetDSRDueSummaryQuery
 ): Promise<DSRDueSummary[]> => {
-    // Get all DSRs with their due summaries
-    // Dues are linked to DSRs through wholesaleOrders.dsrId
-    const results = await db
+    // Get all DSRs with their customer due summaries
+    const customerDueResults = await db
         .select({
             dsrId: dsr.id,
             dsrName: dsr.name,
@@ -446,10 +447,26 @@ export const getDSRDueSummary = async (
         .groupBy(dsr.id, dsr.name)
         .orderBy(desc(sql`COALESCE(SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL)), 0)`));
 
-    return results.map(row => {
+    // Get DSR dues from adjustments (amounts owed by DSRs)
+    const dsrDueResults = await db
+        .select({
+            dsrId: orderDsrDues.dsrId,
+            totalDsrDues: sql<string>`COALESCE(SUM(CAST(${orderDsrDues.amount} AS DECIMAL)), 0)`,
+        })
+        .from(orderDsrDues)
+        .groupBy(orderDsrDues.dsrId);
+
+    // Create a map for quick lookup of DSR dues
+    const dsrDuesMap = new Map<number, string>();
+    for (const row of dsrDueResults) {
+        dsrDuesMap.set(row.dsrId, row.totalDsrDues);
+    }
+
+    return customerDueResults.map(row => {
         const totalOriginal = parseFloat(row.totalOriginal || "0");
         const totalCollected = parseFloat(row.totalCollected || "0");
         const totalOutstanding = Math.max(0, totalOriginal - totalCollected);
+        const dsrDuesAmount = parseFloat(dsrDuesMap.get(row.dsrId) || "0");
 
         return {
             dsrId: row.dsrId,
@@ -458,6 +475,7 @@ export const getDSRDueSummary = async (
             totalCollected: totalCollected.toFixed(2),
             pendingDuesCount: Number(row.pendingDuesCount) || 0,
             ordersWithDuesCount: Number(row.ordersWithDuesCount) || 0,
+            dsrDuesAmount: dsrDuesAmount.toFixed(2),
         };
     });
 };

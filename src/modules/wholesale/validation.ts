@@ -122,11 +122,18 @@ export const adjustmentDamageReturnSchema = z.object({
     reason: z.string().optional(),
 });
 
+// DSR due schema for adjustments
+export const adjustmentDsrDueSchema = z.object({
+    amount: z.coerce.number().nonnegative("Amount must be non-negative"),
+    note: z.string().optional(),
+});
+
 // Complete adjustment save schema
 export const saveAdjustmentSchema = z.object({
     payments: z.array(adjustmentPaymentSchema).default([]),
     expenses: z.array(adjustmentExpenseSchema).default([]),
     customerDues: z.array(adjustmentCustomerDueSchema).default([]),
+    dsrDues: z.array(adjustmentDsrDueSchema).default([]),
     damageReturns: z.array(adjustmentDamageReturnSchema).default([]),
     itemReturns: z.array(adjustmentItemReturnSchema).default([]),
     paymentDate: z.string().min(1, "Payment date is required"),
@@ -135,6 +142,8 @@ export const saveAdjustmentSchema = z.object({
 export type AdjustmentPaymentInput = z.infer<typeof adjustmentPaymentSchema>;
 export type AdjustmentExpenseInput = z.infer<typeof adjustmentExpenseSchema>;
 export type AdjustmentCustomerDueInput = z.infer<typeof adjustmentCustomerDueSchema>;
+export type AdjustmentDsrDueInput = z.infer<typeof adjustmentDsrDueSchema>;
 export type AdjustmentDamageReturnInput = z.infer<typeof adjustmentDamageReturnSchema>;
 export type AdjustmentItemReturnInput = z.infer<typeof adjustmentItemReturnSchema>;
 export type SaveAdjustmentInput = z.infer<typeof saveAdjustmentSchema>;
+

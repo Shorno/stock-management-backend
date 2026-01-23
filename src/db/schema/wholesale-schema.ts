@@ -306,6 +306,36 @@ export const orderCustomerDuesRelations = relations(orderCustomerDues, ({ one })
     }),
 }));
 
+// ==================== ORDER DSR DUES ====================
+
+export const orderDsrDues = pgTable("order_dsr_dues", {
+    id: serial("id").primaryKey(),
+    orderId: integer("order_id")
+        .notNull()
+        .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+    dsrId: integer("dsr_id")
+        .notNull()
+        .references(() => dsr.id, { onDelete: "cascade" }),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    note: text("note"),
+    ...timestamps
+}, (table) => ({
+    orderIdx: index("idx_order_dsr_dues_order").on(table.orderId),
+    dsrIdx: index("idx_order_dsr_dues_dsr").on(table.dsrId),
+}));
+
+// Order DSR dues relations
+export const orderDsrDuesRelations = relations(orderDsrDues, ({ one }) => ({
+    order: one(wholesaleOrders, {
+        fields: [orderDsrDues.orderId],
+        references: [wholesaleOrders.id],
+    }),
+    dsr: one(dsr, {
+        fields: [orderDsrDues.dsrId],
+        references: [dsr.id],
+    }),
+}));
+
 // ==================== ORDER DAMAGE ITEMS ====================
 
 export const orderDamageItems = pgTable("order_damage_items", {
