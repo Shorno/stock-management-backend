@@ -455,3 +455,43 @@ export const dueCollectionsRelations = relations(dueCollections, ({ one }) => ({
         references: [dsr.id],
     }),
 }));
+
+// ==================== DSR LOAN TRANSACTIONS ====================
+
+export const dsrLoanTransactions = pgTable("dsr_loan_transactions", {
+    id: serial("id").primaryKey(),
+    dsrId: integer("dsr_id")
+        .notNull()
+        .references(() => dsr.id, { onDelete: "restrict" }),
+    transactionType: varchar("transaction_type", { length: 20 }).notNull(), // 'loan' | 'repayment'
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    transactionDate: date("transaction_date").notNull(),
+    paymentMethod: varchar("payment_method", { length: 50 }), // cash, bank, bkash, nagad, etc.
+    note: text("note"),
+    referenceNumber: varchar("reference_number", { length: 50 }), // For bank/mobile payments
+    ...timestamps
+}, (table) => ({
+    dsrIdx: index("idx_dsr_loan_dsr").on(table.dsrId),
+    dateIdx: index("idx_dsr_loan_date").on(table.transactionDate),
+    typeIdx: index("idx_dsr_loan_type").on(table.transactionType),
+}));
+
+// DSR loan transactions relations
+export const dsrLoanTransactionsRelations = relations(dsrLoanTransactions, ({ one }) => ({
+    dsr: one(dsr, {
+        fields: [dsrLoanTransactions.dsrId],
+        references: [dsr.id],
+    }),
+}));
+
+// ==================== CASH WITHDRAWALS ====================
+
+export const cashWithdrawals = pgTable("cash_withdrawals", {
+    id: serial("id").primaryKey(),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    withdrawalDate: date("withdrawal_date").notNull(),
+    note: text("note"),
+    ...timestamps
+}, (table) => ({
+    dateIdx: index("idx_cash_withdrawals_date").on(table.withdrawalDate),
+}));

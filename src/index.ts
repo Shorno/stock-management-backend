@@ -23,6 +23,8 @@ import { stockAdjustmentRoutes } from "./modules/stock-adjustments";
 import { settingsRoutes } from "./modules/settings";
 import { billsRoutes } from "./modules/bills";
 import { cloudinaryRoutes } from "./modules/cloudinary";
+import { dsrLoanRoutes } from "./modules/dsr-loan";
+import { cashWithdrawalRoutes } from "./modules/cash-withdrawal";
 
 const app = new Hono<{
     Variables: {
@@ -103,6 +105,8 @@ app.route("/stock-adjustments", stockAdjustmentRoutes);
 app.route("/settings", settingsRoutes);
 app.route("/bills", billsRoutes);
 app.route("/cloudinary", cloudinaryRoutes);
+app.route("/dsr-loans", dsrLoanRoutes);
+app.route("/cash-withdrawals", cashWithdrawalRoutes);
 
 
 const port = Number(process.env.PORT) || 3000;

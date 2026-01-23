@@ -664,8 +664,27 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalBills = Number(billsResult[0]?.totalBills || 0);
 
-    // Profit = Net Sales - Cost of Goods Sold - Bills
-    const profitLoss = netSales - costOfGoodsSold - totalBills;
+    // ----- DSR EXPENSES -----
+    // Fetch DSR expenses from order adjustments for the date range
+    let expenseFilters = undefined;
+    if (dateRange?.startDate) {
+        expenseFilters = and(
+            gte(orderExpenses.createdAt, new Date(dateRange.startDate)),
+            dateRange.endDate ? lte(orderExpenses.createdAt, new Date(dateRange.endDate + 'T23:59:59')) : undefined
+        );
+    }
+
+    const expensesResult = await db
+        .select({
+            total: sum(orderExpenses.amount),
+        })
+        .from(orderExpenses)
+        .where(expenseFilters);
+
+    const totalExpenses = Number(expensesResult[0]?.total || 0);
+
+    // Profit = Net Sales - Cost of Goods Sold - Bills - DSR Expenses
+    const profitLoss = netSales - costOfGoodsSold - totalBills - totalExpenses;
 
     // ----- DSR SALES DUE -----
     // Total outstanding customer dues from all orders (amount - collectedAmount)
@@ -680,7 +699,6 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // ----- CASH BALANCE -----
     // Total payments received - total expenses
     let paymentFilters = undefined;
-    let expenseFilters = undefined;
 
     if (dateRange?.startDate) {
         paymentFilters = and(
@@ -696,15 +714,7 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         .from(orderPayments)
         .where(paymentFilters);
 
-    const expensesResult = await db
-        .select({
-            total: sum(orderExpenses.amount),
-        })
-        .from(orderExpenses)
-        .where(expenseFilters);
-
     const paymentsReceived = Number(paymentsReceivedResult[0]?.total || 0);
-    const totalExpenses = Number(expensesResult[0]?.total || 0);
 
     // ----- SUPPLIER DUE -----
     // Total purchases from suppliers - total payments to suppliers
@@ -723,8 +733,27 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // Positive = Supplier owes us (we've overpaid), Negative = We owe supplier
     const supplierDue = totalSupplierPayments - totalSupplierPurchases;
 
-    // Cash Balance = Payments Received - Expenses - Supplier Payments
-    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPayments;
+    // ----- CASH WITHDRAWALS -----
+    // Subtract all cash withdrawals from cash balance
+    const { cashWithdrawals } = await import("../../db/schema");
+
+    let withdrawalFilters = undefined;
+    if (dateRange?.startDate) {
+        withdrawalFilters = and(
+            gte(cashWithdrawals.withdrawalDate, dateRange.startDate),
+            dateRange.endDate ? lte(cashWithdrawals.withdrawalDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const withdrawalsResult = await db
+        .select({ total: sum(cashWithdrawals.amount) })
+        .from(cashWithdrawals)
+        .where(withdrawalFilters);
+
+    const totalWithdrawals = Number(withdrawalsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received - Expenses - Supplier Payments - Cash Withdrawals
+    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPayments - totalWithdrawals;
 
     return {
         netSales: Math.round(netSales * 100) / 100,

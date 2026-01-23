@@ -6,6 +6,7 @@ import {
     getUnitsQuerySchema,
 } from "./validation";
 import * as unitController from "./controller";
+import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
 
@@ -51,8 +52,10 @@ app.get(
 
 app.get("/:id", unitController.handleGetUnitById);
 
+// Update a unit (Admin only)
 app.put(
     "/:id",
+    requireRole(["admin"]),
     zValidator("json", updateUnitSchema, (result, ctx) => {
         if (!result.success) {
             return ctx.json(
@@ -71,6 +74,7 @@ app.put(
     unitController.handleUpdateUnit
 );
 
-app.delete("/:id", unitController.handleDeleteUnit);
+// Delete a unit (Admin only)
+app.delete("/:id", requireRole(["admin"]), unitController.handleDeleteUnit);
 
 export default app;

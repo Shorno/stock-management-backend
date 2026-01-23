@@ -6,6 +6,7 @@ import {
   getProductsQuerySchema,
 } from "./validation";
 import * as productController from "./controller";
+import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
 
@@ -51,9 +52,10 @@ app.get(
 
 app.get("/:id", productController.handleGetProductById);
 
-// Update a product
+// Update a product (Admin only)
 app.patch(
   "/:id",
+  requireRole(["admin"]),
   zValidator("json", updateProductSchema, (result, ctx) => {
     console.log("=== VALIDATION MIDDLEWARE ===");
     console.log("Validation result:", result.success ? "SUCCESS" : "FAILED");
@@ -79,6 +81,7 @@ app.patch(
   productController.handleUpdateProduct
 );
 
-app.delete("/:id", productController.handleDeleteProduct);
+// Delete a product (Admin only)
+app.delete("/:id", requireRole(["admin"]), productController.handleDeleteProduct);
 
 export default app;

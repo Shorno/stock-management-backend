@@ -6,6 +6,7 @@ import {
   getRoutesQuerySchema,
 } from "./validation";
 import * as routeController from "./controller";
+import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
 
@@ -51,8 +52,10 @@ app.get(
 
 app.get("/:id", routeController.handleGetRouteById);
 
+// Update a route (Admin only)
 app.put(
   "/:id",
+  requireRole(["admin"]),
   zValidator("json", updateRouteSchema, (result, ctx) => {
     if (!result.success) {
       return ctx.json(
@@ -71,7 +74,8 @@ app.put(
   routeController.handleUpdateRoute
 );
 
-app.delete("/:id", routeController.handleDeleteRoute);
+// Delete a route (Admin only)
+app.delete("/:id", requireRole(["admin"]), routeController.handleDeleteRoute);
 
 export default app;
 
