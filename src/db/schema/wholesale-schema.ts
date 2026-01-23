@@ -105,6 +105,7 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
     totalQuantity: integer("total_quantity").notNull(),
     availableQuantity: integer("available_quantity").notNull().default(0),
     freeQuantity: integer("free_quantity").notNull().default(0),
+    extraPieces: integer("extra_pieces").notNull().default(0),
     // Delivered quantities for partial completion
     deliveredQuantity: integer("delivered_quantity"),
     deliveredFreeQty: integer("delivered_free_qty"),

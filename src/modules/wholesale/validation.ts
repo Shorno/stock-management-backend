@@ -14,6 +14,7 @@ export const orderItemSchema = z.object({
     totalQuantity: z.coerce.number().int("Total quantity must be an integer").nonnegative("Total quantity cannot be negative"),
     availableQuantity: z.coerce.number().int("Available quantity must be an integer").nonnegative("Available quantity cannot be negative").default(0),
     freeQuantity: z.coerce.number().int("Free quantity must be an integer").nonnegative("Free quantity cannot be negative").default(0),
+    extraPieces: z.coerce.number().int("Extra pieces must be an integer").nonnegative("Extra pieces cannot be negative").default(0),
     salePrice: z.coerce.number().positive("Sale price must be greater than 0"),
     discount: z.coerce.number().nonnegative("Discount must be non-negative").default(0),
 });
