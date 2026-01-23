@@ -766,4 +766,49 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     };
 }
 
+/**
+ * Get current cash balance (without date filters)
+ * Used for withdrawal validation to ensure cash balance doesn't go negative
+ */
+export async function getCurrentCashBalance(): Promise<number> {
+    const { supplierPayments } = await import("../../db/schema/supplier-schema");
+    const { cashWithdrawals } = await import("../../db/schema");
+
+    // Total payments received (all time)
+    const paymentsReceivedResult = await db
+        .select({
+            total: sum(orderPayments.amount),
+        })
+        .from(orderPayments);
+
+    const paymentsReceived = Number(paymentsReceivedResult[0]?.total || 0);
+
+    // Total expenses (all time)
+    const expensesResult = await db
+        .select({
+            total: sum(orderExpenses.amount),
+        })
+        .from(orderExpenses);
+
+    const totalExpenses = Number(expensesResult[0]?.total || 0);
+
+    // Total supplier payments (all time)
+    const supplierPaymentsResult = await db
+        .select({ total: sum(supplierPayments.amount) })
+        .from(supplierPayments);
+
+    const totalSupplierPayments = Number(supplierPaymentsResult[0]?.total || 0);
+
+    // Total withdrawals (all time)
+    const withdrawalsResult = await db
+        .select({ total: sum(cashWithdrawals.amount) })
+        .from(cashWithdrawals);
+
+    const totalWithdrawals = Number(withdrawalsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received - Expenses - Supplier Payments - Cash Withdrawals
+    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPayments - totalWithdrawals;
+
+    return Math.round(cashBalance * 100) / 100;
+}
 

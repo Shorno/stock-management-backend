@@ -38,6 +38,22 @@ cashWithdrawalRoutes.get(
     }
 );
 
+// Get current cash balance (for validation)
+cashWithdrawalRoutes.get(
+    "/cash-balance",
+    async (c) => {
+        try {
+            const { getCurrentCashBalance } = await import("../analytics/service");
+            const balance = await getCurrentCashBalance();
+            return c.json({ success: true, data: { balance } });
+        } catch (error) {
+            console.error("Error fetching cash balance:", error);
+            return c.json({ success: false, error: "Failed to fetch cash balance" }, 500);
+        }
+    }
+);
+
+
 // Create a withdrawal
 cashWithdrawalRoutes.post(
     "/",

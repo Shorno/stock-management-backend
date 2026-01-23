@@ -1,8 +1,5 @@
 import { z } from "zod";
 
-// Unit types for products
-const UNIT_TYPES = ["PCS", "KG", "LTR", "BOX", "CARTON", "DOZEN"] as const;
-
 // Order status types - simplified to pending and adjusted
 export const ORDER_STATUSES = ["pending", "adjusted"] as const;
 export type OrderStatus = typeof ORDER_STATUSES[number];
@@ -13,7 +10,7 @@ export const orderItemSchema = z.object({
     batchId: z.coerce.number().int("Batch ID must be an integer").positive("Batch ID must be positive"),
     brandId: z.coerce.number().int("Brand ID must be an integer").positive("Brand ID must be positive"),
     quantity: z.coerce.number().int("Quantity must be an integer").positive("Quantity must be greater than 0"),
-    unit: z.enum(UNIT_TYPES, { message: "Unit must be one of: PCS, KG, LTR, BOX, CARTON, DOZEN" }),
+    unit: z.string().min(1, "Unit is required"),
     totalQuantity: z.coerce.number().int("Total quantity must be an integer").nonnegative("Total quantity cannot be negative"),
     availableQuantity: z.coerce.number().int("Available quantity must be an integer").nonnegative("Available quantity cannot be negative").default(0),
     freeQuantity: z.coerce.number().int("Free quantity must be an integer").nonnegative("Free quantity cannot be negative").default(0),

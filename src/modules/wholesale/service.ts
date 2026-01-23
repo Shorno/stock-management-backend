@@ -91,10 +91,11 @@ const validateAndGetBatch = async (
 
 // Helper function to calculate item totals (async to fetch unit multiplier)
 const calculateItemTotals = async (item: OrderItemInput, salePrice: number) => {
-    const subtotal = item.quantity * salePrice;
-    const net = subtotal - item.discount;
     const multiplier = await getUnitMultiplier(item.unit);
     const totalQuantity = item.quantity * multiplier;
+    // Calculate subtotal using totalQuantity (after unit multiplication)
+    const subtotal = totalQuantity * salePrice;
+    const net = subtotal - item.discount;
 
     return {
         subtotal: subtotal.toFixed(2),
@@ -104,16 +105,19 @@ const calculateItemTotals = async (item: OrderItemInput, salePrice: number) => {
     };
 };
 
-// Helper function to calculate order totals
-const calculateOrderTotals = (items: Array<{ quantity: number; salePrice: number; discount: number }>) => {
+// Helper function to calculate order totals (async to fetch unit multipliers)
+const calculateOrderTotals = async (items: Array<{ quantity: number; unit: string; salePrice: number; discount: number }>) => {
     let subtotal = 0;
     let discount = 0;
 
-    items.forEach((item) => {
-        const itemSubtotal = item.quantity * item.salePrice;
+    for (const item of items) {
+        // Get unit multiplier and calculate totalQuantity
+        const multiplier = await getUnitMultiplier(item.unit);
+        const totalQuantity = item.quantity * multiplier;
+        const itemSubtotal = totalQuantity * item.salePrice;
         subtotal += itemSubtotal;
         discount += item.discount;
-    });
+    }
 
     const total = subtotal - discount;
 
@@ -147,7 +151,7 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
         );
 
         // Calculate order totals
-        const totals = calculateOrderTotals(itemsWithBatchData);
+        const totals = await calculateOrderTotals(itemsWithBatchData);
 
         // Create order
         const newOrder: NewWholesaleOrder = {
@@ -410,7 +414,7 @@ export const updateOrder = async (
         );
 
         // Calculate new totals
-        const totals = calculateOrderTotals(itemsWithBatchData);
+        const totals = await calculateOrderTotals(itemsWithBatchData);
 
         // Update order
         const updateData: Partial<NewWholesaleOrder> = {
