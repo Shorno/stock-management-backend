@@ -92,9 +92,13 @@ const validateAndGetBatch = async (
 // Helper function to calculate item totals (async to fetch unit multiplier)
 const calculateItemTotals = async (item: OrderItemInput, salePrice: number) => {
     const multiplier = await getUnitMultiplier(item.unit);
-    const totalQuantity = item.quantity * multiplier;
-    // Calculate subtotal using totalQuantity (after unit multiplication)
-    const subtotal = totalQuantity * salePrice;
+    const extraPieces = item.extraPieces || 0;
+    // Total quantity includes: (qty × unit multiplier) + extraPieces + freeQuantity
+    const totalQuantity = (item.quantity * multiplier) + extraPieces + item.freeQuantity;
+    // Paid quantity excludes freeQuantity (charged items only)
+    const paidQuantity = (item.quantity * multiplier) + extraPieces;
+    // Calculate subtotal using paid quantity (not total quantity)
+    const subtotal = paidQuantity * salePrice;
     const net = subtotal - item.discount;
 
     return {
@@ -106,15 +110,16 @@ const calculateItemTotals = async (item: OrderItemInput, salePrice: number) => {
 };
 
 // Helper function to calculate order totals (async to fetch unit multipliers)
-const calculateOrderTotals = async (items: Array<{ quantity: number; unit: string; salePrice: number; discount: number }>) => {
+const calculateOrderTotals = async (items: Array<{ quantity: number; unit: string; extraPieces?: number; freeQuantity?: number; salePrice: number; discount: number }>) => {
     let subtotal = 0;
     let discount = 0;
 
     for (const item of items) {
-        // Get unit multiplier and calculate totalQuantity
+        // Get unit multiplier and calculate paid quantity (excludes free items)
         const multiplier = await getUnitMultiplier(item.unit);
-        const totalQuantity = item.quantity * multiplier;
-        const itemSubtotal = totalQuantity * item.salePrice;
+        const extraPieces = item.extraPieces || 0;
+        const paidQuantity = (item.quantity * multiplier) + extraPieces;
+        const itemSubtotal = paidQuantity * item.salePrice;
         subtotal += itemSubtotal;
         discount += item.discount;
     }
@@ -189,6 +194,7 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
                 totalQuantity: itemTotals.totalQuantity,
                 availableQuantity: item.availableQuantity,
                 freeQuantity: item.freeQuantity,
+                extraPieces: item.extraPieces || 0,
                 salePrice: item.salePrice.toString(),
                 subtotal: itemTotals.subtotal,
                 discount: item.discount.toString(),
@@ -452,6 +458,7 @@ export const updateOrder = async (
                 totalQuantity: itemTotals.totalQuantity,
                 availableQuantity: item.availableQuantity,
                 freeQuantity: item.freeQuantity,
+                extraPieces: item.extraPieces || 0,
                 salePrice: item.salePrice.toString(),
                 subtotal: itemTotals.subtotal,
                 discount: item.discount.toString(),
@@ -894,8 +901,15 @@ export const getOrderAdjustment = async (orderId: number) => {
             const unitMultiplier = await getUnitMultiplier(returnUnit);
             const returnQtyInBase = returnQuantity * unitMultiplier;
 
-            // Calculate net values
-            const netQuantity = Math.max(0, item.quantity - returnQtyInBase);
+            // Use totalQuantity which already includes (qty × multiplier) + extraPieces + freeQty
+            const originalTotalQty = item.totalQuantity ?? item.quantity;
+            const extraPieces = item.extraPieces ?? 0;
+
+            // Calculate paid quantity = totalQuantity - freeQuantity
+            const paidQty = originalTotalQty - item.freeQuantity;
+
+            // Calculate net values (subtract returns from total quantity)
+            const netQuantity = Math.max(0, paidQty - returnQtyInBase);
             const netFreeQuantity = Math.max(0, item.freeQuantity - returnFreeQuantity);
             const salePrice = parseFloat(item.salePrice);
             // Net total = (netQuantity × salePrice) - adjustmentDiscount
@@ -909,6 +923,8 @@ export const getOrderAdjustment = async (orderId: number) => {
                 brandName: item.brand?.name,
                 quantity: item.quantity,
                 unit: item.unit,
+                extraPieces: extraPieces,
+                totalQuantity: originalTotalQty,
                 freeQuantity: item.freeQuantity,
                 salePrice: item.salePrice,
                 discount: item.discount,
