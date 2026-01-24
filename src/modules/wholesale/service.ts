@@ -142,11 +142,16 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
         // Validate batches and get batch data
         const itemsWithBatchData = await Promise.all(
             data.items.map(async (item) => {
-                // Validate batch exists and has sufficient quantity
+                // Calculate paid quantity for validation (quantity × multiplier + extraPieces)
+                const multiplier = await getUnitMultiplier(item.unit);
+                const extraPieces = item.extraPieces || 0;
+                const paidQuantity = (item.quantity * multiplier) + extraPieces;
+
+                // Validate batch exists and has sufficient quantity (using calculated paidQuantity)
                 await validateAndGetBatch(
                     item.batchId,
                     item.productId,
-                    item.quantity,
+                    paidQuantity,
                     item.freeQuantity,
                     tx
                 );
@@ -184,6 +189,11 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
         for (const item of itemsWithBatchData) {
             const itemTotals = await calculateItemTotals(item, item.salePrice);
 
+            // Calculate paid quantity for stock deduction (excludes freeQuantity)
+            const multiplier = await getUnitMultiplier(item.unit);
+            const extraPieces = item.extraPieces || 0;
+            const paidQuantity = (item.quantity * multiplier) + extraPieces;
+
             orderItems.push({
                 orderId: createdOrder.id,
                 productId: item.productId,
@@ -201,11 +211,11 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
                 net: itemTotals.net,
             });
 
-            // Update batch quantities
+            // Update batch quantities - use paidQuantity (with multiplier + extraPieces) for stock deduction
             await tx
                 .update(stockBatch)
                 .set({
-                    remainingQuantity: sql`${stockBatch.remainingQuantity} - ${item.quantity}`,
+                    remainingQuantity: sql`${stockBatch.remainingQuantity} - ${paidQuantity}`,
                     remainingFreeQty: sql`${stockBatch.remainingFreeQty} - ${item.freeQuantity}`,
                 })
                 .where(eq(stockBatch.id, item.batchId));
@@ -689,12 +699,14 @@ export const saveOrderAdjustment = async (
 
         // Reverse existing returns (subtract quantities from stock - undoing previous addition)
         for (const existingReturn of existingReturns) {
-            if (existingReturn.returnQuantity > 0 || existingReturn.returnFreeQuantity > 0) {
+            const existingReturnExtraPieces = existingReturn.returnExtraPieces || 0;
+            if (existingReturn.returnQuantity > 0 || existingReturnExtraPieces > 0 || existingReturn.returnFreeQuantity > 0) {
                 const orderItem = orderItemsMap.get(existingReturn.orderItemId);
                 if (orderItem) {
                     // Get unit multiplier for the item
                     const unitMultiplier = FALLBACK_UNIT_MULTIPLIERS[orderItem.unit.toUpperCase()] || 1;
-                    const returnQtyInBase = existingReturn.returnQuantity * unitMultiplier;
+                    // Total return = (returnQuantity × multiplier) + returnExtraPieces
+                    const returnQtyInBase = (existingReturn.returnQuantity * unitMultiplier) + existingReturnExtraPieces;
                     const returnFreeQtyInBase = existingReturn.returnFreeQuantity;
 
                     // Subtract from stock (undo the previous return's stock increase)
@@ -786,6 +798,7 @@ export const saveOrderAdjustment = async (
                     orderItemId: itemReturn.itemId,
                     returnQuantity: itemReturn.returnQuantity,
                     returnUnit: itemReturn.returnUnit,
+                    returnExtraPieces: itemReturn.returnExtraPieces || 0,
                     returnFreeQuantity: itemReturn.returnFreeQuantity,
                     returnAmount: itemReturn.returnAmount.toFixed(2),
                     adjustmentDiscount: itemReturn.adjustmentDiscount.toFixed(2),
@@ -793,11 +806,13 @@ export const saveOrderAdjustment = async (
                 totalReturnsAmount += itemReturn.returnAmount;
 
                 // Subtract new return quantities from stock
-                if (itemReturn.returnQuantity > 0 || itemReturn.returnFreeQuantity > 0) {
+                const returnExtraPieces = itemReturn.returnExtraPieces || 0;
+                if (itemReturn.returnQuantity > 0 || returnExtraPieces > 0 || itemReturn.returnFreeQuantity > 0) {
                     const orderItem = orderItemsMap.get(itemReturn.itemId);
                     if (orderItem) {
                         const unitMultiplier = FALLBACK_UNIT_MULTIPLIERS[orderItem.unit.toUpperCase()] || 1;
-                        const returnQtyInBase = itemReturn.returnQuantity * unitMultiplier;
+                        // Total return = (returnQuantity × multiplier) + returnExtraPieces
+                        const returnQtyInBase = (itemReturn.returnQuantity * unitMultiplier) + returnExtraPieces;
                         const returnFreeQtyInBase = itemReturn.returnFreeQuantity;
 
                         // Subtract from stock (returns are still "out" of stock until processed)
@@ -916,13 +931,15 @@ export const getOrderAdjustment = async (orderId: number) => {
             const itemReturn = itemReturnsData.find((r) => r.orderItemId === item.id);
             const returnQuantity = itemReturn?.returnQuantity ?? 0;
             const returnUnit = itemReturn?.returnUnit ?? "PCS";
+            const returnExtraPieces = itemReturn?.returnExtraPieces ?? 0;
             const returnFreeQuantity = itemReturn?.returnFreeQuantity ?? 0;
             const returnAmount = itemReturn ? parseFloat(itemReturn.returnAmount) : 0;
             const adjustmentDiscount = itemReturn ? parseFloat(itemReturn.adjustmentDiscount || "0") : 0;
 
             // Get unit multiplier for return unit
             const unitMultiplier = await getUnitMultiplier(returnUnit);
-            const returnQtyInBase = returnQuantity * unitMultiplier;
+            // Total return = (returnQuantity × multiplier) + returnExtraPieces
+            const returnQtyInBase = (returnQuantity * unitMultiplier) + returnExtraPieces;
 
             // Use totalQuantity which already includes (qty × multiplier) + extraPieces + freeQty
             const originalTotalQty = item.totalQuantity ?? item.quantity;
@@ -955,6 +972,7 @@ export const getOrderAdjustment = async (orderId: number) => {
                 // Return values
                 returnQuantity,
                 returnUnit,
+                returnExtraPieces,
                 returnFreeQuantity,
                 returnAmount,
                 // Adjustment discount

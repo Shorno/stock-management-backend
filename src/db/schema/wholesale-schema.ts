@@ -248,6 +248,7 @@ export const orderItemReturns = pgTable("order_item_returns", {
         .references(() => wholesaleOrderItems.id, { onDelete: "cascade" }),
     returnQuantity: integer("return_quantity").notNull().default(0),
     returnUnit: varchar("return_unit", { length: 20 }).notNull(),
+    returnExtraPieces: integer("return_extra_pieces").notNull().default(0),
     returnFreeQuantity: integer("return_free_quantity").notNull().default(0),
     returnAmount: decimal("return_amount", { precision: 10, scale: 2 }).notNull().default("0"),
     adjustmentDiscount: decimal("adjustment_discount", { precision: 10, scale: 2 }).notNull().default("0"),

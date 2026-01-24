@@ -1,0 +1,1 @@
+ALTER TABLE "order_item_returns" ADD COLUMN "return_extra_pieces" integer DEFAULT 0 NOT NULL;

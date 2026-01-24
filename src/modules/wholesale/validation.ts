@@ -97,6 +97,7 @@ export const adjustmentItemReturnSchema = z.object({
     itemId: z.coerce.number().int().positive("Item ID must be positive"),
     returnQuantity: z.coerce.number().int().nonnegative("Return quantity must be non-negative"),
     returnUnit: z.string().min(1, "Return unit is required"),
+    returnExtraPieces: z.coerce.number().int().nonnegative("Return extra pieces must be non-negative").default(0),
     returnFreeQuantity: z.coerce.number().int().nonnegative("Return free quantity must be non-negative").default(0),
     returnAmount: z.coerce.number().nonnegative("Return amount must be non-negative").default(0),
     adjustmentDiscount: z.coerce.number().nonnegative("Adjustment discount must be non-negative").default(0),
