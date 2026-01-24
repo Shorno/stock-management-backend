@@ -1,4 +1,4 @@
-import { pgTable, serial, decimal, text, date, integer, index, varchar } from "drizzle-orm/pg-core";
+import { pgTable, serial, decimal, text, date, integer, index, varchar, boolean } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { timestamps } from "../column.helpers";
 import { brand } from "./product-schema";
@@ -32,6 +32,7 @@ export const supplierPayments = pgTable("supplier_payments", {
     amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
     paymentDate: date("payment_date").notNull(),
     paymentMethod: varchar("payment_method", { length: 50 }),
+    fromCashBalance: boolean("from_cash_balance").notNull().default(false),
     note: text("note"),
     ...timestamps
 }, (table) => ({

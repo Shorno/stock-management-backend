@@ -36,6 +36,13 @@
       "when": 1769205980626,
       "tag": "0004_tricky_magik",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1769245763829,
+      "tag": "0005_fuzzy_oracle",
+      "breakpoints": true
     }
   ]
 }

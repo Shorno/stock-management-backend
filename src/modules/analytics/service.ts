@@ -748,8 +748,15 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         .select({ total: sum(supplierPayments.amount) })
         .from(supplierPayments);
 
+    // Only supplier payments from cash balance should affect cash balance calculation
+    const supplierPaymentsFromCashResult = await db
+        .select({ total: sum(supplierPayments.amount) })
+        .from(supplierPayments)
+        .where(eq(supplierPayments.fromCashBalance, true));
+
     const totalSupplierPurchases = Number(supplierPurchasesResult[0]?.total || 0);
     const totalSupplierPayments = Number(supplierPaymentsResult[0]?.total || 0);
+    const totalSupplierPaymentsFromCash = Number(supplierPaymentsFromCashResult[0]?.total || 0);
     // Positive = Supplier owes us (we've overpaid), Negative = We owe supplier
     const supplierDue = totalSupplierPayments - totalSupplierPurchases;
 
@@ -772,8 +779,8 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalWithdrawals = Number(withdrawalsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received - Expenses - Supplier Payments - Cash Withdrawals
-    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPayments - totalWithdrawals;
+    // Cash Balance = Payments Received - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
+    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
@@ -812,12 +819,13 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     const totalExpenses = Number(expensesResult[0]?.total || 0);
 
-    // Total supplier payments (all time)
-    const supplierPaymentsResult = await db
+    // Total supplier payments from cash balance only (all time)
+    const supplierPaymentsFromCashResult = await db
         .select({ total: sum(supplierPayments.amount) })
-        .from(supplierPayments);
+        .from(supplierPayments)
+        .where(eq(supplierPayments.fromCashBalance, true));
 
-    const totalSupplierPayments = Number(supplierPaymentsResult[0]?.total || 0);
+    const totalSupplierPaymentsFromCash = Number(supplierPaymentsFromCashResult[0]?.total || 0);
 
     // Total withdrawals (all time)
     const withdrawalsResult = await db
@@ -826,8 +834,8 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     const totalWithdrawals = Number(withdrawalsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received - Expenses - Supplier Payments - Cash Withdrawals
-    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPayments - totalWithdrawals;
+    // Cash Balance = Payments Received - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
+    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
 
     return Math.round(cashBalance * 100) / 100;
 }
