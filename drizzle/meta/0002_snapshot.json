@@ -1,6 +1,6 @@
 {
-  "id": "ee98e773-bbe6-4e35-b9b7-b8bf09acdfcb",
-  "prevId": "f5823ea3-9c82-4fff-8091-7b42817ff4d1",
+  "id": "d2bcee03-cf47-4617-a196-c228a18e0aaf",
+  "prevId": "6cac55fe-5e23-4d06-9b1b-6ccdbf0ca22a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1130,6 +1130,73 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.cash_withdrawals": {
+      "name": "cash_withdrawals",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "withdrawal_date": {
+          "name": "withdrawal_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_cash_withdrawals_date": {
+          "name": "idx_cash_withdrawals_date",
+          "columns": [
+            {
+              "expression": "withdrawal_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2431,6 +2498,121 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.order_dsr_dues": {
+      "name": "order_dsr_dues",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "order_id": {
+          "name": "order_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dsr_id": {
+          "name": "dsr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_order_dsr_dues_order": {
+          "name": "idx_order_dsr_dues_order",
+          "columns": [
+            {
+              "expression": "order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_order_dsr_dues_dsr": {
+          "name": "idx_order_dsr_dues_dsr",
+          "columns": [
+            {
+              "expression": "dsr_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "order_dsr_dues_order_id_wholesale_orders_id_fk": {
+          "name": "order_dsr_dues_order_id_wholesale_orders_id_fk",
+          "tableFrom": "order_dsr_dues",
+          "tableTo": "wholesale_orders",
+          "columnsFrom": [
+            "order_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "order_dsr_dues_dsr_id_dsr_id_fk": {
+          "name": "order_dsr_dues_dsr_id_dsr_id_fk",
+          "tableFrom": "order_dsr_dues",
+          "tableTo": "dsr",
+          "columnsFrom": [
+            "dsr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.order_expenses": {
       "name": "order_expenses",
       "schema": "",
@@ -2917,6 +3099,13 @@
         },
         "free_quantity": {
           "name": "free_quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "extra_pieces": {
+          "name": "extra_pieces",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

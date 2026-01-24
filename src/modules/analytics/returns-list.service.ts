@@ -134,7 +134,8 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
             quantity: orderDamageItems.quantity,
             unitPrice: orderDamageItems.unitPrice, // This is the buying/cost price
             total: orderDamageItems.total,
-            reason: orderDamageItems.reason,
+            customerId: orderDamageItems.customerId,
+            customerName: orderDamageItems.customerName,
             dsrName: dsr.name,
             productId: orderDamageItems.productId,
             // Get sell price from the product's default variant's first batch

@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDamageItems } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDsrDues, orderDamageItems } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte, sql, ne } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
@@ -91,10 +91,15 @@ const validateAndGetBatch = async (
 
 // Helper function to calculate item totals (async to fetch unit multiplier)
 const calculateItemTotals = async (item: OrderItemInput, salePrice: number) => {
-    const subtotal = item.quantity * salePrice;
-    const net = subtotal - item.discount;
     const multiplier = await getUnitMultiplier(item.unit);
-    const totalQuantity = item.quantity * multiplier;
+    const extraPieces = item.extraPieces || 0;
+    // Total quantity includes: (qty × unit multiplier) + extraPieces + freeQuantity
+    const totalQuantity = (item.quantity * multiplier) + extraPieces + item.freeQuantity;
+    // Paid quantity excludes freeQuantity (charged items only)
+    const paidQuantity = (item.quantity * multiplier) + extraPieces;
+    // Calculate subtotal using paid quantity (not total quantity)
+    const subtotal = paidQuantity * salePrice;
+    const net = subtotal - item.discount;
 
     return {
         subtotal: subtotal.toFixed(2),
@@ -104,16 +109,20 @@ const calculateItemTotals = async (item: OrderItemInput, salePrice: number) => {
     };
 };
 
-// Helper function to calculate order totals
-const calculateOrderTotals = (items: Array<{ quantity: number; salePrice: number; discount: number }>) => {
+// Helper function to calculate order totals (async to fetch unit multipliers)
+const calculateOrderTotals = async (items: Array<{ quantity: number; unit: string; extraPieces?: number; freeQuantity?: number; salePrice: number; discount: number }>) => {
     let subtotal = 0;
     let discount = 0;
 
-    items.forEach((item) => {
-        const itemSubtotal = item.quantity * item.salePrice;
+    for (const item of items) {
+        // Get unit multiplier and calculate paid quantity (excludes free items)
+        const multiplier = await getUnitMultiplier(item.unit);
+        const extraPieces = item.extraPieces || 0;
+        const paidQuantity = (item.quantity * multiplier) + extraPieces;
+        const itemSubtotal = paidQuantity * item.salePrice;
         subtotal += itemSubtotal;
         discount += item.discount;
-    });
+    }
 
     const total = subtotal - discount;
 
@@ -133,11 +142,16 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
         // Validate batches and get batch data
         const itemsWithBatchData = await Promise.all(
             data.items.map(async (item) => {
-                // Validate batch exists and has sufficient quantity
+                // Calculate paid quantity for validation (quantity × multiplier + extraPieces)
+                const multiplier = await getUnitMultiplier(item.unit);
+                const extraPieces = item.extraPieces || 0;
+                const paidQuantity = (item.quantity * multiplier) + extraPieces;
+
+                // Validate batch exists and has sufficient quantity (using calculated paidQuantity)
                 await validateAndGetBatch(
                     item.batchId,
                     item.productId,
-                    item.quantity,
+                    paidQuantity,
                     item.freeQuantity,
                     tx
                 );
@@ -147,7 +161,7 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
         );
 
         // Calculate order totals
-        const totals = calculateOrderTotals(itemsWithBatchData);
+        const totals = await calculateOrderTotals(itemsWithBatchData);
 
         // Create order
         const newOrder: NewWholesaleOrder = {
@@ -175,6 +189,11 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
         for (const item of itemsWithBatchData) {
             const itemTotals = await calculateItemTotals(item, item.salePrice);
 
+            // Calculate paid quantity for stock deduction (excludes freeQuantity)
+            const multiplier = await getUnitMultiplier(item.unit);
+            const extraPieces = item.extraPieces || 0;
+            const paidQuantity = (item.quantity * multiplier) + extraPieces;
+
             orderItems.push({
                 orderId: createdOrder.id,
                 productId: item.productId,
@@ -185,17 +204,18 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
                 totalQuantity: itemTotals.totalQuantity,
                 availableQuantity: item.availableQuantity,
                 freeQuantity: item.freeQuantity,
+                extraPieces: item.extraPieces || 0,
                 salePrice: item.salePrice.toString(),
                 subtotal: itemTotals.subtotal,
                 discount: item.discount.toString(),
                 net: itemTotals.net,
             });
 
-            // Update batch quantities
+            // Update batch quantities - use paidQuantity (with multiplier + extraPieces) for stock deduction
             await tx
                 .update(stockBatch)
                 .set({
-                    remainingQuantity: sql`${stockBatch.remainingQuantity} - ${item.quantity}`,
+                    remainingQuantity: sql`${stockBatch.remainingQuantity} - ${paidQuantity}`,
                     remainingFreeQty: sql`${stockBatch.remainingFreeQty} - ${item.freeQuantity}`,
                 })
                 .where(eq(stockBatch.id, item.batchId));
@@ -410,7 +430,7 @@ export const updateOrder = async (
         );
 
         // Calculate new totals
-        const totals = calculateOrderTotals(itemsWithBatchData);
+        const totals = await calculateOrderTotals(itemsWithBatchData);
 
         // Update order
         const updateData: Partial<NewWholesaleOrder> = {
@@ -448,6 +468,7 @@ export const updateOrder = async (
                 totalQuantity: itemTotals.totalQuantity,
                 availableQuantity: item.availableQuantity,
                 freeQuantity: item.freeQuantity,
+                extraPieces: item.extraPieces || 0,
                 salePrice: item.salePrice.toString(),
                 subtotal: itemTotals.subtotal,
                 discount: item.discount.toString(),
@@ -678,12 +699,14 @@ export const saveOrderAdjustment = async (
 
         // Reverse existing returns (subtract quantities from stock - undoing previous addition)
         for (const existingReturn of existingReturns) {
-            if (existingReturn.returnQuantity > 0 || existingReturn.returnFreeQuantity > 0) {
+            const existingReturnExtraPieces = existingReturn.returnExtraPieces || 0;
+            if (existingReturn.returnQuantity > 0 || existingReturnExtraPieces > 0 || existingReturn.returnFreeQuantity > 0) {
                 const orderItem = orderItemsMap.get(existingReturn.orderItemId);
                 if (orderItem) {
                     // Get unit multiplier for the item
                     const unitMultiplier = FALLBACK_UNIT_MULTIPLIERS[orderItem.unit.toUpperCase()] || 1;
-                    const returnQtyInBase = existingReturn.returnQuantity * unitMultiplier;
+                    // Total return = (returnQuantity × multiplier) + returnExtraPieces
+                    const returnQtyInBase = (existingReturn.returnQuantity * unitMultiplier) + existingReturnExtraPieces;
                     const returnFreeQtyInBase = existingReturn.returnFreeQuantity;
 
                     // Subtract from stock (undo the previous return's stock increase)
@@ -698,17 +721,19 @@ export const saveOrderAdjustment = async (
             }
         }
 
-        // Delete existing payments, expenses, item returns, customer dues, and damage items for this order
+        // Delete existing payments, expenses, item returns, customer dues, DSR dues, and damage items for this order
         await tx.delete(orderPayments).where(eq(orderPayments.orderId, orderId));
         await tx.delete(orderExpenses).where(eq(orderExpenses.orderId, orderId));
         await tx.delete(orderItemReturns).where(eq(orderItemReturns.orderId, orderId));
         await tx.delete(orderCustomerDues).where(eq(orderCustomerDues.orderId, orderId));
+        await tx.delete(orderDsrDues).where(eq(orderDsrDues.orderId, orderId));
         await tx.delete(orderDamageItems).where(eq(orderDamageItems.orderId, orderId));
 
         let totalPayments = 0;
         let totalExpensesAmount = 0;
         let totalReturnsAmount = 0;
         let totalCustomerDuesAmount = 0;
+        let totalDsrDuesAmount = 0;
         let totalDamageAmount = 0;
 
         // Insert new payments
@@ -751,6 +776,19 @@ export const saveOrderAdjustment = async (
             }
         }
 
+        // Insert new DSR dues
+        for (const dsrDue of data.dsrDues || []) {
+            if (dsrDue.amount > 0) {
+                await tx.insert(orderDsrDues).values({
+                    orderId,
+                    dsrId: order.dsrId, // Use the DSR assigned to this order
+                    amount: dsrDue.amount.toFixed(2),
+                    note: dsrDue.note || null,
+                });
+                totalDsrDuesAmount += dsrDue.amount;
+            }
+        }
+
         // Insert new item returns (also stores discount per item) and update stock
         for (const itemReturn of data.itemReturns) {
             // Create record if there's a return OR discount
@@ -760,6 +798,7 @@ export const saveOrderAdjustment = async (
                     orderItemId: itemReturn.itemId,
                     returnQuantity: itemReturn.returnQuantity,
                     returnUnit: itemReturn.returnUnit,
+                    returnExtraPieces: itemReturn.returnExtraPieces || 0,
                     returnFreeQuantity: itemReturn.returnFreeQuantity,
                     returnAmount: itemReturn.returnAmount.toFixed(2),
                     adjustmentDiscount: itemReturn.adjustmentDiscount.toFixed(2),
@@ -767,11 +806,13 @@ export const saveOrderAdjustment = async (
                 totalReturnsAmount += itemReturn.returnAmount;
 
                 // Subtract new return quantities from stock
-                if (itemReturn.returnQuantity > 0 || itemReturn.returnFreeQuantity > 0) {
+                const returnExtraPieces = itemReturn.returnExtraPieces || 0;
+                if (itemReturn.returnQuantity > 0 || returnExtraPieces > 0 || itemReturn.returnFreeQuantity > 0) {
                     const orderItem = orderItemsMap.get(itemReturn.itemId);
                     if (orderItem) {
                         const unitMultiplier = FALLBACK_UNIT_MULTIPLIERS[orderItem.unit.toUpperCase()] || 1;
-                        const returnQtyInBase = itemReturn.returnQuantity * unitMultiplier;
+                        // Total return = (returnQuantity × multiplier) + returnExtraPieces
+                        const returnQtyInBase = (itemReturn.returnQuantity * unitMultiplier) + returnExtraPieces;
                         const returnFreeQtyInBase = itemReturn.returnFreeQuantity;
 
                         // Subtract from stock (returns are still "out" of stock until processed)
@@ -797,13 +838,15 @@ export const saveOrderAdjustment = async (
                     orderItemId: damageItem.orderItemId || null,
                     productId: damageItem.productId || null,
                     variantId: damageItem.variantId || null,
+                    customerId: damageItem.customerId || null,
+                    customerName: damageItem.customerName || null,
                     productName: damageItem.productName,
                     variantName: damageItem.variantName || null,
                     brandName: damageItem.brandName,
                     quantity: damageItem.quantity,
                     unitPrice: damageItem.unitPrice.toFixed(2),
                     total: total.toFixed(2),
-                    reason: damageItem.reason || null,
+                    isOther: damageItem.isOther || false,
                 });
                 totalDamageAmount += total;
             }
@@ -869,11 +912,17 @@ export const getOrderAdjustment = async (orderId: number) => {
         where: (d, { eq }) => eq(d.orderId, orderId),
     });
 
+    // Get DSR dues
+    const dsrDuesData = await db.query.orderDsrDues.findMany({
+        where: (d, { eq }) => eq(d.orderId, orderId),
+    });
+
     // Calculate totals
     const totalPayments = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
     const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const totalReturns = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount), 0);
     const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0);
+    const totalDsrDues = dsrDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
     const totalAdjustmentDiscount = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.adjustmentDiscount || "0"), 0);
 
     // Calculate per-item net values
@@ -882,16 +931,25 @@ export const getOrderAdjustment = async (orderId: number) => {
             const itemReturn = itemReturnsData.find((r) => r.orderItemId === item.id);
             const returnQuantity = itemReturn?.returnQuantity ?? 0;
             const returnUnit = itemReturn?.returnUnit ?? "PCS";
+            const returnExtraPieces = itemReturn?.returnExtraPieces ?? 0;
             const returnFreeQuantity = itemReturn?.returnFreeQuantity ?? 0;
             const returnAmount = itemReturn ? parseFloat(itemReturn.returnAmount) : 0;
             const adjustmentDiscount = itemReturn ? parseFloat(itemReturn.adjustmentDiscount || "0") : 0;
 
             // Get unit multiplier for return unit
             const unitMultiplier = await getUnitMultiplier(returnUnit);
-            const returnQtyInBase = returnQuantity * unitMultiplier;
+            // Total return = (returnQuantity × multiplier) + returnExtraPieces
+            const returnQtyInBase = (returnQuantity * unitMultiplier) + returnExtraPieces;
 
-            // Calculate net values
-            const netQuantity = Math.max(0, item.quantity - returnQtyInBase);
+            // Use totalQuantity which already includes (qty × multiplier) + extraPieces + freeQty
+            const originalTotalQty = item.totalQuantity ?? item.quantity;
+            const extraPieces = item.extraPieces ?? 0;
+
+            // Calculate paid quantity = totalQuantity - freeQuantity
+            const paidQty = originalTotalQty - item.freeQuantity;
+
+            // Calculate net values (subtract returns from total quantity)
+            const netQuantity = Math.max(0, paidQty - returnQtyInBase);
             const netFreeQuantity = Math.max(0, item.freeQuantity - returnFreeQuantity);
             const salePrice = parseFloat(item.salePrice);
             // Net total = (netQuantity × salePrice) - adjustmentDiscount
@@ -905,6 +963,8 @@ export const getOrderAdjustment = async (orderId: number) => {
                 brandName: item.brand?.name,
                 quantity: item.quantity,
                 unit: item.unit,
+                extraPieces: extraPieces,
+                totalQuantity: originalTotalQty,
                 freeQuantity: item.freeQuantity,
                 salePrice: item.salePrice,
                 discount: item.discount,
@@ -912,6 +972,7 @@ export const getOrderAdjustment = async (orderId: number) => {
                 // Return values
                 returnQuantity,
                 returnUnit,
+                returnExtraPieces,
                 returnFreeQuantity,
                 returnAmount,
                 // Adjustment discount
@@ -929,9 +990,17 @@ export const getOrderAdjustment = async (orderId: number) => {
     const orderTotal = parseFloat(order.total);
     const netTotalAfterReturns = itemsWithCalculations.reduce((sum, item) => sum + item.netTotal, 0);
 
-    // Adjustment = Payments + Expenses + Customer Dues (all reduce what's owed)
-    const totalAdjustment = totalPayments + totalExpenses + totalCustomerDues;
-    const due = Math.max(0, netTotalAfterReturns - totalAdjustment);
+    // Calculate settlement damage (only non-"other" damages that should be deducted)
+    const settlementDamage = damageItemsData
+        .filter(d => !d.isOther)
+        .reduce((sum, d) => sum + parseFloat(d.total), 0);
+
+    // Net Total = After Returns - Settlement Damages
+    const netTotalAfterDamage = netTotalAfterReturns - settlementDamage;
+
+    // Adjustment = Payments + Expenses + Customer Dues + DSR Dues (all reduce what's owed)
+    const totalAdjustment = totalPayments + totalExpenses + totalCustomerDues + totalDsrDues;
+    const due = Math.max(0, netTotalAfterDamage - totalAdjustment);
 
     return {
         order,
@@ -953,6 +1022,12 @@ export const getOrderAdjustment = async (orderId: number) => {
             customerName: d.customerName,
             amount: parseFloat(d.amount),
         })),
+        dsrDues: dsrDuesData.map(d => ({
+            id: d.id,
+            dsrId: d.dsrId,
+            amount: parseFloat(d.amount),
+            note: d.note || undefined,
+        })),
         itemReturns: itemReturnsData.map(r => ({
             id: r.id,
             itemId: r.orderItemId,
@@ -967,12 +1042,14 @@ export const getOrderAdjustment = async (orderId: number) => {
             orderItemId: d.orderItemId || undefined,
             productId: d.productId || undefined,
             variantId: d.variantId || undefined,
+            customerId: d.customerId || undefined,
+            customerName: d.customerName || undefined,
             productName: d.productName,
             variantName: d.variantName || undefined,
             brandName: d.brandName,
             quantity: d.quantity,
             unitPrice: parseFloat(d.unitPrice),
-            reason: d.reason || undefined,
+            isOther: d.isOther,
         })),
         // New: Items with pre-calculated values
         itemsWithCalculations,
@@ -983,10 +1060,12 @@ export const getOrderAdjustment = async (orderId: number) => {
             total: orderTotal,
             totalReturns,
             totalAdjustmentDiscount,
-            netTotal: netTotalAfterReturns,
+            settlementDamage,
+            netTotal: netTotalAfterDamage,
             totalPayments,
             totalExpenses,
             totalCustomerDues,
+            totalDsrDues,
             totalAdjustment,
             due,
         },

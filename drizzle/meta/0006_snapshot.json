@@ -1,6 +1,6 @@
 {
-  "id": "6cac55fe-5e23-4d06-9b1b-6ccdbf0ca22a",
-  "prevId": "d6502fea-c128-423c-ada8-dfb4394897c4",
+  "id": "eec6a435-3517-4838-b057-4d0384a4bade",
+  "prevId": "32407f98-dbf1-4029-aaad-625940a0fac8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2334,6 +2334,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "customer_id": {
+          "name": "customer_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "customer_name": {
+          "name": "customer_name",
+          "type": "varchar(150)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "product_name": {
           "name": "product_name",
           "type": "varchar(200)",
@@ -2370,11 +2382,12 @@
           "primaryKey": false,
           "notNull": true
         },
-        "reason": {
-          "name": "reason",
-          "type": "text",
+        "is_other": {
+          "name": "is_other",
+          "type": "boolean",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -2427,6 +2440,21 @@
           "columns": [
             {
               "expression": "product_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_order_damage_items_customer": {
+          "name": "idx_order_damage_items_customer",
+          "columns": [
+            {
+              "expression": "customer_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2489,6 +2517,134 @@
             "id"
           ],
           "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "order_damage_items_customer_id_customer_id_fk": {
+          "name": "order_damage_items_customer_id_customer_id_fk",
+          "tableFrom": "order_damage_items",
+          "tableTo": "customer",
+          "columnsFrom": [
+            "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.order_dsr_dues": {
+      "name": "order_dsr_dues",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "order_id": {
+          "name": "order_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dsr_id": {
+          "name": "dsr_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_order_dsr_dues_order": {
+          "name": "idx_order_dsr_dues_order",
+          "columns": [
+            {
+              "expression": "order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_order_dsr_dues_dsr": {
+          "name": "idx_order_dsr_dues_dsr",
+          "columns": [
+            {
+              "expression": "dsr_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "order_dsr_dues_order_id_wholesale_orders_id_fk": {
+          "name": "order_dsr_dues_order_id_wholesale_orders_id_fk",
+          "tableFrom": "order_dsr_dues",
+          "tableTo": "wholesale_orders",
+          "columnsFrom": [
+            "order_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "order_dsr_dues_dsr_id_dsr_id_fk": {
+          "name": "order_dsr_dues_dsr_id_dsr_id_fk",
+          "tableFrom": "order_dsr_dues",
+          "tableTo": "dsr",
+          "columnsFrom": [
+            "dsr_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -2619,6 +2775,13 @@
           "type": "varchar(20)",
           "primaryKey": false,
           "notNull": true
+        },
+        "return_extra_pieces": {
+          "name": "return_extra_pieces",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "return_free_quantity": {
           "name": "return_free_quantity",
@@ -3540,6 +3703,13 @@
           "type": "varchar(50)",
           "primaryKey": false,
           "notNull": false
+        },
+        "from_cash_balance": {
+          "name": "from_cash_balance",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "note": {
           "name": "note",

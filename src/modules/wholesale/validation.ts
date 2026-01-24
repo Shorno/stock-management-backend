@@ -1,8 +1,5 @@
 import { z } from "zod";
 
-// Unit types for products
-const UNIT_TYPES = ["PCS", "KG", "LTR", "BOX", "CARTON", "DOZEN"] as const;
-
 // Order status types - simplified to pending and adjusted
 export const ORDER_STATUSES = ["pending", "adjusted"] as const;
 export type OrderStatus = typeof ORDER_STATUSES[number];
@@ -13,10 +10,11 @@ export const orderItemSchema = z.object({
     batchId: z.coerce.number().int("Batch ID must be an integer").positive("Batch ID must be positive"),
     brandId: z.coerce.number().int("Brand ID must be an integer").positive("Brand ID must be positive"),
     quantity: z.coerce.number().int("Quantity must be an integer").positive("Quantity must be greater than 0"),
-    unit: z.enum(UNIT_TYPES, { message: "Unit must be one of: PCS, KG, LTR, BOX, CARTON, DOZEN" }),
+    unit: z.string().min(1, "Unit is required"),
     totalQuantity: z.coerce.number().int("Total quantity must be an integer").nonnegative("Total quantity cannot be negative"),
     availableQuantity: z.coerce.number().int("Available quantity must be an integer").nonnegative("Available quantity cannot be negative").default(0),
     freeQuantity: z.coerce.number().int("Free quantity must be an integer").nonnegative("Free quantity cannot be negative").default(0),
+    extraPieces: z.coerce.number().int("Extra pieces must be an integer").nonnegative("Extra pieces cannot be negative").default(0),
     salePrice: z.coerce.number().positive("Sale price must be greater than 0"),
     discount: z.coerce.number().nonnegative("Discount must be non-negative").default(0),
 });
@@ -99,6 +97,7 @@ export const adjustmentItemReturnSchema = z.object({
     itemId: z.coerce.number().int().positive("Item ID must be positive"),
     returnQuantity: z.coerce.number().int().nonnegative("Return quantity must be non-negative"),
     returnUnit: z.string().min(1, "Return unit is required"),
+    returnExtraPieces: z.coerce.number().int().nonnegative("Return extra pieces must be non-negative").default(0),
     returnFreeQuantity: z.coerce.number().int().nonnegative("Return free quantity must be non-negative").default(0),
     returnAmount: z.coerce.number().nonnegative("Return amount must be non-negative").default(0),
     adjustmentDiscount: z.coerce.number().nonnegative("Adjustment discount must be non-negative").default(0),
@@ -116,12 +115,20 @@ export const adjustmentDamageReturnSchema = z.object({
     orderItemId: z.coerce.number().int().positive().optional(), // Optional - only if from order item
     productId: z.coerce.number().int().positive().optional(),   // Product ID for any product
     variantId: z.coerce.number().int().positive().optional(),   // Variant ID
+    customerId: z.coerce.number().int().positive().optional(),  // Customer who returned
+    customerName: z.string().optional(),                         // Customer name for display
     productName: z.string().min(1, "Product name is required"),
     variantName: z.string().optional(), // Variant label (e.g., "100G")
     brandName: z.string().min(1, "Brand name is required"),
     quantity: z.coerce.number().int().positive("Quantity must be positive"),
     unitPrice: z.coerce.number().nonnegative("Unit price must be non-negative"),
-    reason: z.string().optional(),
+    isOther: z.boolean().optional().default(false), // If true, damage is not related to order - excluded from settlement
+});
+
+// DSR due schema for adjustments
+export const adjustmentDsrDueSchema = z.object({
+    amount: z.coerce.number().nonnegative("Amount must be non-negative"),
+    note: z.string().optional(),
 });
 
 // Complete adjustment save schema
@@ -129,6 +136,7 @@ export const saveAdjustmentSchema = z.object({
     payments: z.array(adjustmentPaymentSchema).default([]),
     expenses: z.array(adjustmentExpenseSchema).default([]),
     customerDues: z.array(adjustmentCustomerDueSchema).default([]),
+    dsrDues: z.array(adjustmentDsrDueSchema).default([]),
     damageReturns: z.array(adjustmentDamageReturnSchema).default([]),
     itemReturns: z.array(adjustmentItemReturnSchema).default([]),
     paymentDate: z.string().min(1, "Payment date is required"),
@@ -137,6 +145,8 @@ export const saveAdjustmentSchema = z.object({
 export type AdjustmentPaymentInput = z.infer<typeof adjustmentPaymentSchema>;
 export type AdjustmentExpenseInput = z.infer<typeof adjustmentExpenseSchema>;
 export type AdjustmentCustomerDueInput = z.infer<typeof adjustmentCustomerDueSchema>;
+export type AdjustmentDsrDueInput = z.infer<typeof adjustmentDsrDueSchema>;
 export type AdjustmentDamageReturnInput = z.infer<typeof adjustmentDamageReturnSchema>;
 export type AdjustmentItemReturnInput = z.infer<typeof adjustmentItemReturnSchema>;
 export type SaveAdjustmentInput = z.infer<typeof saveAdjustmentSchema>;
+

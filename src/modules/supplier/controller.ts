@@ -72,9 +72,11 @@ export async function handleAddPayment(c: Context) {
 
         const payment = await supplierService.addPayment(brandId, body);
         return c.json({ success: true, data: payment }, 201);
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error adding payment:", error);
-        return c.json({ success: false, error: "Failed to add payment" }, 500);
+        // Return the actual error message for validation errors
+        const errorMessage = error?.message || "Failed to add payment";
+        return c.json({ success: false, error: errorMessage }, 400);
     }
 }
 

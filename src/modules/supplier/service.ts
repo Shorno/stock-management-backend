@@ -15,6 +15,7 @@ export interface CreatePaymentDto {
     amount: number;
     paymentDate: string;
     paymentMethod?: string;
+    fromCashBalance?: boolean;
     note?: string;
 }
 
@@ -113,6 +114,16 @@ export async function deletePurchase(id: number) {
 // ==================== PAYMENTS ====================
 
 export async function addPayment(brandId: number, data: CreatePaymentDto) {
+    // If payment should deduct from cash balance, validate sufficient balance exists
+    if (data.fromCashBalance) {
+        const { getCurrentCashBalance } = await import("../analytics/service");
+        const currentCashBalance = await getCurrentCashBalance();
+
+        if (data.amount > currentCashBalance) {
+            throw new Error(`Insufficient cash balance. Available: ৳${currentCashBalance.toFixed(2)}, Requested: ৳${data.amount.toFixed(2)}`);
+        }
+    }
+
     const [payment] = await db
         .insert(supplierPayments)
         .values({
@@ -120,6 +131,7 @@ export async function addPayment(brandId: number, data: CreatePaymentDto) {
             amount: data.amount.toString(),
             paymentDate: data.paymentDate,
             paymentMethod: data.paymentMethod,
+            fromCashBalance: data.fromCashBalance ?? false,
             note: data.note,
         })
         .returning();

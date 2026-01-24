@@ -44,6 +44,18 @@ export async function getWithdrawals(query?: GetWithdrawalsQuery): Promise<CashW
  */
 export async function createWithdrawal(input: CreateWithdrawalInput): Promise<{ success: boolean; message: string; withdrawalId?: number }> {
     try {
+        // Import and check current cash balance
+        const { getCurrentCashBalance } = await import("../analytics/service");
+        const currentBalance = await getCurrentCashBalance();
+
+        // Validate that withdrawal doesn't exceed available balance
+        if (input.amount > currentBalance) {
+            return {
+                success: false,
+                message: `Insufficient cash balance. Available: ৳${currentBalance.toLocaleString("en-BD", { minimumFractionDigits: 2 })}, Requested: ৳${input.amount.toLocaleString("en-BD", { minimumFractionDigits: 2 })}`,
+            };
+        }
+
         const result = await db
             .insert(cashWithdrawals)
             .values({
@@ -63,6 +75,7 @@ export async function createWithdrawal(input: CreateWithdrawalInput): Promise<{ 
         return { success: false, message: "Failed to record withdrawal" };
     }
 }
+
 
 /**
  * Delete a withdrawal

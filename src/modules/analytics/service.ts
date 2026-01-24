@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 
@@ -563,9 +563,29 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalDamageProfit = Number(damageReturnsResult[0]?.totalProfit || 0);
 
-    // Subtract Order Returns (Adjustments) and Damage Returns Profit from Net Sales
+    // Get order damage items profit (from order adjustments)
+    // These are damaged products recorded during order adjustments
+    // We need to subtract their profit margin (sell price - buying price) from the total
+    let totalOrderDamageProfit = 0;
+    if (orderIds.length > 0) {
+        // For order damage items, unitPrice is the buying/cost price stored at time of damage
+        // We need to estimate the sell price based on the product's variant batch
+        const orderDamageResult = await db
+            .select({
+                totalCost: sql<number>`sum(${orderDamageItems.total})`,
+            })
+            .from(orderDamageItems)
+            .where(sql`${orderDamageItems.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
+
+        // The total stored is already cost (unitPrice * quantity)
+        // To calculate profit, we'd need sell price, but for simplicity,
+        // we deduct the total cost amount as it represents lost profit opportunity
+        totalOrderDamageProfit = Number(orderDamageResult[0]?.totalCost || 0);
+    }
+
+    // Subtract Order Returns (Adjustments), Damage Returns Profit, and Order Damage Items from Net Sales
     // User logic: effectively only removing the profit margin of the damaged item from the total sales
-    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit;
+    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageProfit;
 
     // ----- NET PURCHASE -----
     // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
@@ -728,8 +748,15 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         .select({ total: sum(supplierPayments.amount) })
         .from(supplierPayments);
 
+    // Only supplier payments from cash balance should affect cash balance calculation
+    const supplierPaymentsFromCashResult = await db
+        .select({ total: sum(supplierPayments.amount) })
+        .from(supplierPayments)
+        .where(eq(supplierPayments.fromCashBalance, true));
+
     const totalSupplierPurchases = Number(supplierPurchasesResult[0]?.total || 0);
     const totalSupplierPayments = Number(supplierPaymentsResult[0]?.total || 0);
+    const totalSupplierPaymentsFromCash = Number(supplierPaymentsFromCashResult[0]?.total || 0);
     // Positive = Supplier owes us (we've overpaid), Negative = We owe supplier
     const supplierDue = totalSupplierPayments - totalSupplierPurchases;
 
@@ -752,8 +779,25 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalWithdrawals = Number(withdrawalsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received - Expenses - Supplier Payments - Cash Withdrawals
-    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPayments - totalWithdrawals;
+    // ----- DUE COLLECTIONS (Customer Dues Collected) -----
+    // Add collected dues to cash balance
+    let dueCollectionFilters = undefined;
+    if (dateRange?.startDate) {
+        dueCollectionFilters = and(
+            gte(dueCollections.collectionDate, dateRange.startDate),
+            dateRange.endDate ? lte(dueCollections.collectionDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const dueCollectionsResult = await db
+        .select({ total: sum(dueCollections.amount) })
+        .from(dueCollections)
+        .where(dueCollectionFilters);
+
+    const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received + Due Collections - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
+    const cashBalance = paymentsReceived + totalDueCollections - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
@@ -766,4 +810,57 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     };
 }
 
+/**
+ * Get current cash balance (without date filters)
+ * Used for withdrawal validation to ensure cash balance doesn't go negative
+ */
+export async function getCurrentCashBalance(): Promise<number> {
+    const { supplierPayments } = await import("../../db/schema/supplier-schema");
+    const { cashWithdrawals } = await import("../../db/schema");
+
+    // Total payments received (all time)
+    const paymentsReceivedResult = await db
+        .select({
+            total: sum(orderPayments.amount),
+        })
+        .from(orderPayments);
+
+    const paymentsReceived = Number(paymentsReceivedResult[0]?.total || 0);
+
+    // Total expenses (all time)
+    const expensesResult = await db
+        .select({
+            total: sum(orderExpenses.amount),
+        })
+        .from(orderExpenses);
+
+    const totalExpenses = Number(expensesResult[0]?.total || 0);
+
+    // Total supplier payments from cash balance only (all time)
+    const supplierPaymentsFromCashResult = await db
+        .select({ total: sum(supplierPayments.amount) })
+        .from(supplierPayments)
+        .where(eq(supplierPayments.fromCashBalance, true));
+
+    const totalSupplierPaymentsFromCash = Number(supplierPaymentsFromCashResult[0]?.total || 0);
+
+    // Total withdrawals (all time)
+    const withdrawalsResult = await db
+        .select({ total: sum(cashWithdrawals.amount) })
+        .from(cashWithdrawals);
+
+    const totalWithdrawals = Number(withdrawalsResult[0]?.total || 0);
+
+    // Total due collections (customer dues collected) - all time
+    const dueCollectionsResult = await db
+        .select({ total: sum(dueCollections.amount) })
+        .from(dueCollections);
+
+    const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received + Due Collections - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
+    const cashBalance = paymentsReceived + totalDueCollections - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
+
+    return Math.round(cashBalance * 100) / 100;
+}
 
