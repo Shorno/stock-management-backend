@@ -823,13 +823,15 @@ export const saveOrderAdjustment = async (
                     orderItemId: damageItem.orderItemId || null,
                     productId: damageItem.productId || null,
                     variantId: damageItem.variantId || null,
+                    customerId: damageItem.customerId || null,
+                    customerName: damageItem.customerName || null,
                     productName: damageItem.productName,
                     variantName: damageItem.variantName || null,
                     brandName: damageItem.brandName,
                     quantity: damageItem.quantity,
                     unitPrice: damageItem.unitPrice.toFixed(2),
                     total: total.toFixed(2),
-                    reason: damageItem.reason || null,
+                    isOther: damageItem.isOther || false,
                 });
                 totalDamageAmount += total;
             }
@@ -970,9 +972,17 @@ export const getOrderAdjustment = async (orderId: number) => {
     const orderTotal = parseFloat(order.total);
     const netTotalAfterReturns = itemsWithCalculations.reduce((sum, item) => sum + item.netTotal, 0);
 
+    // Calculate settlement damage (only non-"other" damages that should be deducted)
+    const settlementDamage = damageItemsData
+        .filter(d => !d.isOther)
+        .reduce((sum, d) => sum + parseFloat(d.total), 0);
+
+    // Net Total = After Returns - Settlement Damages
+    const netTotalAfterDamage = netTotalAfterReturns - settlementDamage;
+
     // Adjustment = Payments + Expenses + Customer Dues + DSR Dues (all reduce what's owed)
     const totalAdjustment = totalPayments + totalExpenses + totalCustomerDues + totalDsrDues;
-    const due = Math.max(0, netTotalAfterReturns - totalAdjustment);
+    const due = Math.max(0, netTotalAfterDamage - totalAdjustment);
 
     return {
         order,
@@ -1014,12 +1024,14 @@ export const getOrderAdjustment = async (orderId: number) => {
             orderItemId: d.orderItemId || undefined,
             productId: d.productId || undefined,
             variantId: d.variantId || undefined,
+            customerId: d.customerId || undefined,
+            customerName: d.customerName || undefined,
             productName: d.productName,
             variantName: d.variantName || undefined,
             brandName: d.brandName,
             quantity: d.quantity,
             unitPrice: parseFloat(d.unitPrice),
-            reason: d.reason || undefined,
+            isOther: d.isOther,
         })),
         // New: Items with pre-calculated values
         itemsWithCalculations,
@@ -1030,7 +1042,8 @@ export const getOrderAdjustment = async (orderId: number) => {
             total: orderTotal,
             totalReturns,
             totalAdjustmentDiscount,
-            netTotal: netTotalAfterReturns,
+            settlementDamage,
+            netTotal: netTotalAfterDamage,
             totalPayments,
             totalExpenses,
             totalCustomerDues,

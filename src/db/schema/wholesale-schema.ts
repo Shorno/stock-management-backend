@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, integer, decimal, text, date, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, integer, decimal, text, date, index, boolean } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { timestamps } from "../column.helpers";
 import { category, brand, product, stockBatch, productVariant } from "./product-schema";
@@ -349,18 +349,22 @@ export const orderDamageItems = pgTable("order_damage_items", {
         .references(() => product.id, { onDelete: "set null" }), // Product ID for any product
     variantId: integer("variant_id")
         .references(() => productVariant.id, { onDelete: "set null" }), // Variant ID for variant info
+    customerId: integer("customer_id")
+        .references(() => customer.id, { onDelete: "set null" }), // Customer who returned the damage
+    customerName: varchar("customer_name", { length: 150 }), // Keep for display/fallback
     productName: varchar("product_name", { length: 200 }).notNull(),
     variantName: varchar("variant_name", { length: 100 }), // Variant label (e.g., "100G", "500ml")
     brandName: varchar("brand_name", { length: 100 }).notNull(),
     quantity: integer("quantity").notNull(),
     unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
     total: decimal("total", { precision: 10, scale: 2 }).notNull(),
-    reason: text("reason"),
+    isOther: boolean("is_other").default(false).notNull(), // If true, damage is not related to order - excluded from settlement
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_damage_items_order").on(table.orderId),
     itemIdx: index("idx_order_damage_items_item").on(table.orderItemId),
     productIdx: index("idx_order_damage_items_product").on(table.productId),
+    customerIdx: index("idx_order_damage_items_customer").on(table.customerId),
 }));
 
 // Order damage items relations
@@ -372,6 +376,10 @@ export const orderDamageItemsRelations = relations(orderDamageItems, ({ one }) =
     orderItem: one(wholesaleOrderItems, {
         fields: [orderDamageItems.orderItemId],
         references: [wholesaleOrderItems.id],
+    }),
+    customer: one(customer, {
+        fields: [orderDamageItems.customerId],
+        references: [customer.id],
     }),
 }));
 

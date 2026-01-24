@@ -22,6 +22,20 @@
       "when": 1769204105392,
       "tag": "0002_icy_eddie_brock",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1769205061416,
+      "tag": "0003_spicy_lord_hawal",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1769205980626,
+      "tag": "0004_tricky_magik",
+      "breakpoints": true
     }
   ]
 }

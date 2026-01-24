@@ -114,12 +114,14 @@ export const adjustmentDamageReturnSchema = z.object({
     orderItemId: z.coerce.number().int().positive().optional(), // Optional - only if from order item
     productId: z.coerce.number().int().positive().optional(),   // Product ID for any product
     variantId: z.coerce.number().int().positive().optional(),   // Variant ID
+    customerId: z.coerce.number().int().positive().optional(),  // Customer who returned
+    customerName: z.string().optional(),                         // Customer name for display
     productName: z.string().min(1, "Product name is required"),
     variantName: z.string().optional(), // Variant label (e.g., "100G")
     brandName: z.string().min(1, "Brand name is required"),
     quantity: z.coerce.number().int().positive("Quantity must be positive"),
     unitPrice: z.coerce.number().nonnegative("Unit price must be non-negative"),
-    reason: z.string().optional(),
+    isOther: z.boolean().optional().default(false), // If true, damage is not related to order - excluded from settlement
 });
 
 // DSR due schema for adjustments

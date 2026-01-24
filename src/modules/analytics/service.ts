@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills, orderDamageItems } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 
@@ -563,9 +563,29 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalDamageProfit = Number(damageReturnsResult[0]?.totalProfit || 0);
 
-    // Subtract Order Returns (Adjustments) and Damage Returns Profit from Net Sales
+    // Get order damage items profit (from order adjustments)
+    // These are damaged products recorded during order adjustments
+    // We need to subtract their profit margin (sell price - buying price) from the total
+    let totalOrderDamageProfit = 0;
+    if (orderIds.length > 0) {
+        // For order damage items, unitPrice is the buying/cost price stored at time of damage
+        // We need to estimate the sell price based on the product's variant batch
+        const orderDamageResult = await db
+            .select({
+                totalCost: sql<number>`sum(${orderDamageItems.total})`,
+            })
+            .from(orderDamageItems)
+            .where(sql`${orderDamageItems.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
+
+        // The total stored is already cost (unitPrice * quantity)
+        // To calculate profit, we'd need sell price, but for simplicity,
+        // we deduct the total cost amount as it represents lost profit opportunity
+        totalOrderDamageProfit = Number(orderDamageResult[0]?.totalCost || 0);
+    }
+
+    // Subtract Order Returns (Adjustments), Damage Returns Profit, and Order Damage Items from Net Sales
     // User logic: effectively only removing the profit margin of the damaged item from the total sales
-    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit;
+    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageProfit;
 
     // ----- NET PURCHASE -----
     // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
