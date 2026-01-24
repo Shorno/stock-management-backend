@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills, orderDamageItems } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 
@@ -779,8 +779,25 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalWithdrawals = Number(withdrawalsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
-    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
+    // ----- DUE COLLECTIONS (Customer Dues Collected) -----
+    // Add collected dues to cash balance
+    let dueCollectionFilters = undefined;
+    if (dateRange?.startDate) {
+        dueCollectionFilters = and(
+            gte(dueCollections.collectionDate, dateRange.startDate),
+            dateRange.endDate ? lte(dueCollections.collectionDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const dueCollectionsResult = await db
+        .select({ total: sum(dueCollections.amount) })
+        .from(dueCollections)
+        .where(dueCollectionFilters);
+
+    const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received + Due Collections - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
+    const cashBalance = paymentsReceived + totalDueCollections - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
@@ -834,8 +851,15 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     const totalWithdrawals = Number(withdrawalsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
-    const cashBalance = paymentsReceived - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
+    // Total due collections (customer dues collected) - all time
+    const dueCollectionsResult = await db
+        .select({ total: sum(dueCollections.amount) })
+        .from(dueCollections);
+
+    const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received + Due Collections - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
+    const cashBalance = paymentsReceived + totalDueCollections - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
 
     return Math.round(cashBalance * 100) / 100;
 }
