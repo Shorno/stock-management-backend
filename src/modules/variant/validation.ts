@@ -1,10 +1,7 @@
 import { z } from "zod";
 
-// Variant types enum
-export const variantTypeEnum = z.enum(["weight", "volume", "pack"]);
-
 const baseVariantSchema = z.object({
-    variantType: variantTypeEnum,
+    variantType: z.string().optional(), // Optional - no longer required
     label: z.string().min(1, "Label is required").max(100, "Label is too long"),
     value: z.number().positive("Value must be positive").optional(),
     unit: z.string().max(20, "Unit is too long").optional(),

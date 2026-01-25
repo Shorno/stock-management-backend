@@ -18,7 +18,7 @@ export const createVariant = async (
 
     const newVariant: NewProductVariant = {
         productId,
-        variantType: data.variantType,
+        variantType: data.variantType || "general", // Default to "general" for backward compatibility
         label: data.label,
         value: data.value?.toString(),
         unit: data.unit,
