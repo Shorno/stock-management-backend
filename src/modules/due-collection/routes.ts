@@ -7,6 +7,7 @@ import {
     getCollectionHistoryQuerySchema,
     getDSRDueSummaryQuerySchema,
     getDSRCollectionHistoryQuerySchema,
+    collectDsrDueInputSchema,
 } from "./validation";
 
 const dueCollectionRoutes = new Hono();
@@ -142,6 +143,30 @@ dueCollectionRoutes.get(
         } catch (error) {
             console.error("Error fetching DSR collection history:", error);
             return c.json({ success: false, error: "Failed to fetch DSR collection history" }, 500);
+        }
+    }
+);
+
+// Collect DSR's own due (from order adjustments)
+dueCollectionRoutes.post(
+    "/dsr/collect",
+    zValidator("json", collectDsrDueInputSchema),
+    async (c) => {
+        try {
+            const input = c.req.valid("json");
+            const result = await dueCollectionService.collectDsrDue(input);
+
+            if (!result.success) {
+                return c.json({ success: false, error: result.message }, 400);
+            }
+
+            return c.json({
+                success: true,
+                message: result.message,
+            });
+        } catch (error) {
+            console.error("Error collecting DSR due:", error);
+            return c.json({ success: false, error: "Failed to record DSR collection" }, 500);
         }
     }
 );

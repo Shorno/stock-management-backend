@@ -49,3 +49,15 @@ export const getDSRCollectionHistoryQuerySchema = z.object({
 export type GetDSRCollectionHistoryQuery = z.infer<typeof getDSRCollectionHistoryQuerySchema> & {
     dsrId: number;
 };
+
+// Input schema for collecting DSR due (DSR's own due from order adjustments)
+export const collectDsrDueInputSchema = z.object({
+    dsrId: z.number(),
+    amount: z.number().positive("Amount must be greater than 0"),
+    collectionDate: z.string(),
+    paymentMethod: z.string().optional(),
+    note: z.string().optional(),
+    dsrDueId: z.number().optional(), // Optional: specify a specific DSR due record to collect from
+});
+
+export type CollectDsrDueInput = z.infer<typeof collectDsrDueInputSchema>;

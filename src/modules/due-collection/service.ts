@@ -14,7 +14,8 @@ import type {
     CollectDueInput,
     GetCollectionHistoryQuery,
     GetDSRDueSummaryQuery,
-    GetDSRCollectionHistoryQuery
+    GetDSRCollectionHistoryQuery,
+    CollectDsrDueInput
 } from "./validation";
 
 // ==================== INTERFACES ====================
@@ -447,19 +448,21 @@ export const getDSRDueSummary = async (
         .groupBy(dsr.id, dsr.name)
         .orderBy(desc(sql`COALESCE(SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL)), 0)`));
 
-    // Get DSR dues from adjustments (amounts owed by DSRs)
+    // Get DSR dues from adjustments (amounts owed by DSRs) - calculate remaining (amount - collected)
     const dsrDueResults = await db
         .select({
             dsrId: orderDsrDues.dsrId,
-            totalDsrDues: sql<string>`COALESCE(SUM(CAST(${orderDsrDues.amount} AS DECIMAL)), 0)`,
+            totalDsrDues: sql<string>`COALESCE(SUM(CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderDsrDues.collectedAmount}, '0') AS DECIMAL)), 0)`,
         })
         .from(orderDsrDues)
         .groupBy(orderDsrDues.dsrId);
 
-    // Create a map for quick lookup of DSR dues
+    // Create a map for quick lookup of DSR dues (remaining amounts)
     const dsrDuesMap = new Map<number, string>();
     for (const row of dsrDueResults) {
-        dsrDuesMap.set(row.dsrId, row.totalDsrDues);
+        // Only include positive remaining amounts
+        const remaining = parseFloat(row.totalDsrDues || "0");
+        dsrDuesMap.set(row.dsrId, remaining > 0 ? remaining.toFixed(2) : "0.00");
     }
 
     return customerDueResults.map(row => {
@@ -628,3 +631,97 @@ export const getDSRCollectionHistory = async (
     }));
 };
 
+// ==================== DSR DUE COLLECTION ====================
+
+/**
+ * Collect DSR's own due (money DSR owes to company from order adjustments)
+ */
+export const collectDsrDue = async (
+    input: CollectDsrDueInput
+): Promise<{ success: boolean; message: string }> => {
+    const { dsrId, amount, collectionDate, paymentMethod, note, dsrDueId } = input;
+
+    // If specific dsrDueId provided, apply to that due only
+    if (dsrDueId) {
+        const due = await db
+            .select()
+            .from(orderDsrDues)
+            .where(eq(orderDsrDues.id, dsrDueId))
+            .limit(1);
+
+        if (!due.length) {
+            return { success: false, message: "DSR due record not found" };
+        }
+
+        const dueRecord = due[0]!;
+        const collectedAmount = parseFloat(dueRecord.collectedAmount || "0");
+        const remaining = parseFloat(dueRecord.amount) - collectedAmount;
+
+        if (amount > remaining) {
+            return { success: false, message: `Amount exceeds remaining due of ৳${remaining.toFixed(2)}` };
+        }
+
+        // Update collected amount on the DSR due record
+        await db
+            .update(orderDsrDues)
+            .set({
+                collectedAmount: (collectedAmount + amount).toFixed(2),
+                note: note ? `${dueRecord.note || ""}\n[${collectionDate}] Collected ৳${amount} via ${paymentMethod || "cash"}${note ? ": " + note : ""}` : dueRecord.note,
+            })
+            .where(eq(orderDsrDues.id, dsrDueId));
+
+        return { success: true, message: `Collected ৳${amount.toFixed(2)} from DSR` };
+    }
+
+    // Auto-apply to oldest DSR dues (FIFO)
+    let remainingAmount = amount;
+
+    const outstandingDues = await db
+        .select({
+            id: orderDsrDues.id,
+            orderId: orderDsrDues.orderId,
+            amount: orderDsrDues.amount,
+            collectedAmount: orderDsrDues.collectedAmount,
+            note: orderDsrDues.note,
+        })
+        .from(orderDsrDues)
+        .innerJoin(wholesaleOrders, eq(orderDsrDues.orderId, wholesaleOrders.id))
+        .where(
+            and(
+                eq(orderDsrDues.dsrId, dsrId),
+                gt(
+                    sql`CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderDsrDues.collectedAmount}, '0') AS DECIMAL)`,
+                    0
+                )
+            )
+        )
+        .orderBy(wholesaleOrders.orderDate);
+
+    if (!outstandingDues.length) {
+        return { success: false, message: "No outstanding DSR dues found" };
+    }
+
+    for (const due of outstandingDues) {
+        if (remainingAmount <= 0) break;
+
+        const collectedSoFar = parseFloat(due.collectedAmount || "0");
+        const dueRemaining = parseFloat(due.amount) - collectedSoFar;
+        const amountToApply = Math.min(remainingAmount, dueRemaining);
+
+        // Update collected amount on DSR due
+        await db
+            .update(orderDsrDues)
+            .set({
+                collectedAmount: (collectedSoFar + amountToApply).toFixed(2),
+                note: note ? `${due.note || ""}\n[${collectionDate}] Collected ৳${amountToApply} via ${paymentMethod || "cash"}${note ? ": " + note : ""}` : due.note,
+            })
+            .where(eq(orderDsrDues.id, due.id));
+
+        remainingAmount -= amountToApply;
+    }
+
+    return {
+        success: true,
+        message: `Collection of ৳${amount.toFixed(2)} recorded successfully`
+    };
+};

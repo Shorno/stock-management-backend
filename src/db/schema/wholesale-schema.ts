@@ -318,6 +318,7 @@ export const orderDsrDues = pgTable("order_dsr_dues", {
         .notNull()
         .references(() => dsr.id, { onDelete: "cascade" }),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    collectedAmount: decimal("collected_amount", { precision: 10, scale: 2 }).notNull().default("0"),
     note: text("note"),
     ...timestamps
 }, (table) => ({
