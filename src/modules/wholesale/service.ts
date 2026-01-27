@@ -921,7 +921,10 @@ export const getOrderAdjustment = async (orderId: number) => {
     const totalPayments = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
     const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const totalReturns = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount), 0);
-    const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0);
+    // Use original amount for invoice (frozen at adjustment time), not remaining after collection
+    const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+    // Track remaining dues separately for collection tracking
+    const remainingCustomerDues = customerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0);
     const totalDsrDues = dsrDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
     const totalAdjustmentDiscount = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.adjustmentDiscount || "0"), 0);
 
@@ -1065,6 +1068,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             totalPayments,
             totalExpenses,
             totalCustomerDues,
+            remainingCustomerDues, // Remaining dues after collection (for tracking)
             totalDsrDues,
             totalAdjustment,
             due,
