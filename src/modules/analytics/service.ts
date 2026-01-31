@@ -611,7 +611,7 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     }, 0);
 
     // ----- CURRENT STOCK -----
-    // Sum of remaining quantity × sell price for all batches (not date filtered - current snapshot)
+    // Sum of remaining quantity × supplier price (buying price) for all batches (not date filtered - current snapshot)
     const stockResult = await db
         .select({
             batch: stockBatch,
@@ -619,9 +619,9 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         .from(stockBatch);
 
     const currentStock = stockResult.reduce((sum, row) => {
-        const sellPrice = Number(row.batch.sellPrice || 0);
+        const supplierPrice = Number(row.batch.supplierPrice || 0);
         const remainingQty = row.batch.remainingQuantity || 0;
-        return sum + (sellPrice * remainingQty);
+        return sum + (supplierPrice * remainingQty);
     }, 0);
 
     // ----- PROFIT & LOSS -----
