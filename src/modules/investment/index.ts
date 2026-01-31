@@ -1,0 +1,1 @@
+export { investmentRoutes } from "./routes";
