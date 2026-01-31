@@ -25,6 +25,7 @@ import { billsRoutes } from "./modules/bills";
 import { cloudinaryRoutes } from "./modules/cloudinary";
 import { dsrLoanRoutes } from "./modules/dsr-loan";
 import { cashWithdrawalRoutes } from "./modules/cash-withdrawal";
+import { investmentRoutes } from "./modules/investment";
 
 const app = new Hono<{
     Variables: {
@@ -107,6 +108,7 @@ app.route("/bills", billsRoutes);
 app.route("/cloudinary", cloudinaryRoutes);
 app.route("/dsr-loans", dsrLoanRoutes);
 app.route("/cash-withdrawals", cashWithdrawalRoutes);
+app.route("/investments", investmentRoutes);
 
 
 const port = Number(process.env.PORT) || 3000;
