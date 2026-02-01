@@ -359,6 +359,7 @@ export const orderDamageItems = pgTable("order_damage_items", {
     brandName: varchar("brand_name", { length: 100 }).notNull(),
     quantity: integer("quantity").notNull(),
     unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+    sellingPrice: decimal("selling_price", { precision: 10, scale: 2 }).notNull(),
     total: decimal("total", { precision: 10, scale: 2 }).notNull(),
     isOther: boolean("is_other").default(false).notNull(), // If true, damage is not related to order - excluded from settlement
     ...timestamps

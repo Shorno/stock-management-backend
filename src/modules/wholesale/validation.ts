@@ -122,6 +122,7 @@ export const adjustmentDamageReturnSchema = z.object({
     brandName: z.string().min(1, "Brand name is required"),
     quantity: z.coerce.number().int().positive("Quantity must be positive"),
     unitPrice: z.coerce.number().nonnegative("Unit price must be non-negative"),
+    sellingPrice: z.coerce.number().nonnegative("Selling price must be non-negative"),
     isOther: z.boolean().optional().default(false), // If true, damage is not related to order - excluded from settlement
 });
 
