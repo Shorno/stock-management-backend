@@ -26,7 +26,9 @@ export interface ReturnsListQueryParams {
 
 export interface ReturnListItem {
     id: string; // Unique ID (prefix + id)
+    orderId?: number; // Order ID for linking (only for Order Damage type)
     returnDate: string;
+    updatedAt: string; // For sorting by most recently updated
     productName: string;
     variantName?: string; // Variant label if applicable
     brandName: string;
@@ -60,6 +62,7 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
         .select({
             id: damageReturnItems.id,
             date: damageReturns.returnDate,
+            updatedAt: damageReturnItems.updatedAt,
             productName: product.name,
             variantLabel: productVariant.label,
             brandName: brand.name,
@@ -96,17 +99,19 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
         const unitPrice = Number(item.unitPrice || 0);
         const sellPrice = Number(item.batchSellPrice || 0);
         const quantity = item.quantity;
-        const adjustmentAmount = sellPrice > 0 ? (sellPrice - unitPrice) * quantity : 0;
+        // Loss is the actual cost of damaged goods (unitPrice × quantity)
+        const lossAmount = unitPrice * quantity;
 
         return {
             id: `DMG-${item.id}`,
             returnDate: item.date,
+            updatedAt: item.updatedAt?.toISOString() || item.date,
             productName: item.productName,
             variantName: item.variantLabel || undefined,
             brandName: item.brandName || 'N/A',
             categoryName: item.categoryName || 'N/A',
             returnAmount: Number(item.returnAmount || 0),
-            adjustmentAmount: adjustmentAmount,
+            adjustmentAmount: lossAmount,
             quantity: item.quantity,
             type: 'Damage Return' as const,
             referenceNumber: item.returnNumber,
@@ -125,7 +130,9 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
     const orderDamageQuery = db
         .select({
             id: orderDamageItems.id,
+            orderId: wholesaleOrders.id,
             orderDate: wholesaleOrders.orderDate,
+            updatedAt: orderDamageItems.updatedAt,
             orderNumber: wholesaleOrders.orderNumber,
             productName: orderDamageItems.productName,
             variantName: orderDamageItems.variantName,
@@ -175,17 +182,19 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
         const buyingPrice = Number(item.unitPrice || 0);
         const sellingPrice = Number(item.sellPrice || 0);
         const quantity = item.quantity;
-        // Adjustment = (selling price - buying price) * quantity
-        const adjustmentAmount = sellingPrice > 0 ? (sellingPrice - buyingPrice) * quantity : 0;
+        // Loss is the actual cost of damaged goods (buyingPrice × quantity)
+        const lossAmount = buyingPrice * quantity;
 
         return {
             id: `ODM-${item.id}`,
+            orderId: item.orderId,
             returnDate: item.orderDate,
+            updatedAt: item.updatedAt?.toISOString() || item.orderDate,
             productName: item.variantName ? `${item.productName} (${item.variantName})` : item.productName,
             brandName: item.brandName,
             categoryName: item.categoryName || 'N/A',
             returnAmount: Number(item.total || 0),
-            adjustmentAmount: adjustmentAmount,
+            adjustmentAmount: lossAmount,
             quantity: item.quantity,
             type: 'Order Damage' as const,
             referenceNumber: item.orderNumber,
@@ -195,10 +204,10 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
         };
     });
 
-    // Combine and sort by date (descending)
+    // Combine and sort by updatedAt (descending) - most recently updated on top
     const allReturns = [...formattedDamageReturns, ...formattedOrderDamage];
     const sortedReturns = allReturns.sort((a, b) => {
-        return new Date(b.returnDate).getTime() - new Date(a.returnDate).getTime();
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
 
     // Pagination
