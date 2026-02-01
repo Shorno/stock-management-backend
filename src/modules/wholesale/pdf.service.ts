@@ -232,6 +232,7 @@ interface DamageReturn {
     brandName: string;
     quantity: number;
     unitPrice: number;
+    sellingPrice: number;
     reason?: string;
 }
 
@@ -679,9 +680,14 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
                 doc.fontSize(8).font("Helvetica");
                 let totalDamage = 0;
+                let totalLostMargin = 0;
                 adjustment.damageReturns.forEach(item => {
-                    const itemTotal = item.quantity * item.unitPrice;
+                    // Settlement uses selling price
+                    const itemTotal = item.quantity * (item.sellingPrice || item.unitPrice);
+                    // Lost profit margin = (sellingPrice - buyingPrice) × qty
+                    const lostMargin = item.quantity * ((item.sellingPrice || item.unitPrice) - item.unitPrice);
                     totalDamage += itemTotal;
+                    totalLostMargin += lostMargin;
                     const label = item.variantName
                         ? `${truncateText(item.productName, 15)} (${item.variantName}) x${item.quantity}`
                         : `${truncateText(item.productName, 20)} x${item.quantity}`;
@@ -693,6 +699,10 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 doc.fillColor("#dc3545").font("Helvetica-Bold");
                 doc.text("Total:", leftCol, currentY);
                 doc.text(formatCurrency(totalDamage), leftCol + 130, currentY);
+                currentY += 14;
+                // Lost profit margin note
+                doc.fillColor("#e67e22").fontSize(7).font("Helvetica");
+                doc.text(`P&L Impact: -${formatCurrency(totalLostMargin)} (lost margin)`, leftCol, currentY);
                 currentY += 16;
             }
 
