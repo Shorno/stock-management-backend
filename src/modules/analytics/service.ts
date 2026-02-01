@@ -2,6 +2,7 @@ import { db } from "../../db/config";
 import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
+import { getUnitMultiplier } from "../unit/service";
 
 export interface DateRange {
     startDate?: string;
@@ -563,24 +564,20 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalDamageProfit = Number(damageReturnsResult[0]?.totalProfit || 0);
 
-    // Get order damage items profit (from order adjustments)
+    // Get order damage items lost profit margin (from order adjustments)
     // These are damaged products recorded during order adjustments
-    // We need to subtract their profit margin (sell price - buying price) from the total
+    // Lost profit = (sellingPrice - unitPrice) × quantity
+    // Customer receives replacement (revenue intact), supplier covers cost, only margin is lost
     let totalOrderDamageProfit = 0;
     if (orderIds.length > 0) {
-        // For order damage items, unitPrice is the buying/cost price stored at time of damage
-        // We need to estimate the sell price based on the product's variant batch
         const orderDamageResult = await db
             .select({
-                totalCost: sql<number>`sum(${orderDamageItems.total})`,
+                lostMargin: sql<number>`sum((${orderDamageItems.sellingPrice} - ${orderDamageItems.unitPrice}) * ${orderDamageItems.quantity})`,
             })
             .from(orderDamageItems)
             .where(sql`${orderDamageItems.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
 
-        // The total stored is already cost (unitPrice * quantity)
-        // To calculate profit, we'd need sell price, but for simplicity,
-        // we deduct the total cost amount as it represents lost profit opportunity
-        totalOrderDamageProfit = Number(orderDamageResult[0]?.totalCost || 0);
+        totalOrderDamageProfit = Number(orderDamageResult[0]?.lostMargin || 0);
     }
 
     // Subtract Order Returns (Adjustments), Damage Returns Profit, and Order Damage Items from Net Sales
@@ -611,7 +608,7 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     }, 0);
 
     // ----- CURRENT STOCK -----
-    // Sum of remaining quantity × sell price for all batches (not date filtered - current snapshot)
+    // Sum of remaining quantity × supplier price (buying price) for all batches (not date filtered - current snapshot)
     const stockResult = await db
         .select({
             batch: stockBatch,
@@ -619,15 +616,15 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         .from(stockBatch);
 
     const currentStock = stockResult.reduce((sum, row) => {
-        const sellPrice = Number(row.batch.sellPrice || 0);
+        const supplierPrice = Number(row.batch.supplierPrice || 0);
         const remainingQty = row.batch.remainingQuantity || 0;
-        return sum + (sellPrice * remainingQty);
+        return sum + (supplierPrice * remainingQty);
     }, 0);
 
     // ----- PROFIT & LOSS -----
     // Net Sales - Cost of Goods Sold
     // For sold items, we need to calculate the cost based on supplier prices
-    // IMPORTANT: Use net quantity (totalQuantity - returnQuantity) to account for returns
+    // IMPORTANT: Use net quantity (totalQuantity - returnQuantity in base pieces) to account for returns
     let costOfGoodsSold = 0;
     if (orderIds.length > 0) {
         // Get order items for completed orders
@@ -640,27 +637,33 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
             .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
             .where(sql`${wholesaleOrderItems.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
 
-        // Get return quantities for each order item
+        // Get return data for each order item (need full return data for unit conversion)
         const returnsResult = await db
             .select({
                 orderItemId: orderItemReturns.orderItemId,
                 returnQuantity: orderItemReturns.returnQuantity,
+                returnUnit: orderItemReturns.returnUnit,
+                returnExtraPieces: orderItemReturns.returnExtraPieces,
             })
             .from(orderItemReturns)
             .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
 
-        // Create a map of order item ID to return quantity
+        // Create a map of order item ID to return quantity in base pieces
         const returnQuantityMap = new Map<number, number>();
         for (const ret of returnsResult) {
-            returnQuantityMap.set(ret.orderItemId, ret.returnQuantity || 0);
+            // Get unit multiplier from database lookup
+            const unitMultiplier = await getUnitMultiplier(ret.returnUnit || 'PCS');
+            // Calculate total return in base pieces: (returnQuantity × multiplier) + extraPieces
+            const returnInBasePieces = (ret.returnQuantity * unitMultiplier) + (ret.returnExtraPieces || 0);
+            returnQuantityMap.set(ret.orderItemId, returnInBasePieces);
         }
 
         costOfGoodsSold = orderItemsResult.reduce((sum, row) => {
             const supplierPrice = Number(row.batch.supplierPrice || 0);
             const totalQuantity = row.item.totalQuantity || 0;
-            const returnQuantity = returnQuantityMap.get(row.item.id) || 0;
-            // Net quantity = total quantity - returned quantity
-            const netQuantity = totalQuantity - returnQuantity;
+            const returnQuantityInPieces = returnQuantityMap.get(row.item.id) || 0;
+            // Net quantity = total quantity - returned quantity (in base pieces)
+            const netQuantity = totalQuantity - returnQuantityInPieces;
             return sum + (supplierPrice * netQuantity);
         }, 0);
     }
@@ -796,8 +799,9 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received + Due Collections - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
-    const cashBalance = paymentsReceived + totalDueCollections - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
+    // Cash Balance = Payments Received + Due Collections - Supplier Payments (from cash only) - Cash Withdrawals
+    // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
+    const cashBalance = paymentsReceived + totalDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
@@ -827,15 +831,6 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     const paymentsReceived = Number(paymentsReceivedResult[0]?.total || 0);
 
-    // Total expenses (all time)
-    const expensesResult = await db
-        .select({
-            total: sum(orderExpenses.amount),
-        })
-        .from(orderExpenses);
-
-    const totalExpenses = Number(expensesResult[0]?.total || 0);
-
     // Total supplier payments from cash balance only (all time)
     const supplierPaymentsFromCashResult = await db
         .select({ total: sum(supplierPayments.amount) })
@@ -858,8 +853,9 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received + Due Collections - Expenses - Supplier Payments (from cash only) - Cash Withdrawals
-    const cashBalance = paymentsReceived + totalDueCollections - totalExpenses - totalSupplierPaymentsFromCash - totalWithdrawals;
+    // Cash Balance = Payments Received + Due Collections - Supplier Payments (from cash only) - Cash Withdrawals
+    // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
+    const cashBalance = paymentsReceived + totalDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals;
 
     return Math.round(cashBalance * 100) / 100;
 }

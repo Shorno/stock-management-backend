@@ -29,4 +29,24 @@ app.patch(
     settingsController.handleUpdateSettings
 );
 
+// ==================== ORDER EDIT PROTECTION ====================
+
+// Get order edit protection status (public)
+app.get("/order-edit-protection", settingsController.handleGetOrderEditProtection);
+
+// Verify order edit password
+app.post("/order-edit-protection/verify", settingsController.handleVerifyOrderEditPassword);
+
+// Set order edit password (admin only)
+app.post("/order-edit-protection/password", settingsController.handleSetOrderEditPassword);
+
+// Remove order edit password (admin only)
+app.delete("/order-edit-protection/password", settingsController.handleRemoveOrderEditPassword);
+
+// Set lock status (admin only)
+app.patch("/order-edit-protection/lock", settingsController.handleSetOrderEditLock);
+
+// Set lock mode (admin only)
+app.patch("/order-edit-protection/lock-mode", settingsController.handleSetOrderEditLockMode);
+
 export default app;

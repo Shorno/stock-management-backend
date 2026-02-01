@@ -792,7 +792,7 @@ export const saveOrderAdjustment = async (
         // Insert new item returns (also stores discount per item) and update stock
         for (const itemReturn of data.itemReturns) {
             // Create record if there's a return OR discount
-            if (itemReturn.returnQuantity > 0 || itemReturn.returnFreeQuantity > 0 || itemReturn.adjustmentDiscount > 0) {
+            if (itemReturn.returnQuantity > 0 || itemReturn.returnExtraPieces > 0 || itemReturn.returnFreeQuantity > 0 || itemReturn.adjustmentDiscount > 0) {
                 await tx.insert(orderItemReturns).values({
                     orderId,
                     orderItemId: itemReturn.itemId,
@@ -832,7 +832,7 @@ export const saveOrderAdjustment = async (
         // Insert new damage items
         for (const damageItem of data.damageReturns || []) {
             if (damageItem.quantity > 0) {
-                const total = damageItem.quantity * damageItem.unitPrice;
+                const total = damageItem.quantity * damageItem.sellingPrice;
                 await tx.insert(orderDamageItems).values({
                     orderId,
                     orderItemId: damageItem.orderItemId || null,
@@ -845,6 +845,7 @@ export const saveOrderAdjustment = async (
                     brandName: damageItem.brandName,
                     quantity: damageItem.quantity,
                     unitPrice: damageItem.unitPrice.toFixed(2),
+                    sellingPrice: damageItem.sellingPrice.toFixed(2),
                     total: total.toFixed(2),
                     isOther: damageItem.isOther || false,
                 });
@@ -1036,6 +1037,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             itemId: r.orderItemId,
             returnQuantity: r.returnQuantity,
             returnUnit: r.returnUnit,
+            returnExtraPieces: r.returnExtraPieces ?? 0,
             returnFreeQuantity: r.returnFreeQuantity,
             returnAmount: parseFloat(r.returnAmount),
             adjustmentDiscount: parseFloat(r.adjustmentDiscount || "0"),
@@ -1052,6 +1054,8 @@ export const getOrderAdjustment = async (orderId: number) => {
             brandName: d.brandName,
             quantity: d.quantity,
             unitPrice: parseFloat(d.unitPrice),
+            sellingPrice: parseFloat(d.sellingPrice),
+            total: parseFloat(d.total), // Include stored total for finalized order consistency
             isOther: d.isOther,
         })),
         // New: Items with pre-calculated values
