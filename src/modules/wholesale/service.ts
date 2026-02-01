@@ -792,7 +792,7 @@ export const saveOrderAdjustment = async (
         // Insert new item returns (also stores discount per item) and update stock
         for (const itemReturn of data.itemReturns) {
             // Create record if there's a return OR discount
-            if (itemReturn.returnQuantity > 0 || itemReturn.returnFreeQuantity > 0 || itemReturn.adjustmentDiscount > 0) {
+            if (itemReturn.returnQuantity > 0 || itemReturn.returnExtraPieces > 0 || itemReturn.returnFreeQuantity > 0 || itemReturn.adjustmentDiscount > 0) {
                 await tx.insert(orderItemReturns).values({
                     orderId,
                     orderItemId: itemReturn.itemId,
@@ -1037,6 +1037,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             itemId: r.orderItemId,
             returnQuantity: r.returnQuantity,
             returnUnit: r.returnUnit,
+            returnExtraPieces: r.returnExtraPieces ?? 0,
             returnFreeQuantity: r.returnFreeQuantity,
             returnAmount: parseFloat(r.returnAmount),
             adjustmentDiscount: parseFloat(r.adjustmentDiscount || "0"),
