@@ -11,7 +11,9 @@
   "dependencies": {
     "@hono/zod-validator": "^0.7.5",
     "@neondatabase/serverless": "^1.0.2",
+    "@types/bcryptjs": "^3.0.0",
     "@types/ws": "^8.18.1",
+    "bcryptjs": "^3.0.3",
     "better-auth": "^1.4.6",
     "cloudinary": "^2.8.0",
     "date-fns": "^4.1.0",
