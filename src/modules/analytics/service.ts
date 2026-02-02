@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 import { getUnitMultiplier } from "../unit/service";
@@ -493,6 +493,7 @@ export interface DashboardStats {
     currentStock: number;
     profitLoss: number;
     dsrSalesDue: number;
+    dsrOwnDue: number;
     cashBalance: number;
     supplierDue: number;
 }
@@ -719,6 +720,17 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const dsrSalesDue = Number(customerDuesResult[0]?.totalDue || 0);
 
+    // ----- DSR OWN DUE -----
+    // Total outstanding DSR dues from all orders (amount - collectedAmount)
+    // This is money that DSRs themselves owe from order adjustments
+    const dsrOwnDuesResult = await db
+        .select({
+            totalDue: sql<string>`SUM(CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(${orderDsrDues.collectedAmount} AS DECIMAL))`,
+        })
+        .from(orderDsrDues);
+
+    const dsrOwnDue = Number(dsrOwnDuesResult[0]?.totalDue || 0);
+
     // ----- CASH BALANCE -----
     // Total payments received - total expenses
     let paymentFilters = undefined;
@@ -809,6 +821,7 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         currentStock: Math.round(currentStock * 100) / 100,
         profitLoss: Math.round(profitLoss * 100) / 100,
         dsrSalesDue: Math.round(dsrSalesDue * 100) / 100,
+        dsrOwnDue: Math.round(dsrOwnDue * 100) / 100,
         cashBalance: Math.round(cashBalance * 100) / 100,
         supplierDue: Math.round(supplierDue * 100) / 100,
     };
