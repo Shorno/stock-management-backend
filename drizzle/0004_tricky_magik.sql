@@ -1,1 +1,0 @@
-ALTER TABLE "order_damage_items" ADD COLUMN "is_other" boolean DEFAULT false NOT NULL;

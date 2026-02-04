@@ -1,1 +1,0 @@
-ALTER TABLE "order_dsr_dues" ADD COLUMN "collected_amount" numeric(10, 2) DEFAULT '0' NOT NULL;
