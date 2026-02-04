@@ -1,1 +1,0 @@
-ALTER TABLE "wholesale_order_items" ADD COLUMN "extra_pieces" integer DEFAULT 0 NOT NULL;

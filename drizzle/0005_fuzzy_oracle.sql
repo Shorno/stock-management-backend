@@ -1,1 +1,0 @@
-ALTER TABLE "supplier_payments" ADD COLUMN "from_cash_balance" boolean DEFAULT false NOT NULL;
