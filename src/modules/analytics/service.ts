@@ -496,6 +496,7 @@ export interface DashboardStats {
     dsrOwnDue: number;
     cashBalance: number;
     supplierDue: number;
+    netAssets: number;
 }
 
 /**
@@ -811,9 +812,16 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received + Due Collections - Supplier Payments (from cash only) - Cash Withdrawals
+    // Cash Balance = Payments Received + Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
     // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
-    const cashBalance = paymentsReceived + totalDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals;
+    const cashBalance = paymentsReceived + totalDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
+
+    // ----- NET ASSETS -----
+    // Total business value = Assets - Liabilities
+    // Assets: Current Stock + Cash Balance + Receivables (DSR Sales Due + DSR Own Due)
+    // Liabilities: Supplier Due (if negative, we owe them)
+    // Supplier Balance: positive = they owe us (add), negative = we owe them (subtract)
+    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + supplierDue;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
@@ -824,6 +832,7 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         dsrOwnDue: Math.round(dsrOwnDue * 100) / 100,
         cashBalance: Math.round(cashBalance * 100) / 100,
         supplierDue: Math.round(supplierDue * 100) / 100,
+        netAssets: Math.round(netAssets * 100) / 100,
     };
 }
 
@@ -866,9 +875,16 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received + Due Collections - Supplier Payments (from cash only) - Cash Withdrawals
+    // Total bills (all time)
+    const billsResult = await db
+        .select({ total: sum(bills.amount) })
+        .from(bills);
+
+    const totalBills = Number(billsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received + Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
     // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
-    const cashBalance = paymentsReceived + totalDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals;
+    const cashBalance = paymentsReceived + totalDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
 
     return Math.round(cashBalance * 100) / 100;
 }
