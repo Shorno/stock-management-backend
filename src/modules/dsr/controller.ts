@@ -3,6 +3,7 @@ import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery } from "./validation"
 import type { DsrResponse } from "./types";
 import * as dsrService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { formatDatabaseError } from "../../lib/error-handler";
 
 type AppContext = Context<
   {
@@ -36,7 +37,7 @@ export const handleCreateDsr = async (c: AppContext): Promise<Response> => {
     return c.json<DsrResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to create DSR",
+        message: formatDatabaseError(error, "DSR"),
       },
       500
     );
@@ -133,7 +134,7 @@ export const handleUpdateDsr = async (c: AppContext): Promise<Response> => {
     return c.json<DsrResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to update DSR",
+        message: formatDatabaseError(error, "DSR"),
       },
       500
     );
@@ -165,7 +166,7 @@ export const handleDeleteDsr = async (c: AppContext): Promise<Response> => {
     return c.json<DsrResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to delete DSR",
+        message: formatDatabaseError(error, "DSR"),
       },
       500
     );

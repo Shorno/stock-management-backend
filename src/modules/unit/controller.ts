@@ -3,6 +3,7 @@ import type { CreateUnitInput, UpdateUnitInput, GetUnitsQuery } from "./validati
 import type { UnitResponse } from "./types";
 import * as unitService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { formatDatabaseError } from "../../lib/error-handler";
 
 type AppContext = Context<
     {
@@ -38,7 +39,7 @@ export const handleCreateUnit = async (c: AppContext): Promise<Response> => {
         return c.json<UnitResponse>(
             {
                 success: false,
-                message: error instanceof Error ? error.message : "Failed to create unit",
+                message: formatDatabaseError(error, "unit"),
             },
             500
         );
@@ -140,7 +141,7 @@ export const handleUpdateUnit = async (c: AppContext): Promise<Response> => {
         return c.json<UnitResponse>(
             {
                 success: false,
-                message: error instanceof Error ? error.message : "Failed to update unit",
+                message: formatDatabaseError(error, "unit"),
             },
             500
         );
@@ -177,7 +178,7 @@ export const handleDeleteUnit = async (c: AppContext): Promise<Response> => {
         return c.json<UnitResponse>(
             {
                 success: false,
-                message: error instanceof Error ? error.message : "Failed to delete unit",
+                message: formatDatabaseError(error, "unit"),
             },
             500
         );

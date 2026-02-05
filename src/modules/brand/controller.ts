@@ -3,6 +3,7 @@ import type { CreateBrandInput, UpdateBrandInput, GetBrandsQuery } from "./valid
 import type { BrandResponse } from "./types";
 import * as brandService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { formatDatabaseError } from "../../lib/error-handler";
 
 type AppContext = Context<
   {
@@ -38,7 +39,7 @@ export const handleCreateBrand = async (c: AppContext): Promise<Response> => {
     return c.json<BrandResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to create brand",
+        message: formatDatabaseError(error, "company"),
       },
       500
     );
@@ -140,7 +141,7 @@ export const handleUpdateBrand = async (c: AppContext): Promise<Response> => {
     return c.json<BrandResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to update brand",
+        message: formatDatabaseError(error, "company"),
       },
       500
     );
@@ -177,7 +178,7 @@ export const handleDeleteBrand = async (c: AppContext): Promise<Response> => {
     return c.json<BrandResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to delete brand",
+        message: formatDatabaseError(error, "company"),
       },
       500
     );

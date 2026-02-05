@@ -3,6 +3,7 @@ import type { CreateRouteInput, UpdateRouteInput, GetRoutesQuery } from "./valid
 import type { RouteResponse } from "./types";
 import * as routeService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { formatDatabaseError } from "../../lib/error-handler";
 
 type AppContext = Context<
   {
@@ -36,7 +37,7 @@ export const handleCreateRoute = async (c: AppContext): Promise<Response> => {
     return c.json<RouteResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to create route",
+        message: formatDatabaseError(error, "route"),
       },
       500
     );
@@ -133,7 +134,7 @@ export const handleUpdateRoute = async (c: AppContext): Promise<Response> => {
     return c.json<RouteResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to update route",
+        message: formatDatabaseError(error, "route"),
       },
       500
     );
@@ -165,7 +166,7 @@ export const handleDeleteRoute = async (c: AppContext): Promise<Response> => {
     return c.json<RouteResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to delete route",
+        message: formatDatabaseError(error, "route"),
       },
       500
     );

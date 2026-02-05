@@ -3,6 +3,7 @@ import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } fro
 import type { CategoryResponse } from "./types";
 import * as categoryService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { formatDatabaseError } from "../../lib/error-handler";
 
 type AppContext = Context<
   {
@@ -36,7 +37,7 @@ export const handleCreateCategory = async (c: AppContext): Promise<Response> => 
     return c.json<CategoryResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to create category",
+        message: formatDatabaseError(error, "category"),
       },
       500
     );
@@ -133,7 +134,7 @@ export const handleUpdateCategory = async (c: AppContext): Promise<Response> => 
     return c.json<CategoryResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to update category",
+        message: formatDatabaseError(error, "category"),
       },
       500
     );
@@ -165,7 +166,7 @@ export const handleDeleteCategory = async (c: AppContext): Promise<Response> => 
     return c.json<CategoryResponse>(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to delete category",
+        message: formatDatabaseError(error, "category"),
       },
       500
     );
