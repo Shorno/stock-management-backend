@@ -8,6 +8,20 @@
       "when": 1770223640569,
       "tag": "0000_supreme_scarecrow",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1770288625705,
+      "tag": "0001_remove-slug-from-category-brand",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770288811629,
+      "tag": "0002_remove-slug-from-dsr-route",
+      "breakpoints": true
     }
   ]
 }

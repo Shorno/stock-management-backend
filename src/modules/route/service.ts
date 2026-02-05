@@ -1,16 +1,12 @@
 import { eq, ilike, count } from "drizzle-orm";
-import { generateSlug } from "../../lib/slug";
 import type { CreateRouteInput, UpdateRouteInput, GetRoutesQuery } from "./validation";
 import type { Route, NewRoute } from "./types";
-import {db} from "../../db/config";
-import {route} from "../../db/schema";
+import { db } from "../../db/config";
+import { route } from "../../db/schema";
 
 export const createRoute = async (data: CreateRouteInput): Promise<Route> => {
-  const slug = generateSlug(data.name);
-
   const newRoute: NewRoute = {
     name: data.name,
-    slug,
   };
 
   const [createdRoute] = await db.insert(route).values(newRoute).returning();
@@ -56,10 +52,8 @@ export const updateRoute = async (
   id: number,
   data: UpdateRouteInput
 ): Promise<Route | undefined> => {
-  // Since name is the only updateable field, auto-generate slug
   const updateData: Partial<NewRoute> = {
     name: data.name!,
-    slug: generateSlug(data.name!),
   };
 
   const [updatedRoute] = await db

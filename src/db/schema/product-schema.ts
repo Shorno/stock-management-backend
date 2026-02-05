@@ -5,7 +5,6 @@ import { timestamps } from "../column.helpers";
 export const category = pgTable("category", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
-  slug: varchar("slug", { length: 100 }).notNull().unique(),
   ...timestamps
 });
 
@@ -13,7 +12,6 @@ export const category = pgTable("category", {
 export const brand = pgTable("brand", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
-  slug: varchar("slug", { length: 100 }).notNull().unique(),
   ...timestamps
 });
 

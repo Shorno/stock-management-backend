@@ -1,17 +1,13 @@
 
-import {count, eq, ilike} from "drizzle-orm";
-import { generateSlug } from "../../lib/slug";
+import { count, eq, ilike } from "drizzle-orm";
 import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } from "./validation";
 import type { Category, NewCategory } from "./types";
-import {db} from "../../db/config";
-import {category} from "../../db/schema";
+import { db } from "../../db/config";
+import { category } from "../../db/schema";
 
 export const createCategory = async (data: CreateCategoryInput): Promise<Category> => {
-  const slug = generateSlug(data.name);
-
   const newCategory: NewCategory = {
     name: data.name,
-    slug,
   };
 
   const [createdCategory] = await db.insert(category).values(newCategory).returning();
@@ -59,7 +55,6 @@ export const updateCategory = async (
 ): Promise<Category | undefined> => {
   const updateData: Partial<NewCategory> = {
     name: data.name!,
-    slug: generateSlug(data.name!),
   };
 
   const [updatedCategory] = await db

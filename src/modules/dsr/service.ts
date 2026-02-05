@@ -1,16 +1,12 @@
 import { db } from "../../db/config";
 import { dsr } from "../../db/schema";
 import { eq, ilike, count } from "drizzle-orm";
-import { generateSlug } from "../../lib/slug";
 import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery } from "./validation";
 import type { Dsr, NewDsr } from "./types";
 
 export const createDsr = async (data: CreateDsrInput): Promise<Dsr> => {
-  const slug = generateSlug(data.name);
-
   const newDsr: NewDsr = {
     name: data.name,
-    slug,
   };
 
   const [createdDsr] = await db.insert(dsr).values(newDsr).returning();
@@ -58,7 +54,6 @@ export const updateDsr = async (
 ): Promise<Dsr | undefined> => {
   const updateData: Partial<NewDsr> = {
     name: data.name!,
-    slug: generateSlug(data.name!),
   };
 
   const [updatedDsr] = await db

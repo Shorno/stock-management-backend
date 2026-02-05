@@ -6,14 +6,12 @@ import { category, brand, product, stockBatch, productVariant } from "./product-
 export const dsr = pgTable("dsr", {
     id: serial("id").primaryKey(),
     name: varchar("name", { length: 100 }).notNull(),
-    slug: varchar("slug", { length: 100 }).notNull().unique(),
     ...timestamps
 });
 
 export const route = pgTable("route", {
     id: serial("id").primaryKey(),
     name: varchar("name", { length: 100 }).notNull(),
-    slug: varchar("slug", { length: 100 }).notNull().unique(),
     ...timestamps
 });
 

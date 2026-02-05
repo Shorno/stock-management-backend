@@ -22,7 +22,6 @@ export interface CreatePaymentDto {
 export interface CompanyWithBalance {
     id: number;
     name: string;
-    slug: string;
     totalPurchases: number;
     totalPayments: number;
     balance: number;
@@ -42,7 +41,6 @@ export async function getAllSuppliers(): Promise<CompanyWithBalance[]> {
         result.push({
             id: b.id,
             name: b.name,
-            slug: b.slug,
             ...balance,
             createdAt: b.createdAt,
         });
@@ -74,7 +72,6 @@ export async function getSupplierById(brandId: number) {
     return {
         id: b.id,
         name: b.name,
-        slug: b.slug,
         phone: null, // Brands don't have phone/address - can be extended later
         address: null,
         purchases,

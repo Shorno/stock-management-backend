@@ -1,17 +1,13 @@
 
 import { eq, ilike, count } from "drizzle-orm";
-import { generateSlug } from "../../lib/slug";
 import type { CreateBrandInput, UpdateBrandInput, GetBrandsQuery } from "./validation";
 import type { Brand, NewBrand } from "./types";
-import {db} from "../../db/config";
-import {brand} from "../../db/schema";
+import { db } from "../../db/config";
+import { brand } from "../../db/schema";
 
 export const createBrand = async (data: CreateBrandInput): Promise<Brand> => {
-  const slug = generateSlug(data.name);
-
   const newBrand: NewBrand = {
     name: data.name,
-    slug,
   };
 
   const [createdBrand] = await db.insert(brand).values(newBrand).returning();
@@ -59,7 +55,6 @@ export const updateBrand = async (
 ): Promise<Brand | undefined> => {
   const updateData: Partial<NewBrand> = {
     name: data.name!,
-    slug: generateSlug(data.name!),
   };
 
   const [updatedBrand] = await db
