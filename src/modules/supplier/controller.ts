@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import * as supplierService from "./service";
+import { formatDatabaseError } from "../../lib/error-handler";
 
 // ==================== COMPANY (BRAND) AS SUPPLIER HANDLERS ====================
 
@@ -72,11 +73,9 @@ export async function handleAddPayment(c: Context) {
 
         const payment = await supplierService.addPayment(brandId, body);
         return c.json({ success: true, data: payment }, 201);
-    } catch (error: any) {
+    } catch (error) {
         console.error("Error adding payment:", error);
-        // Return the actual error message for validation errors
-        const errorMessage = error?.message || "Failed to add payment";
-        return c.json({ success: false, error: errorMessage }, 400);
+        return c.json({ success: false, error: formatDatabaseError(error, "payment") }, 400);
     }
 }
 
