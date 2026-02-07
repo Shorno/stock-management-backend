@@ -2,7 +2,9 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin } from "better-auth/plugins";
 import 'dotenv/config';
+import { eq } from "drizzle-orm";
 import { db } from "../db/config";
+import { user as userTable } from "../db/schema/auth-schema";
 import { ac, admin as adminRole, manager, dsr } from "./permissions";
 
 
@@ -34,4 +36,16 @@ export const auth = betterAuth({
         }
     },
     basePath: "/api/auth",
+    databaseHooks: {
+        user: {
+            create: {
+                after: async (user) => {
+                    // Auto-ban new DSR users - they need admin approval to login
+                    if (user.role === 'dsr' || !user.role) {
+                        await db.update(userTable).set({ banned: true }).where(eq(userTable.id, user.id));
+                    }
+                }
+            }
+        }
+    }
 });
