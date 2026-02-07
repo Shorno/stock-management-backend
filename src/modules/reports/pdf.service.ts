@@ -1,5 +1,19 @@
-import PDFDocument from "pdfkit";
+﻿import PDFDocument from "pdfkit";
+import path from "path";
 import type { DsrLedgerResponse } from "./service";
+
+// Font paths for Bangla support
+const FONTS_DIR = path.join(__dirname, "../../assets/fonts");
+const FONT_REGULAR = path.join(FONTS_DIR, "HindSiliguri-Regular.ttf");
+const FONT_BOLD = path.join(FONTS_DIR, "HindSiliguri-Bold.ttf");
+
+/**
+ * Register Bangla fonts with PDFDocument
+ */
+function registerFonts(doc: typeof PDFDocument.prototype): void {
+    doc.registerFont("BanglaRegular", FONT_REGULAR);
+    doc.registerFont("BanglaBold", FONT_BOLD);
+}
 
 /**
  * Generate DSR Ledger PDF with Order Summary table
@@ -12,6 +26,9 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
                 margin: 40,
                 autoFirstPage: true,
             });
+
+            // Register Bangla fonts
+            registerFonts(doc);
 
             const chunks: Buffer[] = [];
             doc.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -29,18 +46,18 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
 
             doc.fillColor(black)
                 .fontSize(20)
-                .font("Helvetica-Bold")
+                .font("BanglaBold")
                 .text("DSR LEDGER", 40, currentY);
 
             doc.fillColor(mediumGray)
                 .fontSize(10)
-                .font("Helvetica")
+                .font("BanglaRegular")
                 .text(ledgerData.dsrName, 40, currentY + 26);
 
             // Date range on right
             doc.fillColor(mediumGray)
                 .fontSize(9)
-                .font("Helvetica")
+                .font("BanglaRegular")
                 .text(`Generated: ${new Date().toLocaleDateString("en-BD")}`, 400, currentY, { align: "right" });
 
             currentY += 55;
@@ -64,7 +81,7 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
                 totalDue += parseFloat(order.orderDue);
             }
 
-            doc.fontSize(9).font("Helvetica");
+            doc.fontSize(9).font("BanglaRegular");
 
             const summaryItems = [
                 { label: "Net Sales", value: totalNetSales },
@@ -76,9 +93,9 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
 
             let summaryX = 40;
             summaryItems.forEach((item) => {
-                doc.fillColor(mediumGray).font("Helvetica").text(item.label + ":", summaryX, currentY);
+                doc.fillColor(mediumGray).font("BanglaRegular").text(item.label + ":", summaryX, currentY);
                 doc.fillColor(item.color || darkGray)
-                    .font(item.bold ? "Helvetica-Bold" : "Helvetica")
+                    .font(item.bold ? "BanglaBold" : "BanglaRegular")
                     .text(`Tk ${item.value.toFixed(2)}`, summaryX + 60, currentY);
                 summaryX += 105;
             });
@@ -90,7 +107,7 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
             currentY += 15;
 
             // === ORDER SUMMARY TABLE ===
-            doc.fillColor(black).fontSize(12).font("Helvetica-Bold").text("Order Summary", 40, currentY);
+            doc.fillColor(black).fontSize(12).font("BanglaBold").text("Order Summary", 40, currentY);
             currentY += 20;
 
             const tableLeft = 40;
@@ -100,7 +117,7 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
             // Table header
             doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 20).fill();
 
-            doc.fillColor("#ffffff").fontSize(7).font("Helvetica-Bold");
+            doc.fillColor("#ffffff").fontSize(7).font("BanglaBold");
             let colX = tableLeft + 4;
             doc.text("Order #", colX, currentY + 6);
             colX += colWidths.order;
@@ -121,7 +138,7 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
             currentY += 22;
 
             // Table rows
-            doc.font("Helvetica").fontSize(7);
+            doc.font("BanglaRegular").fontSize(7);
 
             let grandTotalNetTotal = 0;
             let grandTotalPayments = 0;
@@ -165,9 +182,9 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
                 doc.fillColor("#e67e22").text(formatCurrency(totalCustomerDue), colX, currentY + 3, { width: colWidths.dues, align: "right" });
                 colX += colWidths.dues;
                 doc.fillColor(totalCustomerDue > 0 ? "#e67e22" : mediumGray)
-                    .font("Helvetica-Bold")
+                    .font("BanglaBold")
                     .text(formatCurrency(totalCustomerDue), colX, currentY + 3, { width: colWidths.totalDue, align: "right" });
-                doc.font("Helvetica");
+                doc.font("BanglaRegular");
 
                 currentY += 16;
             });
@@ -177,7 +194,7 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
             currentY += 3;
             doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 18).fill();
 
-            doc.fillColor("#ffffff").fontSize(7).font("Helvetica-Bold");
+            doc.fillColor("#ffffff").fontSize(7).font("BanglaBold");
             colX = tableLeft + 4;
             doc.text("TOTAL", colX, currentY + 5);
             colX += colWidths.order + colWidths.date + colWidths.route;
@@ -195,7 +212,7 @@ export async function generateDsrLedgerPdf(ledgerData: DsrLedgerResponse): Promi
 
             // === FOOTER ===
             doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightGray).lineWidth(1).stroke();
-            doc.fillColor(mediumGray).fontSize(7).font("Helvetica")
+            doc.fillColor(mediumGray).fontSize(7).font("BanglaRegular")
                 .text(`Generated on ${new Date().toLocaleString()}`, 40, currentY + 8, { align: "center", width: 515 });
 
             doc.end();
@@ -218,3 +235,4 @@ function truncateText(text: string, maxLength: number): string {
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength - 2) + "..";
 }
+

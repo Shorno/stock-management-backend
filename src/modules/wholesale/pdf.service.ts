@@ -1,5 +1,21 @@
-import PDFDocument from "pdfkit";
+﻿import PDFDocument from "pdfkit";
+import path from "path";
 import type { OrderWithItems } from "./types";
+
+// Font paths for Bangla support
+const FONTS_DIR = path.join(__dirname, "../../assets/fonts");
+const FONT_REGULAR = path.join(FONTS_DIR, "HindSiliguri-Regular.ttf");
+const FONT_BOLD = path.join(FONTS_DIR, "HindSiliguri-Bold.ttf");
+const FONT_MEDIUM = path.join(FONTS_DIR, "HindSiliguri-Medium.ttf");
+
+/**
+ * Register Bangla fonts with PDFDocument
+ */
+function registerFonts(doc: typeof PDFDocument.prototype): void {
+    doc.registerFont("BanglaRegular", FONT_REGULAR);
+    doc.registerFont("BanglaBold", FONT_BOLD);
+    doc.registerFont("BanglaMedium", FONT_MEDIUM);
+}
 
 /**
  * Generate a professional PDF invoice for a wholesale order
@@ -13,6 +29,9 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
                 margin: 40,
                 autoFirstPage: true,
             });
+
+            // Register Bangla fonts
+            registerFonts(doc);
 
             const chunks: Buffer[] = [];
             doc.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -28,23 +47,23 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
             // Header Section - Compact
             doc.fillColor(primaryColor)
                 .fontSize(24)
-                .font("Helvetica-Bold")
+                .font("BanglaBold")
                 .text("INVOICE", 40, 40);
 
             doc.fillColor(accentColor)
                 .fontSize(9)
-                .font("Helvetica")
+                .font("BanglaRegular")
                 .text("WHOLESALE ORDER", 40, 68);
 
             // Order Info (right side)
             doc.fillColor(primaryColor)
                 .fontSize(9)
-                .font("Helvetica-Bold")
+                .font("BanglaBold")
                 .text(`Invoice #: ${order.orderNumber}`, 350, 40, { align: "right" });
 
             doc.fillColor(darkGray)
                 .fontSize(8)
-                .font("Helvetica")
+                .font("BanglaRegular")
                 .text(`Date: ${formatDate(order.orderDate)}`, 350, 54, { align: "right" });
 
             // Status Badge
@@ -58,7 +77,7 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
             const statusColor = statusColors[order.status] || "#6c757d";
 
             doc.fillColor(statusColor).roundedRect(470, 68, 85, 16, 3).fill();
-            doc.fillColor("#ffffff").fontSize(8).font("Helvetica-Bold")
+            doc.fillColor("#ffffff").fontSize(8).font("BanglaBold")
                 .text(order.status.toUpperCase(), 470, 72, { width: 85, align: "center" });
 
             // Divider
@@ -68,22 +87,22 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
 
             // DSR & Route Info - Single row
             doc.fontSize(8);
-            doc.fillColor(darkGray).font("Helvetica").text("DSR:", 40, currentY);
-            doc.fillColor(primaryColor).font("Helvetica-Bold").text(order.dsr?.name || "N/A", 65, currentY);
+            doc.fillColor(darkGray).font("BanglaRegular").text("DSR:", 40, currentY);
+            doc.fillColor(primaryColor).font("BanglaBold").text(order.dsr?.name || "N/A", 65, currentY);
 
-            doc.fillColor(darkGray).font("Helvetica").text("Route:", 200, currentY);
-            doc.fillColor(primaryColor).font("Helvetica-Bold").text(order.route?.name || "N/A", 235, currentY);
+            doc.fillColor(darkGray).font("BanglaRegular").text("Route:", 200, currentY);
+            doc.fillColor(primaryColor).font("BanglaBold").text(order.route?.name || "N/A", 235, currentY);
 
             if (order.category) {
-                doc.fillColor(darkGray).font("Helvetica").text("Category:", 350, currentY);
-                doc.fillColor(primaryColor).font("Helvetica-Bold").text(order.category.name, 400, currentY);
+                doc.fillColor(darkGray).font("BanglaRegular").text("Category:", 350, currentY);
+                doc.fillColor(primaryColor).font("BanglaBold").text(order.category.name, 400, currentY);
             }
 
             currentY += 14;
 
             if (order.brand) {
-                doc.fillColor(darkGray).font("Helvetica").text("Brand:", 40, currentY);
-                doc.fillColor(primaryColor).font("Helvetica-Bold").text(order.brand.name, 70, currentY);
+                doc.fillColor(darkGray).font("BanglaRegular").text("Brand:", 40, currentY);
+                doc.fillColor(primaryColor).font("BanglaBold").text(order.brand.name, 70, currentY);
                 currentY += 14;
             }
 
@@ -99,7 +118,7 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
             // Table header background
             doc.fillColor(lightGray).rect(tableLeft, currentY, tableWidth, 16).fill();
 
-            doc.fillColor(primaryColor).fontSize(7).font("Helvetica-Bold");
+            doc.fillColor(primaryColor).fontSize(7).font("BanglaBold");
             let colX = tableLeft + 3;
             doc.text("SL", colX, currentY + 5);
             colX += colWidths.sl;
@@ -120,7 +139,7 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
             currentY += 18;
 
             // Table rows - Compact
-            doc.font("Helvetica").fontSize(7);
+            doc.font("BanglaRegular").fontSize(7);
             order.items.forEach((item, index) => {
                 if (index % 2 === 0) {
                     doc.fillColor("#fafafa").rect(tableLeft, currentY - 1, tableWidth, 13).fill();
@@ -154,7 +173,7 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
             const summaryX = 390;
             const valueX = 485;
 
-            doc.fillColor(darkGray).fontSize(9).font("Helvetica");
+            doc.fillColor(darkGray).fontSize(9).font("BanglaRegular");
             doc.text("Subtotal:", summaryX, currentY);
             doc.fillColor(primaryColor).text(formatCurrency(order.subtotal), valueX, currentY, { width: 70, align: "right" });
             currentY += 14;
@@ -165,7 +184,7 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
 
             // Total with background
             doc.fillColor(accentColor).roundedRect(summaryX - 5, currentY - 2, 170, 20, 3).fill();
-            doc.fillColor("#ffffff").fontSize(10).font("Helvetica-Bold");
+            doc.fillColor("#ffffff").fontSize(10).font("BanglaBold");
             doc.text("TOTAL:", summaryX, currentY + 2);
             doc.text(formatCurrency(order.total), valueX - 5, currentY + 2, { width: 75, align: "right" });
 
@@ -173,15 +192,15 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
 
             // Invoice Note
             if (order.invoiceNote) {
-                doc.fillColor(darkGray).fontSize(8).font("Helvetica-Bold").text("Note:", 40, currentY);
-                doc.fillColor(primaryColor).font("Helvetica").text(order.invoiceNote, 70, currentY, { width: 485 });
+                doc.fillColor(darkGray).fontSize(8).font("BanglaBold").text("Note:", 40, currentY);
+                doc.fillColor(primaryColor).font("BanglaRegular").text(order.invoiceNote, 70, currentY, { width: 485 });
                 currentY += 25;
             }
 
             // Footer - Right after content
             currentY += 20;
             doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor("#e9ecef").lineWidth(1).stroke();
-            doc.fillColor(darkGray).fontSize(7).font("Helvetica")
+            doc.fillColor(darkGray).fontSize(7).font("BanglaRegular")
                 .text(`Generated on ${new Date().toLocaleString()}`, 40, currentY + 8, { align: "center", width: 515 });
 
             doc.end();
@@ -293,6 +312,9 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
                 autoFirstPage: true,
             });
 
+            // Register Bangla fonts
+            registerFonts(doc);
+
             const chunks: Buffer[] = [];
             doc.on("data", (chunk: Buffer) => chunks.push(chunk));
             doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -310,23 +332,23 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
             // Company name
             doc.fillColor(black)
                 .fontSize(18)
-                .font("Helvetica-Bold")
+                .font("BanglaBold")
                 .text("Algoverse", 40, currentY);
 
             doc.fillColor(mediumGray)
                 .fontSize(8)
-                .font("Helvetica")
+                .font("BanglaRegular")
                 .text("contact@algoverse.com | algoverse.com", 40, currentY + 22);
 
             // Invoice title (right side)
             doc.fillColor(black)
                 .fontSize(14)
-                .font("Helvetica-Bold")
+                .font("BanglaBold")
                 .text("SALES INVOICE", 400, currentY, { align: "right" });
 
             doc.fillColor(mediumGray)
                 .fontSize(9)
-                .font("Helvetica")
+                .font("BanglaRegular")
                 .text(`#${order.orderNumber}`, 400, currentY + 18, { align: "right" })
                 .text(formatDate(order.orderDate), 400, currentY + 30, { align: "right" });
 
@@ -337,12 +359,12 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
             currentY += 15;
 
             // Order Info - DSR & Route
-            doc.fontSize(9).font("Helvetica");
+            doc.fontSize(9).font("BanglaRegular");
             doc.fillColor(mediumGray).text("DSR:", 40, currentY);
-            doc.fillColor(darkGray).font("Helvetica-Bold").text(order.dsr?.name || "N/A", 70, currentY);
+            doc.fillColor(darkGray).font("BanglaBold").text(order.dsr?.name || "N/A", 70, currentY);
 
-            doc.fillColor(mediumGray).font("Helvetica").text("Route:", 250, currentY);
-            doc.fillColor(darkGray).font("Helvetica-Bold").text(order.route?.name || "N/A", 290, currentY);
+            doc.fillColor(mediumGray).font("BanglaRegular").text("Route:", 250, currentY);
+            doc.fillColor(darkGray).font("BanglaBold").text(order.route?.name || "N/A", 290, currentY);
 
             currentY += 25;
 
@@ -358,7 +380,7 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
             // Table header
             doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
 
-            doc.fillColor("#ffffff").fontSize(9).font("Helvetica-Bold");
+            doc.fillColor("#ffffff").fontSize(9).font("BanglaBold");
             let colX = tableLeft + 8;
             doc.text("SL", colX, currentY + 6);
             colX += colWidths.sl;
@@ -384,7 +406,7 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
             }));
 
             // Table rows
-            doc.font("Helvetica").fontSize(9);
+            doc.font("BanglaRegular").fontSize(9);
             let totalQty = 0;
             let totalFree = 0;
 
@@ -419,7 +441,7 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
             currentY += 5;
 
             doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
-            doc.fillColor("#ffffff").fontSize(9).font("Helvetica-Bold");
+            doc.fillColor("#ffffff").fontSize(9).font("BanglaBold");
             colX = tableLeft + 8;
             doc.text("TOTAL", colX, currentY + 6);
             colX = tableLeft + colWidths.sl + colWidths.product + colWidths.brand + 8;
@@ -431,7 +453,7 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
 
             // === FOOTER ===
             doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightGray).lineWidth(1).stroke();
-            doc.fillColor(mediumGray).fontSize(7).font("Helvetica")
+            doc.fillColor(mediumGray).fontSize(7).font("BanglaRegular")
                 .text(`Generated on ${new Date().toLocaleString()}`, 40, currentY + 8, { align: "center", width: 515 });
 
             doc.end();
@@ -453,6 +475,9 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 autoFirstPage: true,
             });
 
+            // Register Bangla fonts
+            registerFonts(doc);
+
             const chunks: Buffer[] = [];
             doc.on("data", (chunk: Buffer) => chunks.push(chunk));
             doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -470,23 +495,23 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             // Company name
             doc.fillColor(black)
                 .fontSize(18)
-                .font("Helvetica-Bold")
+                .font("BanglaBold")
                 .text("Algoverse", 40, currentY);
 
             doc.fillColor(mediumGray)
                 .fontSize(8)
-                .font("Helvetica")
+                .font("BanglaRegular")
                 .text("contact@algoverse.com | algoverse.com", 40, currentY + 22);
 
             // Invoice title (right side)
             doc.fillColor(black)
                 .fontSize(14)
-                .font("Helvetica-Bold")
+                .font("BanglaBold")
                 .text("INVOICE", 400, currentY, { align: "right" });
 
             doc.fillColor(mediumGray)
                 .fontSize(9)
-                .font("Helvetica")
+                .font("BanglaRegular")
                 .text(`#${order.orderNumber}`, 400, currentY + 18, { align: "right" })
                 .text(formatDate(order.orderDate), 400, currentY + 30, { align: "right" });
 
@@ -497,12 +522,12 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             currentY += 15;
 
             // Order Info - DSR & Route
-            doc.fontSize(9).font("Helvetica");
+            doc.fontSize(9).font("BanglaRegular");
             doc.fillColor(mediumGray).text("DSR:", 40, currentY);
-            doc.fillColor(darkGray).font("Helvetica-Bold").text(order.dsr?.name || "N/A", 70, currentY);
+            doc.fillColor(darkGray).font("BanglaBold").text(order.dsr?.name || "N/A", 70, currentY);
 
-            doc.fillColor(mediumGray).font("Helvetica").text("Route:", 250, currentY);
-            doc.fillColor(darkGray).font("Helvetica-Bold").text(order.route?.name || "N/A", 290, currentY);
+            doc.fillColor(mediumGray).font("BanglaRegular").text("Route:", 250, currentY);
+            doc.fillColor(darkGray).font("BanglaBold").text(order.route?.name || "N/A", 290, currentY);
 
             currentY += 25;
 
@@ -518,7 +543,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             // Table header
             doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
 
-            doc.fillColor("#ffffff").fontSize(7).font("Helvetica-Bold");
+            doc.fillColor("#ffffff").fontSize(7).font("BanglaBold");
             let colX = tableLeft + 4;
             doc.text("SL", colX, currentY + 7);
             colX += colWidths.sl;
@@ -557,7 +582,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             }));
 
             // Table rows
-            doc.font("Helvetica").fontSize(7);
+            doc.font("BanglaRegular").fontSize(7);
 
             items.forEach((item, index) => {
                 if (index % 2 === 0) {
@@ -584,8 +609,8 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 const retQty = "returnQuantity" in item ? item.returnQuantity : 0;
                 doc.fillColor(retQty > 0 ? "#dc3545" : mediumGray).text(retQty.toString(), colX, currentY + 3, { width: colWidths.retQty, align: "right" });
                 colX += colWidths.retQty;
-                doc.fillColor(black).font("Helvetica-Bold").text(formatCurrencyShort(item.netTotal), colX, currentY + 3, { width: colWidths.netTotal, align: "right" });
-                doc.font("Helvetica");
+                doc.fillColor(black).font("BanglaBold").text(formatCurrencyShort(item.netTotal), colX, currentY + 3, { width: colWidths.netTotal, align: "right" });
+                doc.font("BanglaRegular");
 
                 currentY += 18;
             });
@@ -616,11 +641,11 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             const valueWidth = 80;
 
             // Left column - Payments & Expenses
-            doc.fontSize(9).font("Helvetica-Bold").fillColor(darkGray);
+            doc.fontSize(9).font("BanglaBold").fillColor(darkGray);
             doc.text("Payments Received", leftCol, currentY);
             currentY += 14;
 
-            doc.fontSize(8).font("Helvetica");
+            doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.payments && adjustment.payments.length > 0) {
                 adjustment.payments.forEach(payment => {
                     doc.fillColor(mediumGray).text(payment.method || "Cash", leftCol, currentY);
@@ -635,11 +660,11 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             const paymentEndY = currentY;
             currentY += 8;
 
-            doc.font("Helvetica-Bold").fillColor(darkGray);
+            doc.font("BanglaBold").fillColor(darkGray);
             doc.text("Expenses", leftCol, currentY);
             currentY += 14;
 
-            doc.fontSize(8).font("Helvetica");
+            doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.expenses && adjustment.expenses.length > 0) {
                 adjustment.expenses.forEach(expense => {
                     doc.fillColor(mediumGray).text(expense.type.replace("_", " "), leftCol, currentY);
@@ -654,11 +679,11 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             currentY += 8;
 
             // Left column: Customer Dues (NEW)
-            doc.font("Helvetica-Bold").fillColor(darkGray);
+            doc.font("BanglaBold").fillColor(darkGray);
             doc.text("Customer Dues", leftCol, currentY);
             currentY += 14;
 
-            doc.fontSize(8).font("Helvetica");
+            doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.customerDues && adjustment.customerDues.length > 0) {
                 adjustment.customerDues.forEach(due => {
                     doc.fillColor(mediumGray).text(truncateText(due.customerName, 25), leftCol, currentY);
@@ -674,17 +699,17 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
             // Left column: Damage Returns (NEW)
             if (adjustment?.damageReturns && adjustment.damageReturns.length > 0) {
-                doc.font("Helvetica-Bold").fillColor("#dc3545");
+                doc.font("BanglaBold").fillColor("#dc3545");
                 doc.text("Damage Returns", leftCol, currentY);
                 currentY += 14;
 
-                doc.fontSize(8).font("Helvetica");
+                doc.fontSize(8).font("BanglaRegular");
                 let totalDamage = 0;
                 let totalLostMargin = 0;
                 adjustment.damageReturns.forEach(item => {
                     // Settlement uses selling price
                     const itemTotal = item.quantity * (item.sellingPrice || item.unitPrice);
-                    // Lost profit margin = (sellingPrice - buyingPrice) × qty
+                    // Lost profit margin = (sellingPrice - buyingPrice) Ã— qty
                     const lostMargin = item.quantity * ((item.sellingPrice || item.unitPrice) - item.unitPrice);
                     totalDamage += itemTotal;
                     totalLostMargin += lostMargin;
@@ -696,12 +721,12 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                     currentY += 12;
                 });
                 // Total damage line
-                doc.fillColor("#dc3545").font("Helvetica-Bold");
+                doc.fillColor("#dc3545").font("BanglaBold");
                 doc.text("Total:", leftCol, currentY);
                 doc.text(formatCurrency(totalDamage), leftCol + 130, currentY);
                 currentY += 14;
                 // Lost profit margin note
-                doc.fillColor("#e67e22").fontSize(7).font("Helvetica");
+                doc.fillColor("#e67e22").fontSize(7).font("BanglaRegular");
                 doc.text(`P&L Impact: -${formatCurrency(totalLostMargin)} (lost margin)`, leftCol, currentY);
                 currentY += 16;
             }
@@ -724,7 +749,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             ];
 
             summaryItems.forEach(item => {
-                doc.font(item.bold ? "Helvetica-Bold" : "Helvetica").fillColor(mediumGray);
+                doc.font(item.bold ? "BanglaBold" : "BanglaRegular").fillColor(mediumGray);
                 doc.text(item.label, rightCol, rightY);
                 doc.fillColor(item.color || darkGray);
                 doc.text(formatCurrency(Math.abs(item.value)), rightCol + labelWidth, rightY, { width: valueWidth, align: "right" });
@@ -734,7 +759,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             // Due amount (highlighted)
             rightY += 5;
             doc.fillColor(black).rect(rightCol - 5, rightY - 3, labelWidth + valueWidth + 15, 22).fill();
-            doc.fillColor("#ffffff").fontSize(10).font("Helvetica-Bold");
+            doc.fillColor("#ffffff").fontSize(10).font("BanglaBold");
             doc.text("DUE", rightCol, rightY + 2);
             doc.text(formatCurrency(summaryData.due), rightCol + labelWidth, rightY + 2, { width: valueWidth, align: "right" });
 
@@ -744,19 +769,19 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             // Amount to collect = total customer dues (what DSR should collect from customers)
             const amountToCollect = summaryData.totalCustomerDues;
 
-            doc.fillColor("#1a5f2a").fontSize(9).font("Helvetica-Bold");
+            doc.fillColor("#1a5f2a").fontSize(9).font("BanglaBold");
             doc.text("AMOUNT TO COLLECT", leftCol, collectY);
 
-            doc.fillColor("#1a5f2a").fontSize(22).font("Helvetica-Bold");
+            doc.fillColor("#1a5f2a").fontSize(22).font("BanglaBold");
             doc.text(formatCurrency(amountToCollect), leftCol, collectY + 14);
 
-            doc.fillColor(mediumGray).fontSize(8).font("Helvetica");
+            doc.fillColor(mediumGray).fontSize(8).font("BanglaRegular");
             doc.text("(To be collected by DSR from customers)", leftCol, collectY + 40);
 
             // === FOOTER ===
             const footerY = collectY + 60;
             doc.moveTo(40, footerY).lineTo(555, footerY).strokeColor(lightGray).lineWidth(1).stroke();
-            doc.fillColor(mediumGray).fontSize(7).font("Helvetica")
+            doc.fillColor(mediumGray).fontSize(7).font("BanglaRegular")
                 .text(`Generated on ${new Date().toLocaleString()}`, 40, footerY + 8, { align: "center", width: 515 });
 
             doc.end();
@@ -770,3 +795,4 @@ function formatCurrencyShort(value: string | number): string {
     const num = typeof value === "string" ? parseFloat(value) : value;
     return num.toFixed(2);
 }
+
