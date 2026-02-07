@@ -626,7 +626,7 @@ export const getDueOrders = async (params: {
     };
 };
 
-// Get total outstanding due for a specific DSR (sum of customer dues)
+// Get total outstanding due for a specific DSR (sum of sales dues + own dues)
 export const getDsrTotalDue = async (dsrId: number) => {
     // Get all orders for this DSR
     const orders = await db
@@ -646,24 +646,43 @@ export const getDsrTotalDue = async (dsrId: number) => {
         return {
             dsrId,
             totalDue: 0,
+            salesDue: 0,
+            ownDue: 0,
             orderCount: 0,
         };
     }
 
-    // Calculate total due as sum of customer dues (what DSR needs to collect)
-    // Subtract collectedAmount to reflect already collected dues
+    // Calculate sales due (customer dues - what DSR needs to collect from customers)
     const customerDuesResult = await db.query.orderCustomerDues.findMany({
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
     });
 
-    const totalDue = customerDuesResult.reduce(
+    const salesDue = customerDuesResult.reduce(
         (sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)),
         0
     );
 
+    // Calculate own due (DSR dues - what DSR owes to the business)
+    const dsrDuesResult = await db.query.orderDsrDues.findMany({
+        where: (d, { and, eq, inArray }) => and(
+            inArray(d.orderId, orderIds),
+            eq(d.dsrId, dsrId)
+        ),
+    });
+
+    const ownDue = dsrDuesResult.reduce(
+        (sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)),
+        0
+    );
+
+    // Total due = Sales Due + Own Due
+    const totalDue = salesDue + ownDue;
+
     return {
         dsrId,
         totalDue,
+        salesDue,
+        ownDue,
         orderCount: orders.length,
     };
 };
