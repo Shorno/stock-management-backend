@@ -3,7 +3,7 @@ import path from "path";
 import type { DsrLedgerResponse } from "./service";
 
 // Font paths for Bangla support
-const FONTS_DIR = path.join(__dirname, "../../assets/fonts");
+const FONTS_DIR = path.join(process.cwd(), "src/assets/fonts");
 const FONT_REGULAR = path.join(FONTS_DIR, "HindSiliguri-Regular.ttf");
 const FONT_BOLD = path.join(FONTS_DIR, "HindSiliguri-Bold.ttf");
 
