@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { UpdateSettingsInput } from "./validation";
 import type { UserSettingsResponse } from "./types";
 import * as settingsService from "./service";
+import { logError } from "../../lib/error-handler";
 
 type AppContext = Context<
     {
@@ -37,7 +38,7 @@ export const handleGetSettings = async (c: AppContext): Promise<Response> => {
         const settings = await settingsService.getSettings(user.id);
         return c.json<UserSettingsResponse>({ success: true, data: settings });
     } catch (error) {
-        console.error("Error fetching settings:", error);
+        logError("Error fetching settings:", error);
         return c.json<UserSettingsResponse>(
             {
                 success: false,
@@ -69,7 +70,7 @@ export const handleUpdateSettings = async (c: AppContext): Promise<Response> => 
             message: "Settings updated successfully",
         });
     } catch (error) {
-        console.error("Error updating settings:", error);
+        logError("Error updating settings:", error);
         return c.json<UserSettingsResponse>(
             {
                 success: false,
@@ -96,7 +97,7 @@ export const handleGetOrderEditProtection = async (c: Context): Promise<Response
         const status = await settingsService.getOrderEditProtectionStatus();
         return c.json<ProtectionStatusResponse>({ success: true, data: status });
     } catch (error) {
-        console.error("Error fetching protection status:", error);
+        logError("Error fetching protection status:", error);
         return c.json<ProtectionStatusResponse>(
             { success: false, message: "Failed to fetch protection status" },
             500
@@ -123,7 +124,7 @@ export const handleVerifyOrderEditPassword = async (c: Context): Promise<Respons
             return c.json({ success: false, message: "Incorrect password" }, 401);
         }
     } catch (error) {
-        console.error("Error verifying password:", error);
+        logError("Error verifying password:", error);
         return c.json({ success: false, message: "Failed to verify password" }, 500);
     }
 };
@@ -147,7 +148,7 @@ export const handleSetOrderEditPassword = async (c: AppContext): Promise<Respons
         await settingsService.setOrderEditPassword(body.password);
         return c.json({ success: true, message: "Password set successfully" });
     } catch (error) {
-        console.error("Error setting password:", error);
+        logError("Error setting password:", error);
         return c.json({ success: false, message: "Failed to set password" }, 500);
     }
 };
@@ -165,7 +166,7 @@ export const handleRemoveOrderEditPassword = async (c: AppContext): Promise<Resp
         await settingsService.removeOrderEditPassword();
         return c.json({ success: true, message: "Password removed successfully" });
     } catch (error) {
-        console.error("Error removing password:", error);
+        logError("Error removing password:", error);
         return c.json({ success: false, message: "Failed to remove password" }, 500);
     }
 };
@@ -189,7 +190,7 @@ export const handleSetOrderEditLock = async (c: AppContext): Promise<Response> =
         await settingsService.setOrderEditLocked(body.locked);
         return c.json({ success: true, message: `Order editing ${body.locked ? "locked" : "unlocked"}` });
     } catch (error) {
-        console.error("Error setting lock status:", error);
+        logError("Error setting lock status:", error);
         return c.json({ success: false, message: "Failed to set lock status" }, 500);
     }
 };
@@ -213,7 +214,7 @@ export const handleSetOrderEditLockMode = async (c: AppContext): Promise<Respons
         await settingsService.setOrderEditLockMode(body.mode);
         return c.json({ success: true, message: `Lock mode set to '${body.mode}'` });
     } catch (error) {
-        console.error("Error setting lock mode:", error);
+        logError("Error setting lock mode:", error);
         return c.json({ success: false, message: "Failed to set lock mode" }, 500);
     }
 };

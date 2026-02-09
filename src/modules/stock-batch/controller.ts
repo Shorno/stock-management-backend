@@ -3,6 +3,7 @@ import type { CreateStockBatchInput, UpdateStockBatchInput, GetStockBatchesQuery
 import type { StockBatchResponse } from "./types";
 import * as stockBatchService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { logError } from "../../lib/error-handler";
 
 type AppContext = Context<{
     Variables: {
@@ -42,7 +43,7 @@ export const handleCreateStockBatch = async (c: AppContext): Promise<Response> =
 
         return c.json<StockBatchResponse>({ success: true, data: newBatch, message: "Stock batch added successfully" }, 201);
     } catch (error) {
-        console.error("Error creating stock batch:", error);
+        logError("Error creating stock batch:", error);
         return c.json<StockBatchResponse>(
             {
                 success: false,
@@ -76,7 +77,7 @@ export const handleGetStockBatches = async (c: AppContext): Promise<Response> =>
             total,
         });
     } catch (error) {
-        console.error("Error fetching stock batches:", error);
+        logError("Error fetching stock batches:", error);
         return c.json<StockBatchResponse>(
             {
                 success: false,
@@ -118,7 +119,7 @@ export const handleGetStockBatchById = async (c: AppContext): Promise<Response> 
             data: batch,
         });
     } catch (error) {
-        console.error("Error fetching stock batch:", error);
+        logError("Error fetching stock batch:", error);
         return c.json<StockBatchResponse>(
             {
                 success: false,
@@ -156,7 +157,7 @@ export const handleUpdateStockBatch = async (c: AppContext): Promise<Response> =
 
         return c.json<StockBatchResponse>({ success: true, data: updatedBatch, message: "Stock batch updated successfully" });
     } catch (error) {
-        console.error("Error updating stock batch:", error);
+        logError("Error updating stock batch:", error);
         return c.json<StockBatchResponse>(
             {
                 success: false,
@@ -193,7 +194,7 @@ export const handleDeleteStockBatch = async (c: AppContext): Promise<Response> =
 
         return c.json<StockBatchResponse>({ success: true, message: "Stock batch deleted successfully" });
     } catch (error) {
-        console.error("Error deleting stock batch:", error);
+        logError("Error deleting stock batch:", error);
         return c.json<StockBatchResponse>(
             {
                 success: false,

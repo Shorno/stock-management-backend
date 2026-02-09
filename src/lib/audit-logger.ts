@@ -1,6 +1,7 @@
 import { db } from "../db/config";
 import { auditLogs, type NewAuditLog } from "../db/schema";
 import type { Context } from "hono";
+import { logError } from "./error-handler";
 
 /**
  * Helper function to create audit log entries
@@ -61,7 +62,7 @@ export async function auditLog(params: {
         await db.insert(auditLogs).values(logEntry);
     } catch (error) {
         // Log errors but don't throw to avoid breaking the main operation
-        console.error("Failed to create audit log:", error);
+        logError("Failed to create audit log:", error);
     }
 }
 

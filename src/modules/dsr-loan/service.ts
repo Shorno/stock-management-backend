@@ -1,6 +1,7 @@
 import { db } from "../../db/config";
 import { dsr, dsrLoanTransactions } from "../../db/schema";
 import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
+import { logError } from "../../lib/error-handler";
 import type {
     GetDSRLoanSummaryQuery,
     GetDSRLoanTransactionsQuery,
@@ -215,7 +216,7 @@ export async function createLoan(input: CreateLoanInput): Promise<{ success: boo
             transactionId: result[0]!.id,
         };
     } catch (error) {
-        console.error("Error creating loan:", error);
+        logError("Error creating loan:", error);
         return { success: false, message: "Failed to record loan" };
     }
 }
@@ -256,7 +257,7 @@ export async function createRepayment(input: CreateRepaymentInput): Promise<{ su
             transactionId: result[0]!.id,
         };
     } catch (error) {
-        console.error("Error creating repayment:", error);
+        logError("Error creating repayment:", error);
         return { success: false, message: "Failed to record repayment" };
     }
 }
@@ -277,7 +278,7 @@ export async function deleteTransaction(transactionId: number): Promise<{ succes
 
         return { success: true, message: "Transaction deleted successfully" };
     } catch (error) {
-        console.error("Error deleting transaction:", error);
+        logError("Error deleting transaction:", error);
         return { success: false, message: "Failed to delete transaction" };
     }
 }

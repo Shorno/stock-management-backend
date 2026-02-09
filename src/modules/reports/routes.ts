@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema, brandWiseSalesQuerySchema, dailySettlementQuerySchema } from "./validation";
 import * as reportsService from "./service";
+import { logError } from "../../lib/error-handler";
 
 const app = new Hono();
 
@@ -33,7 +34,7 @@ app.get(
                 data,
             });
         } catch (error) {
-            console.error("Error fetching daily sales collection:", error);
+            logError("Error fetching daily sales collection:", error);
             return ctx.json(
                 {
                     success: false,
@@ -73,7 +74,7 @@ app.get(
                 data,
             });
         } catch (error) {
-            console.error("Error fetching DSR ledger:", error);
+            logError("Error fetching DSR ledger:", error);
             return ctx.json(
                 {
                     success: false,
@@ -121,7 +122,7 @@ app.get(
                 },
             });
         } catch (error) {
-            console.error("Error generating DSR ledger PDF:", error);
+            logError("Error generating DSR ledger PDF:", error);
             return ctx.json(
                 {
                     success: false,
@@ -161,7 +162,7 @@ app.get(
                 data,
             });
         } catch (error) {
-            console.error("Error fetching DSR ledger overview:", error);
+            logError("Error fetching DSR ledger overview:", error);
             return ctx.json(
                 {
                     success: false,
@@ -185,7 +186,7 @@ app.get(
                 data,
             });
         } catch (error) {
-            console.error("Error fetching DSR due summary:", error);
+            logError("Error fetching DSR due summary:", error);
             return ctx.json(
                 {
                     success: false,
@@ -225,7 +226,7 @@ app.get(
                 data,
             });
         } catch (error) {
-            console.error("Error fetching product wise sales:", error);
+            logError("Error fetching product wise sales:", error);
             return ctx.json(
                 {
                     success: false,
@@ -265,7 +266,7 @@ app.get(
                 data,
             });
         } catch (error) {
-            console.error("Error fetching product wise sales with variants:", error);
+            logError("Error fetching product wise sales with variants:", error);
             return ctx.json(
                 {
                     success: false,
@@ -305,7 +306,7 @@ app.get(
                 data,
             });
         } catch (error) {
-            console.error("Error fetching brand wise sales:", error);
+            logError("Error fetching brand wise sales:", error);
             return ctx.json(
                 {
                     success: false,
@@ -345,7 +346,7 @@ app.get(
                 data,
             });
         } catch (error) {
-            console.error("Error fetching daily settlement:", error);
+            logError("Error fetching daily settlement:", error);
             return ctx.json(
                 {
                     success: false,

@@ -3,7 +3,7 @@ import type { CreateCategoryInput, UpdateCategoryInput, GetCategoriesQuery } fro
 import type { CategoryResponse } from "./types";
 import * as categoryService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
-import { formatDatabaseError } from "../../lib/error-handler";
+import { formatDatabaseError, logError } from "../../lib/error-handler";
 
 type AppContext = Context<
   {
@@ -33,7 +33,7 @@ export const handleCreateCategory = async (c: AppContext): Promise<Response> => 
     await auditLog({ context: c, ...userInfo, action: "CREATE", entityType: "category", entityId: newCategory.id, entityName: newCategory.name, newValue: newCategory });
     return c.json<CategoryResponse>({ success: true, data: newCategory, message: "Category created successfully" }, 201);
   } catch (error) {
-    console.error("Error creating category:", error);
+    logError("Error creating category:", error);
     return c.json<CategoryResponse>(
       {
         success: false,
@@ -55,7 +55,7 @@ export const handleGetCategories = async (c: AppContext): Promise<Response> => {
       total,
     });
   } catch (error) {
-    console.error("Error fetching categories:", error);
+    logError("Error fetching categories:", error);
     return c.json<CategoryResponse>(
       {
         success: false,
@@ -97,7 +97,7 @@ export const handleGetCategoryById = async (c: AppContext): Promise<Response> =>
       data: category,
     });
   } catch (error) {
-    console.error("Error fetching category:", error);
+    logError("Error fetching category:", error);
     return c.json<CategoryResponse>(
       {
         success: false,
@@ -130,7 +130,7 @@ export const handleUpdateCategory = async (c: AppContext): Promise<Response> => 
     await auditLog({ context: c, ...userInfo, action: "UPDATE", entityType: "category", entityId: id, entityName: updatedCategory.name, oldValue: oldCategory, newValue: updatedCategory });
     return c.json<CategoryResponse>({ success: true, data: updatedCategory, message: "Category updated successfully" });
   } catch (error) {
-    console.error("Error updating category:", error);
+    logError("Error updating category:", error);
     return c.json<CategoryResponse>(
       {
         success: false,
@@ -162,7 +162,7 @@ export const handleDeleteCategory = async (c: AppContext): Promise<Response> => 
     await auditLog({ context: c, ...userInfo, action: "DELETE", entityType: "category", entityId: id, entityName: category?.name, oldValue: category });
     return c.json<CategoryResponse>({ success: true, message: "Category deleted successfully" });
   } catch (error) {
-    console.error("Error deleting category:", error);
+    logError("Error deleting category:", error);
     return c.json<CategoryResponse>(
       {
         success: false,

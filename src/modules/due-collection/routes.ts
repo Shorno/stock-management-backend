@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import * as dueCollectionService from "./service";
+import { logError } from "../../lib/error-handler";
 import {
     getCustomersWithDuesQuerySchema,
     collectDueInputSchema,
@@ -22,7 +23,7 @@ dueCollectionRoutes.get(
             const customers = await dueCollectionService.getCustomersWithDues(query);
             return c.json({ success: true, data: customers });
         } catch (error) {
-            console.error("Error fetching customers with dues:", error);
+            logError("Error fetching customers with dues:", error);
             return c.json({ success: false, error: "Failed to fetch customers" }, 500);
         }
     }
@@ -43,7 +44,7 @@ dueCollectionRoutes.get("/customers/:customerId", async (c) => {
 
         return c.json({ success: true, data: details });
     } catch (error) {
-        console.error("Error fetching customer due details:", error);
+        logError("Error fetching customer due details:", error);
         return c.json({ success: false, error: "Failed to fetch customer details" }, 500);
     }
 });
@@ -67,7 +68,7 @@ dueCollectionRoutes.post(
                 collectionId: result.collectionId
             });
         } catch (error) {
-            console.error("Error collecting due:", error);
+            logError("Error collecting due:", error);
             return c.json({ success: false, error: "Failed to record collection" }, 500);
         }
     }
@@ -83,7 +84,7 @@ dueCollectionRoutes.get(
             const history = await dueCollectionService.getCollectionHistory(query);
             return c.json({ success: true, data: history });
         } catch (error) {
-            console.error("Error fetching collection history:", error);
+            logError("Error fetching collection history:", error);
             return c.json({ success: false, error: "Failed to fetch history" }, 500);
         }
     }
@@ -101,7 +102,7 @@ dueCollectionRoutes.get(
             const summary = await dueCollectionService.getDSRDueSummary(query);
             return c.json({ success: true, data: summary });
         } catch (error) {
-            console.error("Error fetching DSR due summary:", error);
+            logError("Error fetching DSR due summary:", error);
             return c.json({ success: false, error: "Failed to fetch DSR summary" }, 500);
         }
     }
@@ -118,7 +119,7 @@ dueCollectionRoutes.get("/dsr/:dsrId/dues", async (c) => {
         const details = await dueCollectionService.getDSRDueDetails(dsrId);
         return c.json({ success: true, data: details });
     } catch (error) {
-        console.error("Error fetching DSR due details:", error);
+        logError("Error fetching DSR due details:", error);
         return c.json({ success: false, error: "Failed to fetch DSR details" }, 500);
     }
 });
@@ -141,7 +142,7 @@ dueCollectionRoutes.get(
             });
             return c.json({ success: true, data: history });
         } catch (error) {
-            console.error("Error fetching DSR collection history:", error);
+            logError("Error fetching DSR collection history:", error);
             return c.json({ success: false, error: "Failed to fetch DSR collection history" }, 500);
         }
     }
@@ -165,7 +166,7 @@ dueCollectionRoutes.post(
                 message: result.message,
             });
         } catch (error) {
-            console.error("Error collecting DSR due:", error);
+            logError("Error collecting DSR due:", error);
             return c.json({ success: false, error: "Failed to record DSR collection" }, 500);
         }
     }

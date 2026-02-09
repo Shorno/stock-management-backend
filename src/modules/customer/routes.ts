@@ -6,6 +6,7 @@ import {
     getCustomersQuerySchema,
 } from "./validation";
 import * as customerService from "./service";
+import { logError } from "../../lib/error-handler";
 import { requireRole } from "../../lib/auth-middleware";
 
 const app = new Hono();
@@ -25,7 +26,7 @@ app.get(
                 total,
             });
         } catch (error) {
-            console.error("Error fetching customers:", error);
+            logError("Error fetching customers:", error);
             return ctx.json(
                 {
                     success: false,
@@ -52,7 +53,7 @@ app.get("/:id", async (ctx) => {
 
         return ctx.json({ success: true, data: customer });
     } catch (error) {
-        console.error("Error fetching customer:", error);
+        logError("Error fetching customer:", error);
         return ctx.json(
             {
                 success: false,
@@ -95,7 +96,7 @@ app.post(
                 201
             );
         } catch (error) {
-            console.error("Error creating customer:", error);
+            logError("Error creating customer:", error);
             return ctx.json(
                 {
                     success: false,
@@ -146,7 +147,7 @@ app.put(
                 data: customer,
             });
         } catch (error) {
-            console.error("Error updating customer:", error);
+            logError("Error updating customer:", error);
             return ctx.json(
                 {
                     success: false,
@@ -176,7 +177,7 @@ app.delete("/:id", requireRole(["admin"]), async (ctx) => {
             message: "Customer deleted successfully",
         });
     } catch (error) {
-        console.error("Error deleting customer:", error);
+        logError("Error deleting customer:", error);
         return ctx.json(
             {
                 success: false,

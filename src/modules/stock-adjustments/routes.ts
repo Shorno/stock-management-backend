@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import * as stockAdjustmentService from "./service";
+import { logError } from "../../lib/error-handler";
 import {
     createStockAdjustmentSchema,
     getStockAdjustmentsQuerySchema,
@@ -25,7 +26,7 @@ stockAdjustmentRoutes.post(
 
             return c.json({ success: true, data: result });
         } catch (error) {
-            console.error("Error creating stock adjustment:", error);
+            logError("Error creating stock adjustment:", error);
             return c.json({ success: false, error: "Failed to create stock adjustment" }, 500);
         }
     }
@@ -41,7 +42,7 @@ stockAdjustmentRoutes.get(
             const adjustments = await stockAdjustmentService.getStockAdjustments(query);
             return c.json({ success: true, data: adjustments });
         } catch (error) {
-            console.error("Error fetching stock adjustments:", error);
+            logError("Error fetching stock adjustments:", error);
             return c.json({ success: false, error: "Failed to fetch stock adjustments" }, 500);
         }
     }
@@ -57,7 +58,7 @@ stockAdjustmentRoutes.get(
             const batches = await stockAdjustmentService.getBatchesForVariant(query);
             return c.json({ success: true, data: batches });
         } catch (error) {
-            console.error("Error fetching batches:", error);
+            logError("Error fetching batches:", error);
             return c.json({ success: false, error: "Failed to fetch batches" }, 500);
         }
     }

@@ -3,7 +3,7 @@ import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery } from "./validation"
 import type { DsrResponse } from "./types";
 import * as dsrService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
-import { formatDatabaseError } from "../../lib/error-handler";
+import { formatDatabaseError, logError } from "../../lib/error-handler";
 
 type AppContext = Context<
   {
@@ -33,7 +33,7 @@ export const handleCreateDsr = async (c: AppContext): Promise<Response> => {
     await auditLog({ context: c, ...userInfo, action: "CREATE", entityType: "dsr", entityId: newDsr.id, entityName: newDsr.name, newValue: newDsr });
     return c.json<DsrResponse>({ success: true, data: newDsr, message: "DSR created successfully" }, 201);
   } catch (error) {
-    console.error("Error creating DSR:", error);
+    logError("Error creating DSR:", error);
     return c.json<DsrResponse>(
       {
         success: false,
@@ -55,7 +55,7 @@ export const handleGetDsrs = async (c: AppContext): Promise<Response> => {
       total,
     });
   } catch (error) {
-    console.error("Error fetching DSRs:", error);
+    logError("Error fetching DSRs:", error);
     return c.json<DsrResponse>(
       {
         success: false,
@@ -97,7 +97,7 @@ export const handleGetDsrById = async (c: AppContext): Promise<Response> => {
       data: dsr,
     });
   } catch (error) {
-    console.error("Error fetching DSR:", error);
+    logError("Error fetching DSR:", error);
     return c.json<DsrResponse>(
       {
         success: false,
@@ -130,7 +130,7 @@ export const handleUpdateDsr = async (c: AppContext): Promise<Response> => {
     await auditLog({ context: c, ...userInfo, action: "UPDATE", entityType: "dsr", entityId: id, entityName: updatedDsr.name, oldValue: oldDsr, newValue: updatedDsr });
     return c.json<DsrResponse>({ success: true, data: updatedDsr, message: "DSR updated successfully" });
   } catch (error) {
-    console.error("Error updating DSR:", error);
+    logError("Error updating DSR:", error);
     return c.json<DsrResponse>(
       {
         success: false,
@@ -162,7 +162,7 @@ export const handleDeleteDsr = async (c: AppContext): Promise<Response> => {
     await auditLog({ context: c, ...userInfo, action: "DELETE", entityType: "dsr", entityId: id, entityName: dsr?.name, oldValue: dsr });
     return c.json<DsrResponse>({ success: true, message: "DSR deleted successfully" });
   } catch (error) {
-    console.error("Error deleting DSR:", error);
+    logError("Error deleting DSR:", error);
     return c.json<DsrResponse>(
       {
         success: false,

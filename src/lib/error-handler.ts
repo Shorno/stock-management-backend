@@ -1,6 +1,16 @@
 /**
  * Error handling utilities for converting database errors to user-friendly messages
  */
+import * as Sentry from "@sentry/bun";
+
+/**
+ * Logs an error to console and reports it to Sentry.
+ * Drop-in replacement for console.error in catch blocks.
+ */
+export function logError(message: string, error: unknown) {
+    console.error(message, error);
+    Sentry.captureException(error);
+}
 
 /**
  * Extracts error information from various error formats.

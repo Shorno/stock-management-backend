@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import * as analyticsService from "./service";
 import { getReturnsList } from "./returns-list.service";
+import { logError } from "../../lib/error-handler";
 
 type AppContext = Context<{
     Variables: {
@@ -21,7 +22,7 @@ export const handleGetSalesOverview = async (c: AppContext): Promise<Response> =
             data: result,
         });
     } catch (error) {
-        console.error("Error fetching sales overview:", error);
+        logError("Error fetching sales overview:", error);
         return c.json(
             {
                 success: false,
@@ -45,7 +46,7 @@ export const handleGetSalesByPeriod = async (c: AppContext): Promise<Response> =
             data: result,
         });
     } catch (error) {
-        console.error("Error fetching sales by period:", error);
+        logError("Error fetching sales by period:", error);
         return c.json(
             {
                 success: false,
@@ -68,7 +69,7 @@ export const handleGetSalesByDSR = async (c: AppContext): Promise<Response> => {
             data: result,
         });
     } catch (error) {
-        console.error("Error fetching sales by DSR:", error);
+        logError("Error fetching sales by DSR:", error);
         return c.json(
             {
                 success: false,
@@ -91,7 +92,7 @@ export const handleGetSalesByRoute = async (c: AppContext): Promise<Response> =>
             data: result,
         });
     } catch (error) {
-        console.error("Error fetching sales by route:", error);
+        logError("Error fetching sales by route:", error);
         return c.json(
             {
                 success: false,
@@ -115,7 +116,7 @@ export const handleGetTopProducts = async (c: AppContext): Promise<Response> => 
             data: result,
         });
     } catch (error) {
-        console.error("Error fetching top products:", error);
+        logError("Error fetching top products:", error);
         return c.json(
             {
                 success: false,
@@ -138,7 +139,7 @@ export const handleGetOrderStatusBreakdown = async (c: AppContext): Promise<Resp
             data: result,
         });
     } catch (error) {
-        console.error("Error fetching order status breakdown:", error);
+        logError("Error fetching order status breakdown:", error);
         return c.json(
             {
                 success: false,
@@ -161,7 +162,7 @@ export const handleGetDashboardStats = async (c: AppContext): Promise<Response> 
             data: result,
         });
     } catch (error) {
-        console.error("Error fetching dashboard stats:", error);
+        logError("Error fetching dashboard stats:", error);
         return c.json(
             {
                 success: false,
@@ -188,7 +189,7 @@ export const handleGetReturnsList = async (c: AppContext): Promise<Response> => 
 
         return c.json(result);
     } catch (error) {
-        console.error("Error fetching returns list:", error);
+        logError("Error fetching returns list:", error);
         return c.json(
             {
                 success: false,

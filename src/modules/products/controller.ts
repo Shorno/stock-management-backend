@@ -3,6 +3,7 @@ import type { CreateProductInput, UpdateProductInput, GetProductsQuery } from ".
 import type { ProductResponse } from "./types";
 import * as productService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { logError } from "../../lib/error-handler";
 
 type AppContext = Context<{
   Variables: {
@@ -46,7 +47,7 @@ export const handleCreateProduct = async (c: AppContext): Promise<Response> => {
       201
     );
   } catch (error) {
-    console.error("Error creating product:", error);
+    logError("Error creating product:", error);
     return c.json<ProductResponse>(
       {
         success: false,
@@ -69,7 +70,7 @@ export const handleGetProducts = async (c: AppContext): Promise<Response> => {
       total,
     });
   } catch (error) {
-    console.error("Error fetching products:", error);
+    logError("Error fetching products:", error);
     return c.json<ProductResponse>(
       {
         success: false,
@@ -111,7 +112,7 @@ export const handleGetProductById = async (c: AppContext): Promise<Response> => 
       data: product,
     });
   } catch (error) {
-    console.error("Error fetching product:", error);
+    logError("Error fetching product:", error);
     return c.json<ProductResponse>(
       {
         success: false,
@@ -169,7 +170,7 @@ export const handleUpdateProduct = async (c: AppContext): Promise<Response> => {
       message: "Product updated successfully",
     });
   } catch (error) {
-    console.error("Error updating product:", error);
+    logError("Error updating product:", error);
     return c.json<ProductResponse>(
       {
         success: false,
@@ -224,7 +225,7 @@ export const handleDeleteProduct = async (c: AppContext): Promise<Response> => {
       message: "Product deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting product:", error);
+    logError("Error deleting product:", error);
     return c.json<ProductResponse>(
       {
         success: false,

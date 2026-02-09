@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { logError } from "../../lib/error-handler";
 import { zValidator } from "@hono/zod-validator";
 import * as billsService from "./service";
 import { createBillSchema, getBillsQuerySchema } from "./validation";
@@ -16,7 +17,7 @@ billsRoutes.get(
             const bills = await billsService.getBills(query);
             return c.json({ success: true, data: bills });
         } catch (error) {
-            console.error("Error fetching bills:", error);
+            logError("Error fetching bills:", error);
             return c.json({ success: false, error: "Failed to fetch bills" }, 500);
         }
     }
@@ -32,7 +33,7 @@ billsRoutes.get(
             const summary = await billsService.getBillsSummary(query);
             return c.json({ success: true, data: summary });
         } catch (error) {
-            console.error("Error fetching bills summary:", error);
+            logError("Error fetching bills summary:", error);
             return c.json({ success: false, error: "Failed to fetch summary" }, 500);
         }
     }
@@ -48,7 +49,7 @@ billsRoutes.post(
             const bill = await billsService.createBill(input);
             return c.json({ success: true, data: bill, message: "Bill created successfully" });
         } catch (error) {
-            console.error("Error creating bill:", error);
+            logError("Error creating bill:", error);
             return c.json({ success: false, error: "Failed to create bill" }, 500);
         }
     }
@@ -69,7 +70,7 @@ billsRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
 
         return c.json({ success: true, message: "Bill deleted successfully" });
     } catch (error) {
-        console.error("Error deleting bill:", error);
+        logError("Error deleting bill:", error);
         return c.json({ success: false, error: "Failed to delete bill" }, 500);
     }
 });
