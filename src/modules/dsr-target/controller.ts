@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import * as dsrTargetService from "./service";
+import { logError } from "../../lib/error-handler";
 
 type AppContext = Context<{
     Variables: {
@@ -13,7 +14,7 @@ export const handleGetAllTargets = async (c: AppContext): Promise<Response> => {
         const targets = await dsrTargetService.getAllTargets();
         return c.json({ success: true, data: targets });
     } catch (error) {
-        console.error("Error fetching DSR targets:", error);
+        logError("Error fetching DSR targets:", error);
         return c.json({ success: false, message: "Failed to fetch DSR targets" }, 500);
     }
 };
@@ -32,7 +33,7 @@ export const handleGetTargetById = async (c: AppContext): Promise<Response> => {
 
         return c.json({ success: true, data: target });
     } catch (error) {
-        console.error("Error fetching DSR target:", error);
+        logError("Error fetching DSR target:", error);
         return c.json({ success: false, message: "Failed to fetch DSR target" }, 500);
     }
 };
@@ -60,7 +61,7 @@ export const handleCreateTarget = async (c: AppContext): Promise<Response> => {
             201
         );
     } catch (error) {
-        console.error("Error creating DSR target:", error);
+        logError("Error creating DSR target:", error);
         return c.json({ success: false, message: "Failed to create DSR target" }, 500);
     }
 };
@@ -81,7 +82,7 @@ export const handleUpdateTarget = async (c: AppContext): Promise<Response> => {
 
         return c.json({ success: true, data: target, message: "Target updated successfully" });
     } catch (error) {
-        console.error("Error updating DSR target:", error);
+        logError("Error updating DSR target:", error);
         return c.json({ success: false, message: "Failed to update DSR target" }, 500);
     }
 };
@@ -100,7 +101,7 @@ export const handleDeleteTarget = async (c: AppContext): Promise<Response> => {
 
         return c.json({ success: true, message: "Target deleted successfully" });
     } catch (error) {
-        console.error("Error deleting DSR target:", error);
+        logError("Error deleting DSR target:", error);
         return c.json({ success: false, message: "Failed to delete DSR target" }, 500);
     }
 };
@@ -112,7 +113,7 @@ export const handleGetTargetsProgress = async (c: AppContext): Promise<Response>
         const targets = await dsrTargetService.getTargetsWithProgress(month);
         return c.json({ success: true, data: targets });
     } catch (error) {
-        console.error("Error fetching DSR target progress:", error);
+        logError("Error fetching DSR target progress:", error);
         return c.json({ success: false, message: "Failed to fetch target progress" }, 500);
     }
 };

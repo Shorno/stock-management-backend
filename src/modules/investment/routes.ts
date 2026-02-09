@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import * as investmentService from "./service";
+import { logError } from "../../lib/error-handler";
 import {
     getInvestmentsQuerySchema,
     createInvestmentInputSchema,
@@ -22,7 +23,7 @@ investmentRoutes.get(
             const investments = await investmentService.getInvestments(query);
             return c.json({ success: true, data: investments });
         } catch (error) {
-            console.error("Error fetching investments:", error);
+            logError("Error fetching investments:", error);
             return c.json({ success: false, error: "Failed to fetch investments" }, 500);
         }
     }
@@ -38,7 +39,7 @@ investmentRoutes.get(
             const total = await investmentService.getTotalInvestments(query.startDate, query.endDate);
             return c.json({ success: true, data: { total } });
         } catch (error) {
-            console.error("Error fetching total investments:", error);
+            logError("Error fetching total investments:", error);
             return c.json({ success: false, error: "Failed to fetch total" }, 500);
         }
     }
@@ -63,7 +64,7 @@ investmentRoutes.post(
                 investmentId: result.investmentId,
             });
         } catch (error) {
-            console.error("Error creating investment:", error);
+            logError("Error creating investment:", error);
             return c.json({ success: false, error: "Failed to record investment" }, 500);
         }
     }
@@ -85,7 +86,7 @@ investmentRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
 
         return c.json({ success: true, message: result.message });
     } catch (error) {
-        console.error("Error deleting investment:", error);
+        logError("Error deleting investment:", error);
         return c.json({ success: false, error: "Failed to delete investment" }, 500);
     }
 });
@@ -102,7 +103,7 @@ investmentRoutes.get(
             const withdrawals = await investmentService.getWithdrawals(query);
             return c.json({ success: true, data: withdrawals });
         } catch (error) {
-            console.error("Error fetching withdrawals:", error);
+            logError("Error fetching withdrawals:", error);
             return c.json({ success: false, error: "Failed to fetch withdrawals" }, 500);
         }
     }
@@ -118,7 +119,7 @@ investmentRoutes.get(
             const total = await investmentService.getTotalWithdrawals(query.startDate, query.endDate);
             return c.json({ success: true, data: { total } });
         } catch (error) {
-            console.error("Error fetching total withdrawals:", error);
+            logError("Error fetching total withdrawals:", error);
             return c.json({ success: false, error: "Failed to fetch total" }, 500);
         }
     }
@@ -132,7 +133,7 @@ investmentRoutes.get(
             const balance = await investmentService.getInvestmentBalance();
             return c.json({ success: true, data: { balance } });
         } catch (error) {
-            console.error("Error fetching investment balance:", error);
+            logError("Error fetching investment balance:", error);
             return c.json({ success: false, error: "Failed to fetch balance" }, 500);
         }
     }
@@ -157,7 +158,7 @@ investmentRoutes.post(
                 withdrawalId: result.withdrawalId,
             });
         } catch (error) {
-            console.error("Error creating withdrawal:", error);
+            logError("Error creating withdrawal:", error);
             return c.json({ success: false, error: "Failed to record withdrawal" }, 500);
         }
     }
@@ -179,7 +180,7 @@ investmentRoutes.delete("/withdrawals/:id", requireRole(["admin"]), async (c) =>
 
         return c.json({ success: true, message: result.message });
     } catch (error) {
-        console.error("Error deleting withdrawal:", error);
+        logError("Error deleting withdrawal:", error);
         return c.json({ success: false, error: "Failed to delete withdrawal" }, 500);
     }
 });

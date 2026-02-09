@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import * as dsrLoanService from "./service";
+import { logError } from "../../lib/error-handler";
 import {
     getDSRLoanSummaryQuerySchema,
     getDSRLoanTransactionsQuerySchema,
@@ -21,7 +22,7 @@ dsrLoanRoutes.get(
             const summary = await dsrLoanService.getDSRLoanSummary(query);
             return c.json({ success: true, data: summary });
         } catch (error) {
-            console.error("Error fetching DSR loan summary:", error);
+            logError("Error fetching DSR loan summary:", error);
             return c.json({ success: false, error: "Failed to fetch DSR loan summary" }, 500);
         }
     }
@@ -42,7 +43,7 @@ dsrLoanRoutes.get("/:dsrId", async (c) => {
 
         return c.json({ success: true, data: details });
     } catch (error) {
-        console.error("Error fetching DSR loan details:", error);
+        logError("Error fetching DSR loan details:", error);
         return c.json({ success: false, error: "Failed to fetch DSR loan details" }, 500);
     }
 });
@@ -65,7 +66,7 @@ dsrLoanRoutes.get(
             });
             return c.json({ success: true, data: transactions });
         } catch (error) {
-            console.error("Error fetching DSR loan transactions:", error);
+            logError("Error fetching DSR loan transactions:", error);
             return c.json({ success: false, error: "Failed to fetch transactions" }, 500);
         }
     }
@@ -90,7 +91,7 @@ dsrLoanRoutes.post(
                 transactionId: result.transactionId,
             });
         } catch (error) {
-            console.error("Error creating loan:", error);
+            logError("Error creating loan:", error);
             return c.json({ success: false, error: "Failed to record loan" }, 500);
         }
     }
@@ -115,7 +116,7 @@ dsrLoanRoutes.post(
                 transactionId: result.transactionId,
             });
         } catch (error) {
-            console.error("Error creating repayment:", error);
+            logError("Error creating repayment:", error);
             return c.json({ success: false, error: "Failed to record repayment" }, 500);
         }
     }
@@ -137,7 +138,7 @@ dsrLoanRoutes.delete("/transactions/:id", requireRole(["admin"]), async (c) => {
 
         return c.json({ success: true, message: result.message });
     } catch (error) {
-        console.error("Error deleting transaction:", error);
+        logError("Error deleting transaction:", error);
         return c.json({ success: false, error: "Failed to delete transaction" }, 500);
     }
 });

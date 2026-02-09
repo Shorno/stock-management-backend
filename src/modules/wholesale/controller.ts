@@ -10,6 +10,7 @@ import * as wholesaleService from "./service";
 import { generateInvoicePdf, generateSalesInvoicePdf, generateMainInvoicePdf } from "./pdf.service";
 import type { AdjustmentData } from "./pdf.service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { logError } from "../../lib/error-handler";
 
 type AppContext = Context<
     {
@@ -57,7 +58,7 @@ export const handleCreateOrder = async (c: AppContext): Promise<Response> => {
             201
         );
     } catch (error) {
-        console.error("Error creating wholesale order:", error);
+        logError("Error creating wholesale order:", error);
         return c.json<WholesaleOrderResponse>(
             {
                 success: false,
@@ -79,7 +80,7 @@ export const handleGetOrders = async (c: AppContext): Promise<Response> => {
             total,
         });
     } catch (error) {
-        console.error("Error fetching wholesale orders:", error);
+        logError("Error fetching wholesale orders:", error);
         return c.json<WholesaleOrderResponse>(
             {
                 success: false,
@@ -121,7 +122,7 @@ export const handleGetOrderById = async (c: AppContext): Promise<Response> => {
             data: order,
         });
     } catch (error) {
-        console.error("Error fetching wholesale order:", error);
+        logError("Error fetching wholesale order:", error);
         return c.json<WholesaleOrderResponse>(
             {
                 success: false,
@@ -179,7 +180,7 @@ export const handleUpdateOrder = async (c: AppContext): Promise<Response> => {
             message: "Wholesale order updated successfully",
         });
     } catch (error) {
-        console.error("Error updating wholesale order:", error);
+        logError("Error updating wholesale order:", error);
         return c.json<WholesaleOrderResponse>(
             {
                 success: false,
@@ -234,7 +235,7 @@ export const handleDeleteOrder = async (c: AppContext): Promise<Response> => {
             message: "Wholesale order deleted successfully",
         });
     } catch (error) {
-        console.error("Error deleting wholesale order:", error);
+        logError("Error deleting wholesale order:", error);
         return c.json<WholesaleOrderResponse>(
             {
                 success: false,
@@ -292,7 +293,7 @@ export const handleUpdateStatus = async (c: AppContext): Promise<Response> => {
             message: `Order status updated to "${status}" successfully`,
         });
     } catch (error) {
-        console.error("Error updating order status:", error);
+        logError("Error updating order status:", error);
         return c.json<WholesaleOrderResponse>(
             {
                 success: false,
@@ -340,7 +341,7 @@ export const handleGenerateInvoicePdf = async (c: AppContext): Promise<Response>
             },
         });
     } catch (error) {
-        console.error("Error generating invoice PDF:", error);
+        logError("Error generating invoice PDF:", error);
         return c.json<WholesaleOrderResponse>(
             {
                 success: false,
@@ -374,7 +375,7 @@ export const handleGetDueOrders = async (c: AppContext): Promise<Response> => {
             totalDue: result.totalDue,
         });
     } catch (error) {
-        console.error("Error fetching due orders:", error);
+        logError("Error fetching due orders:", error);
         return c.json(
             {
                 success: false,
@@ -407,7 +408,7 @@ export const handleGetPaymentHistory = async (c: AppContext): Promise<Response> 
             data: payments,
         });
     } catch (error) {
-        console.error("Error fetching payment history:", error);
+        logError("Error fetching payment history:", error);
         return c.json(
             {
                 success: false,
@@ -440,7 +441,7 @@ export const handleGetDsrTotalDue = async (c: AppContext): Promise<Response> => 
             data: result,
         });
     } catch (error) {
-        console.error("Error fetching DSR total due:", error);
+        logError("Error fetching DSR total due:", error);
         return c.json(
             {
                 success: false,
@@ -483,7 +484,7 @@ export const handleGetOrderAdjustment = async (c: AppContext): Promise<Response>
             data: adjustmentData,
         });
     } catch (error) {
-        console.error("Error fetching order adjustment:", error);
+        logError("Error fetching order adjustment:", error);
         return c.json(
             {
                 success: false,
@@ -545,7 +546,7 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
             message: "Order adjustment saved successfully",
         });
     } catch (error) {
-        console.error("Error saving order adjustment:", error);
+        logError("Error saving order adjustment:", error);
         return c.json(
             {
                 success: false,
@@ -604,7 +605,7 @@ export const handleGenerateSalesInvoicePdf = async (c: AppContext): Promise<Resp
             },
         });
     } catch (error) {
-        console.error("Error generating sales invoice PDF:", error);
+        logError("Error generating sales invoice PDF:", error);
         return c.json<WholesaleOrderResponse>(
             {
                 success: false,
@@ -664,7 +665,7 @@ export const handleGenerateMainInvoicePdf = async (c: AppContext): Promise<Respo
             },
         });
     } catch (error) {
-        console.error("Error generating main invoice PDF:", error);
+        logError("Error generating main invoice PDF:", error);
         return c.json<WholesaleOrderResponse>(
             {
                 success: false,
@@ -700,7 +701,7 @@ export const handleGetOverduePendingOrders = async (c: AppContext): Promise<Resp
             thresholdDays: result.thresholdDays,
         });
     } catch (error) {
-        console.error("Error fetching overdue pending orders:", error);
+        logError("Error fetching overdue pending orders:", error);
         return c.json(
             {
                 success: false,

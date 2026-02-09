@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import crypto from "crypto";
+import { logError } from "../../lib/error-handler";
 
 const app = new Hono();
 
@@ -58,7 +59,7 @@ app.post(
                 },
             });
         } catch (error) {
-            console.error("Error generating Cloudinary signature:", error);
+            logError("Error generating Cloudinary signature:", error);
             return ctx.json(
                 {
                     success: false,

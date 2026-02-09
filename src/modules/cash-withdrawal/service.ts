@@ -2,6 +2,7 @@ import { db } from "../../db/config";
 import { cashWithdrawals } from "../../db/schema";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
 import type { GetWithdrawalsQuery, CreateWithdrawalInput } from "./validation";
+import { logError } from "../../lib/error-handler";
 
 export interface CashWithdrawal {
     id: number;
@@ -71,7 +72,7 @@ export async function createWithdrawal(input: CreateWithdrawalInput): Promise<{ 
             withdrawalId: result[0]!.id,
         };
     } catch (error) {
-        console.error("Error creating withdrawal:", error);
+        logError("Error creating withdrawal:", error);
         return { success: false, message: "Failed to record withdrawal" };
     }
 }
@@ -93,7 +94,7 @@ export async function deleteWithdrawal(withdrawalId: number): Promise<{ success:
 
         return { success: true, message: "Withdrawal deleted successfully" };
     } catch (error) {
-        console.error("Error deleting withdrawal:", error);
+        logError("Error deleting withdrawal:", error);
         return { success: false, message: "Failed to delete withdrawal" };
     }
 }

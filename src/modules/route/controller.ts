@@ -3,7 +3,7 @@ import type { CreateRouteInput, UpdateRouteInput, GetRoutesQuery } from "./valid
 import type { RouteResponse } from "./types";
 import * as routeService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
-import { formatDatabaseError } from "../../lib/error-handler";
+import { formatDatabaseError, logError } from "../../lib/error-handler";
 
 type AppContext = Context<
   {
@@ -33,7 +33,7 @@ export const handleCreateRoute = async (c: AppContext): Promise<Response> => {
     await auditLog({ context: c, ...userInfo, action: "CREATE", entityType: "route", entityId: newRoute.id, entityName: newRoute.name, newValue: newRoute });
     return c.json<RouteResponse>({ success: true, data: newRoute, message: "Route created successfully" }, 201);
   } catch (error) {
-    console.error("Error creating route:", error);
+    logError("Error creating route:", error);
     return c.json<RouteResponse>(
       {
         success: false,
@@ -55,7 +55,7 @@ export const handleGetRoutes = async (c: AppContext): Promise<Response> => {
       total,
     });
   } catch (error) {
-    console.error("Error fetching routes:", error);
+    logError("Error fetching routes:", error);
     return c.json<RouteResponse>(
       {
         success: false,
@@ -97,7 +97,7 @@ export const handleGetRouteById = async (c: AppContext): Promise<Response> => {
       data: route,
     });
   } catch (error) {
-    console.error("Error fetching route:", error);
+    logError("Error fetching route:", error);
     return c.json<RouteResponse>(
       {
         success: false,
@@ -130,7 +130,7 @@ export const handleUpdateRoute = async (c: AppContext): Promise<Response> => {
     await auditLog({ context: c, ...userInfo, action: "UPDATE", entityType: "route", entityId: id, entityName: updatedRoute.name, oldValue: oldRoute, newValue: updatedRoute });
     return c.json<RouteResponse>({ success: true, data: updatedRoute, message: "Route updated successfully" });
   } catch (error) {
-    console.error("Error updating route:", error);
+    logError("Error updating route:", error);
     return c.json<RouteResponse>(
       {
         success: false,
@@ -162,7 +162,7 @@ export const handleDeleteRoute = async (c: AppContext): Promise<Response> => {
     await auditLog({ context: c, ...userInfo, action: "DELETE", entityType: "route", entityId: id, entityName: route?.name, oldValue: route });
     return c.json<RouteResponse>({ success: true, message: "Route deleted successfully" });
   } catch (error) {
-    console.error("Error deleting route:", error);
+    logError("Error deleting route:", error);
     return c.json<RouteResponse>(
       {
         success: false,

@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import * as auditLogService from "./service";
 import type { GetLogsQuery } from "./validation";
+import { logError } from "../../lib/error-handler";
 
 type AppContext = Context<
     {
@@ -31,7 +32,7 @@ export const handleGetLogs = async (c: AppContext): Promise<Response> => {
             total,
         });
     } catch (error) {
-        console.error("Error fetching audit logs:", error);
+        logError("Error fetching audit logs:", error);
         return c.json(
             {
                 success: false,
@@ -73,7 +74,7 @@ export const handleGetLogById = async (c: AppContext): Promise<Response> => {
             data: log,
         });
     } catch (error) {
-        console.error("Error fetching audit log:", error);
+        logError("Error fetching audit log:", error);
         return c.json(
             {
                 success: false,

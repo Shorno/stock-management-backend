@@ -3,6 +3,7 @@ import type { CreateVariantInput, UpdateVariantInput, GetVariantsQuery } from ".
 import type { ProductVariantResponse } from "./types";
 import * as variantService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { logError } from "../../lib/error-handler";
 
 type AppContext = Context<
     {
@@ -57,7 +58,7 @@ export const handleCreateVariant = async (c: AppContext): Promise<Response> => {
             201
         );
     } catch (error) {
-        console.error("Error creating variant:", error);
+        logError("Error creating variant:", error);
         return c.json<ProductVariantResponse>(
             {
                 success: false,
@@ -91,7 +92,7 @@ export const handleGetVariants = async (c: AppContext): Promise<Response> => {
             total,
         });
     } catch (error) {
-        console.error("Error fetching variants:", error);
+        logError("Error fetching variants:", error);
         return c.json<ProductVariantResponse>(
             {
                 success: false,
@@ -134,7 +135,7 @@ export const handleGetVariantById = async (c: AppContext): Promise<Response> => 
             data: variant,
         });
     } catch (error) {
-        console.error("Error fetching variant:", error);
+        logError("Error fetching variant:", error);
         return c.json<ProductVariantResponse>(
             {
                 success: false,
@@ -185,7 +186,7 @@ export const handleUpdateVariant = async (c: AppContext): Promise<Response> => {
             message: "Variant updated successfully",
         });
     } catch (error) {
-        console.error("Error updating variant:", error);
+        logError("Error updating variant:", error);
         return c.json<ProductVariantResponse>(
             {
                 success: false,
@@ -230,7 +231,7 @@ export const handleDeleteVariant = async (c: AppContext): Promise<Response> => {
 
         return c.json<ProductVariantResponse>({ success: true, message: "Variant deleted successfully" });
     } catch (error) {
-        console.error("Error deleting variant:", error);
+        logError("Error deleting variant:", error);
         return c.json<ProductVariantResponse>(
             {
                 success: false,

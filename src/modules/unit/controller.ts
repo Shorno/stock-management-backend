@@ -3,7 +3,7 @@ import type { CreateUnitInput, UpdateUnitInput, GetUnitsQuery } from "./validati
 import type { UnitResponse } from "./types";
 import * as unitService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
-import { formatDatabaseError } from "../../lib/error-handler";
+import { formatDatabaseError, logError } from "../../lib/error-handler";
 
 type AppContext = Context<
     {
@@ -35,7 +35,7 @@ export const handleCreateUnit = async (c: AppContext): Promise<Response> => {
 
         return c.json<UnitResponse>({ success: true, data: newUnit, message: "Unit created successfully" }, 201);
     } catch (error) {
-        console.error("Error creating unit:", error);
+        logError("Error creating unit:", error);
         return c.json<UnitResponse>(
             {
                 success: false,
@@ -57,7 +57,7 @@ export const handleGetUnits = async (c: AppContext): Promise<Response> => {
             total,
         });
     } catch (error) {
-        console.error("Error fetching units:", error);
+        logError("Error fetching units:", error);
         return c.json<UnitResponse>(
             {
                 success: false,
@@ -99,7 +99,7 @@ export const handleGetUnitById = async (c: AppContext): Promise<Response> => {
             data: unit,
         });
     } catch (error) {
-        console.error("Error fetching unit:", error);
+        logError("Error fetching unit:", error);
         return c.json<UnitResponse>(
             {
                 success: false,
@@ -137,7 +137,7 @@ export const handleUpdateUnit = async (c: AppContext): Promise<Response> => {
 
         return c.json<UnitResponse>({ success: true, data: updatedUnit, message: "Unit updated successfully" });
     } catch (error) {
-        console.error("Error updating unit:", error);
+        logError("Error updating unit:", error);
         return c.json<UnitResponse>(
             {
                 success: false,
@@ -174,7 +174,7 @@ export const handleDeleteUnit = async (c: AppContext): Promise<Response> => {
 
         return c.json<UnitResponse>({ success: true, message: "Unit deleted successfully" });
     } catch (error) {
-        console.error("Error deleting unit:", error);
+        logError("Error deleting unit:", error);
         return c.json<UnitResponse>(
             {
                 success: false,

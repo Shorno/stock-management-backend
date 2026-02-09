@@ -1,6 +1,7 @@
 import { db } from "../../db/config";
 import { investments, investmentWithdrawals } from "../../db/schema";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
+import { logError } from "../../lib/error-handler";
 import type {
     GetInvestmentsQuery,
     CreateInvestmentInput,
@@ -99,7 +100,7 @@ export async function createInvestment(input: CreateInvestmentInput): Promise<{ 
             investmentId: result[0]!.id,
         };
     } catch (error) {
-        console.error("Error creating investment:", error);
+        logError("Error creating investment:", error);
         return { success: false, message: "Failed to record investment" };
     }
 }
@@ -135,7 +136,7 @@ export async function createWithdrawal(input: CreateWithdrawalInput): Promise<{ 
             withdrawalId: result[0]!.id,
         };
     } catch (error) {
-        console.error("Error creating withdrawal:", error);
+        logError("Error creating withdrawal:", error);
         return { success: false, message: "Failed to record withdrawal" };
     }
 }
@@ -156,7 +157,7 @@ export async function deleteInvestment(investmentId: number): Promise<{ success:
 
         return { success: true, message: "Investment deleted successfully" };
     } catch (error) {
-        console.error("Error deleting investment:", error);
+        logError("Error deleting investment:", error);
         return { success: false, message: "Failed to delete investment" };
     }
 }
@@ -177,7 +178,7 @@ export async function deleteWithdrawal(withdrawalId: number): Promise<{ success:
 
         return { success: true, message: "Withdrawal deleted successfully" };
     } catch (error) {
-        console.error("Error deleting withdrawal:", error);
+        logError("Error deleting withdrawal:", error);
         return { success: false, message: "Failed to delete withdrawal" };
     }
 }
