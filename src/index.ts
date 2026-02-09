@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import "./instrument";
+import * as Sentry from '@sentry/bun';
 import { Hono } from 'hono'
 import { cors } from "hono/cors"
 import { auth } from "./lib/auth";
@@ -60,6 +61,11 @@ app.use("*", async (c, next) => {
     c.set("user", session.user);
     c.set("session", session.session);
     await next();
+});
+
+app.onError((err, c) => {
+    Sentry.captureException(err);
+    return c.json({ error: "Internal Server Error" }, 500);
 });
 
 app.get('/', (c) => {
