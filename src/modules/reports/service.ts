@@ -1186,10 +1186,44 @@ export interface PaymentReceivedItem {
     dsrName: string;
     routeId: number;
     routeName: string;
-    cash: string;
-    mobileBank: string;
-    bank: string;
+    paymentMethod: string;
+    amount: string;
+}
+
+export interface CustomerDueItem {
+    orderDate: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    customerName: string;
+    amount: string;
+    collectedAmount: string;
+    remainingDue: string;
+}
+
+export interface DamageReturnItem {
+    orderDate: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    productName: string;
+    brandName: string;
+    quantity: number;
     total: string;
+}
+
+export interface DsrDueItem {
+    orderDate: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    amount: string;
+    collectedAmount: string;
+    remainingDue: string;
+    note: string | null;
 }
 
 export interface DailySettlementSummary {
@@ -1199,12 +1233,17 @@ export interface DailySettlementSummary {
     totalWithdrawals: string;
     cashBalance: string;
     totalDue: string;
+    totalDsrDue: string;
+    totalDamageReturn: string;
 }
 
 export interface DailySettlementResponse {
     netSales: NetSalesItem[];
     expenses: ExpenseItem[];
     paymentsReceived: PaymentReceivedItem[];
+    customerDues: CustomerDueItem[];
+    dsrDues: DsrDueItem[];
+    damageReturns: DamageReturnItem[];
     summary: DailySettlementSummary;
 }
 
@@ -1270,6 +1309,17 @@ export const getDailySettlement = async (
 
     const allCustomerDues = orderIds.length > 0 ? await db.query.orderCustomerDues.findMany({
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
+    const allDsrDues = orderIds.length > 0 ? await db.query.orderDsrDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
+    const allDamageItems = orderIds.length > 0 ? await db.query.orderDamageItems.findMany({
+        where: (d, { inArray, and: andOp, eq: eqOp }) => andOp(
+            inArray(d.orderId, orderIds),
+            eqOp(d.isOther, false)
+        ),
     }) : [];
 
     // Group payments/returns/dues by order
@@ -1352,49 +1402,79 @@ export const getDailySettlement = async (
         };
     });
 
-    // 3. Build Payments Received grouped by DSR/Route
-    const paymentGroups = new Map<string, PaymentReceivedItem>();
-
-    for (const payment of allPayments) {
+    // 3. Build Payments Received as individual rows
+    const paymentsReceived: PaymentReceivedItem[] = allPayments.map((payment) => {
         const order = orderMap.get(payment.orderId);
-        if (!order) continue;
-
-        const key = `${payment.paymentDate}-${order.dsrId}-${order.routeId}`;
-        const existing = paymentGroups.get(key) || {
+        return {
             paymentDate: payment.paymentDate,
-            dsrId: order.dsrId,
-            dsrName: order.dsrName,
-            routeId: order.routeId,
-            routeName: order.routeName,
-            cash: "0.00",
-            mobileBank: "0.00",
-            bank: "0.00",
-            total: "0.00",
+            dsrId: order?.dsrId || 0,
+            dsrName: order?.dsrName || "",
+            routeId: order?.routeId || 0,
+            routeName: order?.routeName || "",
+            paymentMethod: payment.paymentMethod || "cash",
+            amount: payment.amount,
         };
+    });
 
-        const amount = parseFloat(payment.amount);
-        const currentCash = parseFloat(existing.cash);
-        const currentMobile = parseFloat(existing.mobileBank);
-        const currentBank = parseFloat(existing.bank);
-        const currentTotal = parseFloat(existing.total);
+    // 4. Build Customer Dues list
+    const customerDues: CustomerDueItem[] = allCustomerDues.map((due) => {
+        const order = orderMap.get(due.orderId);
+        const amount = parseFloat(due.amount);
+        const collected = parseFloat(due.collectedAmount);
+        return {
+            orderDate: order?.orderDate || "",
+            dsrId: order?.dsrId || 0,
+            dsrName: order?.dsrName || "",
+            routeId: order?.routeId || 0,
+            routeName: order?.routeName || "",
+            customerName: due.customerName,
+            amount: amount.toFixed(2),
+            collectedAmount: collected.toFixed(2),
+            remainingDue: (amount - collected).toFixed(2),
+        };
+    });
 
-        if (payment.paymentMethod === "cash") {
-            existing.cash = (currentCash + amount).toFixed(2);
-        } else if (payment.paymentMethod === "mobileBank") {
-            existing.mobileBank = (currentMobile + amount).toFixed(2);
-        } else if (payment.paymentMethod === "bank") {
-            existing.bank = (currentBank + amount).toFixed(2);
-        } else {
-            existing.cash = (currentCash + amount).toFixed(2);
-        }
-        existing.total = (currentTotal + amount).toFixed(2);
+    // 5. Build DSR Dues list
+    let totalDsrDue = 0;
+    const dsrDues: DsrDueItem[] = allDsrDues.map((due) => {
+        const order = orderMap.get(due.orderId);
+        const amount = parseFloat(due.amount);
+        const collected = parseFloat(due.collectedAmount);
+        const remaining = amount - collected;
+        totalDsrDue += remaining;
+        return {
+            orderDate: order?.orderDate || "",
+            dsrId: due.dsrId,
+            dsrName: order?.dsrName || "",
+            routeId: order?.routeId || 0,
+            routeName: order?.routeName || "",
+            amount: amount.toFixed(2),
+            collectedAmount: collected.toFixed(2),
+            remainingDue: remaining.toFixed(2),
+            note: due.note,
+        };
+    });
 
-        paymentGroups.set(key, existing);
-    }
+    // 6. Build Damage Return Items list
+    let totalDamageReturn = 0;
+    const damageReturnsList: DamageReturnItem[] = allDamageItems.map((item) => {
+        const order = orderMap.get(item.orderId);
+        const total = parseFloat(item.total);
+        totalDamageReturn += total;
+        return {
+            orderDate: order?.orderDate || "",
+            dsrId: order?.dsrId || 0,
+            dsrName: order?.dsrName || "",
+            routeId: order?.routeId || 0,
+            routeName: order?.routeName || "",
+            productName: item.productName,
+            brandName: item.brandName,
+            quantity: item.quantity,
+            total: total.toFixed(2),
+        };
+    });
 
-    const paymentsReceived = Array.from(paymentGroups.values());
-
-    // 4. Get Cash Withdrawals for the date range
+    // 6. Get Cash Withdrawals for the date range
     const { cashWithdrawals } = await import("../../db/schema");
     const withdrawalConditions = [
         gte(cashWithdrawals.withdrawalDate, startDate!),
@@ -1413,6 +1493,9 @@ export const getDailySettlement = async (
         netSales,
         expenses,
         paymentsReceived,
+        customerDues,
+        dsrDues,
+        damageReturns: damageReturnsList,
         summary: {
             netTotalSales: totalNetSales.toFixed(2),
             totalExpenses: totalExpenses.toFixed(2),
@@ -1420,6 +1503,8 @@ export const getDailySettlement = async (
             totalWithdrawals: totalWithdrawals.toFixed(2),
             cashBalance: cashBalance.toFixed(2),
             totalDue: totalDue.toFixed(2),
+            totalDsrDue: totalDsrDue.toFixed(2),
+            totalDamageReturn: totalDamageReturn.toFixed(2),
         },
     };
 };
