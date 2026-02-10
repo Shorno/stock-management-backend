@@ -1423,3 +1423,140 @@ export const getDailySettlement = async (
         },
     };
 };
+
+// ==================== BRAND WISE PURCHASES ====================
+
+import type { BrandWisePurchaseQuery } from "./validation";
+
+export interface BrandWisePurchaseProductItem {
+    productId: number;
+    productName: string;
+    totalQuantity: number;
+    totalFreeQty: number;
+    totalCost: string;
+    batchCount: number;
+}
+
+export interface BrandWisePurchaseItem {
+    brandId: number;
+    brandName: string;
+    productCount: number;
+    totalQuantity: number;
+    totalCost: string;
+    batchCount: number;
+    products: BrandWisePurchaseProductItem[];
+}
+
+export interface BrandWisePurchaseSummary {
+    totalBrands: number;
+    totalProducts: number;
+    totalQuantity: number;
+    grandTotal: string;
+}
+
+export interface BrandWisePurchaseResponse {
+    items: BrandWisePurchaseItem[];
+    summary: BrandWisePurchaseSummary;
+}
+
+/**
+ * Get brand-wise purchase report using stock_batch data
+ * Groups by brand → product showing quantities and costs
+ */
+export const getBrandWisePurchases = async (
+    query: BrandWisePurchaseQuery
+): Promise<BrandWisePurchaseResponse> => {
+    const conditions: any[] = [];
+
+    if (query.startDate) {
+        conditions.push(gte(stockBatch.createdAt, new Date(query.startDate)));
+    }
+    if (query.endDate) {
+        // Add a day to include the entire end date
+        const endDatePlusOne = new Date(query.endDate);
+        endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
+        conditions.push(lte(stockBatch.createdAt, endDatePlusOne));
+    }
+
+    // Query stock_batch joined with productVariant → product → brand
+    const results = await db
+        .select({
+            brandId: product.brandId,
+            brandName: brand.name,
+            productId: product.id,
+            productName: product.name,
+            totalQuantity: sql<number>`SUM(${stockBatch.initialQuantity})::int`,
+            totalFreeQty: sql<number>`SUM(${stockBatch.initialFreeQty})::int`,
+            totalCost: sql<string>`SUM(CAST(${stockBatch.supplierPrice} AS DECIMAL(12,2)) * ${stockBatch.initialQuantity})`,
+            batchCount: sql<number>`COUNT(*)::int`,
+        })
+        .from(stockBatch)
+        .innerJoin(productVariant, eq(stockBatch.variantId, productVariant.id))
+        .innerJoin(product, eq(productVariant.productId, product.id))
+        .innerJoin(brand, eq(product.brandId, brand.id))
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .groupBy(product.brandId, brand.name, product.id, product.name)
+        .orderBy(brand.name, desc(sql`SUM(CAST(${stockBatch.supplierPrice} AS DECIMAL(12,2)) * ${stockBatch.initialQuantity})`));
+
+    // Group by brand
+    const brandMap = new Map<number, BrandWisePurchaseItem>();
+    let totalProducts = 0;
+    let totalQuantity = 0;
+    let grandTotal = 0;
+
+    for (const row of results) {
+        const cost = parseFloat(row.totalCost ?? "0");
+        const qty = Number(row.totalQuantity) || 0;
+        const freeQty = Number(row.totalFreeQty) || 0;
+        const batches = Number(row.batchCount) || 0;
+
+        totalProducts++;
+        totalQuantity += qty;
+        grandTotal += cost;
+
+        const productItem: BrandWisePurchaseProductItem = {
+            productId: row.productId,
+            productName: row.productName,
+            totalQuantity: qty,
+            totalFreeQty: freeQty,
+            totalCost: cost.toFixed(2),
+            batchCount: batches,
+        };
+
+        const existing = brandMap.get(row.brandId);
+        if (existing) {
+            existing.products.push(productItem);
+            existing.productCount++;
+            existing.totalQuantity += qty;
+            existing.totalCost = (parseFloat(existing.totalCost) + cost).toFixed(2);
+            existing.batchCount += batches;
+        } else {
+            brandMap.set(row.brandId, {
+                brandId: row.brandId,
+                brandName: row.brandName,
+                productCount: 1,
+                totalQuantity: qty,
+                totalCost: cost.toFixed(2),
+                batchCount: batches,
+                products: [productItem],
+            });
+        }
+    }
+
+    // Sort by total cost descending
+    const items = Array.from(brandMap.values()).sort(
+        (a, b) => parseFloat(b.totalCost) - parseFloat(a.totalCost)
+    );
+
+    return {
+        items,
+        summary: {
+            totalBrands: items.length,
+            totalProducts,
+            totalQuantity,
+            grandTotal: grandTotal.toFixed(2),
+        },
+    };
+};
+
+

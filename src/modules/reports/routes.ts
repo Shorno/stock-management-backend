@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema, brandWiseSalesQuerySchema, dailySettlementQuerySchema } from "./validation";
+import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema, brandWiseSalesQuerySchema, dailySettlementQuerySchema, brandWisePurchaseQuerySchema } from "./validation";
 import * as reportsService from "./service";
 import { logError } from "../../lib/error-handler";
 
@@ -351,6 +351,46 @@ app.get(
                 {
                     success: false,
                     message: error instanceof Error ? error.message : "Failed to fetch daily settlement report",
+                },
+                500
+            );
+        }
+    }
+);
+
+// Get Brand Wise Purchase report
+app.get(
+    "/brand-wise-purchases",
+    zValidator("query", brandWisePurchaseQuerySchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Invalid query parameters",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    async (ctx) => {
+        try {
+            const query = ctx.req.valid("query");
+            const data = await reportsService.getBrandWisePurchases(query);
+
+            return ctx.json({
+                success: true,
+                data,
+            });
+        } catch (error) {
+            logError("Error fetching brand wise purchases:", error);
+            return ctx.json(
+                {
+                    success: false,
+                    message: error instanceof Error ? error.message : "Failed to fetch brand wise purchase report",
                 },
                 500
             );

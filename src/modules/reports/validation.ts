@@ -63,3 +63,11 @@ export const dailySettlementQuerySchema = z.object({
 });
 
 export type DailySettlementQuery = z.infer<typeof dailySettlementQuerySchema>;
+
+// Query schema for Brand Wise Purchase report
+export const brandWisePurchaseQuerySchema = z.object({
+    startDate: z.string().optional(), // YYYY-MM-DD format, optional (defaults to all time)
+    endDate: z.string().optional(),   // YYYY-MM-DD format, optional
+});
+
+export type BrandWisePurchaseQuery = z.infer<typeof brandWisePurchaseQuerySchema>;
