@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections, dsrDueCollections } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 import { getUnitMultiplier } from "../unit/service";
@@ -812,9 +812,26 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received + Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
+    // ----- DSR DUE COLLECTIONS (DSR Own Dues Collected) -----
+    // Add collected DSR dues to cash balance
+    let dsrDueCollectionFilters = undefined;
+    if (dateRange?.startDate) {
+        dsrDueCollectionFilters = and(
+            gte(dsrDueCollections.collectionDate, dateRange.startDate),
+            dateRange.endDate ? lte(dsrDueCollections.collectionDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const dsrDueCollectionsResult = await db
+        .select({ total: sum(dsrDueCollections.amount) })
+        .from(dsrDueCollections)
+        .where(dsrDueCollectionFilters);
+
+    const totalDsrDueCollections = Number(dsrDueCollectionsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received + Due Collections + DSR Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
     // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
-    const cashBalance = paymentsReceived + totalDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
+    const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
 
     // ----- NET ASSETS -----
     // Total business value = Assets - Liabilities
@@ -875,6 +892,13 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     const totalDueCollections = Number(dueCollectionsResult[0]?.total || 0);
 
+    // Total DSR due collections (DSR own dues collected) - all time
+    const dsrDueCollectionsResult = await db
+        .select({ total: sum(dsrDueCollections.amount) })
+        .from(dsrDueCollections);
+
+    const totalDsrDueCollections = Number(dsrDueCollectionsResult[0]?.total || 0);
+
     // Total bills (all time)
     const billsResult = await db
         .select({ total: sum(bills.amount) })
@@ -882,10 +906,9 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     const totalBills = Number(billsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received + Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
+    // Cash Balance = Payments Received + Due Collections + DSR Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
     // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
-    const cashBalance = paymentsReceived + totalDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
+    const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
 
     return Math.round(cashBalance * 100) / 100;
 }
-
