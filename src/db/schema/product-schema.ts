@@ -26,6 +26,7 @@ export const product = pgTable("product", {
     .notNull()
     .references(() => brand.id, { onDelete: "cascade" }),
   lowStockThreshold: integer("low_stock_threshold").default(10),
+  imageUrl: text("image_url"),
   ...timestamps
 });
 

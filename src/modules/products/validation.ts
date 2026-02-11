@@ -6,6 +6,7 @@ const baseProductSchema = z.object({
     categoryId: z.coerce.number().int("Category ID must be an integer").positive("Category ID must be positive"),
     brandId: z.coerce.number().int("Brand ID must be an integer").positive("Brand ID must be positive"),
     lowStockThreshold: z.coerce.number().int("Threshold must be an integer").nonnegative("Threshold cannot be negative").default(10),
+    imageUrl: z.string().url("Invalid image URL").optional().or(z.literal("")).or(z.null()),
 });
 
 
@@ -18,6 +19,7 @@ export const updateProductSchema = z.object({
     categoryId: z.coerce.number().int("Category ID must be an integer").positive("Category ID must be positive").optional(),
     brandId: z.coerce.number().int("Brand ID must be an integer").positive("Brand ID must be positive").optional(),
     lowStockThreshold: z.coerce.number().int("Threshold must be an integer").nonnegative("Threshold cannot be negative").optional(),
+    imageUrl: z.string().url("Invalid image URL").optional().or(z.literal("")).or(z.null()),
 });
 
 export const getProductsQuerySchema = z.object({

@@ -14,6 +14,7 @@ export const createProduct = async (
     categoryId: data.categoryId,
     brandId: data.brandId,
     lowStockThreshold: data.lowStockThreshold,
+    imageUrl: data.imageUrl || null,
   };
 
   const [createdProduct] = await db.insert(product).values(newProduct).returning();
@@ -109,6 +110,9 @@ export const updateProduct = async (
   }
   if (data.lowStockThreshold !== undefined) {
     updateData.lowStockThreshold = data.lowStockThreshold;
+  }
+  if (data.imageUrl !== undefined) {
+    updateData.imageUrl = data.imageUrl || null;
   }
 
   if (Object.keys(updateData).length === 0) {

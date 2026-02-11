@@ -496,6 +496,44 @@ export const dueCollectionsRelations = relations(dueCollections, ({ one }) => ({
     }),
 }));
 
+// ==================== DSR DUE COLLECTIONS ====================
+
+export const dsrDueCollections = pgTable("dsr_due_collections", {
+    id: serial("id").primaryKey(),
+    dsrDueId: integer("dsr_due_id")
+        .references(() => orderDsrDues.id, { onDelete: "set null" }),
+    dsrId: integer("dsr_id")
+        .references(() => dsr.id, { onDelete: "set null" }),
+    orderId: integer("order_id")
+        .references(() => wholesaleOrders.id, { onDelete: "set null" }),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    collectionDate: date("collection_date").notNull(),
+    paymentMethod: varchar("payment_method", { length: 50 }),
+    note: text("note"),
+    ...timestamps
+}, (table) => ({
+    dsrDueIdx: index("idx_dsr_due_collections_dsr_due").on(table.dsrDueId),
+    dsrIdx: index("idx_dsr_due_collections_dsr").on(table.dsrId),
+    orderIdx: index("idx_dsr_due_collections_order").on(table.orderId),
+    dateIdx: index("idx_dsr_due_collections_date").on(table.collectionDate),
+}));
+
+// DSR due collections relations
+export const dsrDueCollectionsRelations = relations(dsrDueCollections, ({ one }) => ({
+    dsrDue: one(orderDsrDues, {
+        fields: [dsrDueCollections.dsrDueId],
+        references: [orderDsrDues.id],
+    }),
+    dsr: one(dsr, {
+        fields: [dsrDueCollections.dsrId],
+        references: [dsr.id],
+    }),
+    order: one(wholesaleOrders, {
+        fields: [dsrDueCollections.orderId],
+        references: [wholesaleOrders.id],
+    }),
+}));
+
 // ==================== DSR LOAN TRANSACTIONS ====================
 
 export const dsrLoanTransactions = pgTable("dsr_loan_transactions", {

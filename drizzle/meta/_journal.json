@@ -22,6 +22,20 @@
       "when": 1770288811629,
       "tag": "0002_remove-slug-from-dsr-route",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1770794342779,
+      "tag": "0003_boring_vivisector",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770795726634,
+      "tag": "0004_nosy_lilandra",
+      "breakpoints": true
     }
   ]
 }

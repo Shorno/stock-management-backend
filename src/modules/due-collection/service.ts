@@ -3,6 +3,7 @@ import {
     orderCustomerDues,
     orderDsrDues,
     dueCollections,
+    dsrDueCollections,
     customer,
     wholesaleOrders,
     route,
@@ -670,6 +671,17 @@ export const collectDsrDue = async (
             })
             .where(eq(orderDsrDues.id, dsrDueId));
 
+        // Insert DSR due collection record (for cash balance tracking)
+        await db.insert(dsrDueCollections).values({
+            dsrDueId,
+            dsrId,
+            orderId: dueRecord.orderId,
+            amount: amount.toFixed(2),
+            collectionDate,
+            paymentMethod,
+            note,
+        });
+
         return { success: true, message: `Collected ৳${amount.toFixed(2)} from DSR` };
     }
 
@@ -716,6 +728,17 @@ export const collectDsrDue = async (
                 note: note ? `${due.note || ""}\n[${collectionDate}] Collected ৳${amountToApply} via ${paymentMethod || "cash"}${note ? ": " + note : ""}` : due.note,
             })
             .where(eq(orderDsrDues.id, due.id));
+
+        // Insert DSR due collection record (for cash balance tracking)
+        await db.insert(dsrDueCollections).values({
+            dsrDueId: due.id,
+            dsrId,
+            orderId: due.orderId,
+            amount: amountToApply.toFixed(2),
+            collectionDate,
+            paymentMethod,
+            note,
+        });
 
         remainingAmount -= amountToApply;
     }
