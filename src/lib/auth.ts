@@ -5,7 +5,7 @@ import 'dotenv/config';
 import { eq } from "drizzle-orm";
 import { db } from "../db/config";
 import { user as userTable } from "../db/schema/auth-schema";
-import { ac, admin as adminRole, manager, dsr } from "./permissions";
+import { ac, admin as adminRole, superAdmin, manager, dsr } from "./permissions";
 
 
 export const auth = betterAuth({
@@ -17,6 +17,7 @@ export const auth = betterAuth({
             ac,
             roles: {
                 admin: adminRole,
+                super_admin: superAdmin,
                 manager,
                 dsr,
             },
