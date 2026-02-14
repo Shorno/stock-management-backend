@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections, dsrDueCollections } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections, dsrDueCollections, plAdjustments } from "../../db/schema";
 import { product } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 import { getUnitMultiplier } from "../unit/service";
@@ -708,8 +708,29 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalExpenses = Number(expensesResult[0]?.total || 0);
 
-    // Profit = Net Sales - Cost of Goods Sold - Bills - DSR Expenses
-    const profitLoss = netSales - costOfGoodsSold - totalBills - totalExpenses;
+    // ----- P&L ADJUSTMENTS -----
+    // Manual adjustments to profit & loss (income adds, expense subtracts)
+    let plAdjustmentFilters = undefined;
+    if (dateRange?.startDate) {
+        plAdjustmentFilters = and(
+            gte(plAdjustments.adjustmentDate, dateRange.startDate),
+            dateRange.endDate ? lte(plAdjustments.adjustmentDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const plAdjustmentResult = await db
+        .select({
+            totalIncome: sql<string>`COALESCE(SUM(CASE WHEN ${plAdjustments.type} = 'income' THEN CAST(${plAdjustments.amount} AS DECIMAL) ELSE 0 END), 0)`,
+            totalExpenseAdj: sql<string>`COALESCE(SUM(CASE WHEN ${plAdjustments.type} = 'expense' THEN CAST(${plAdjustments.amount} AS DECIMAL) ELSE 0 END), 0)`,
+        })
+        .from(plAdjustments)
+        .where(plAdjustmentFilters);
+
+    const totalAdjustmentIncome = Number(plAdjustmentResult[0]?.totalIncome || 0);
+    const totalAdjustmentExpense = Number(plAdjustmentResult[0]?.totalExpenseAdj || 0);
+
+    // Profit = Net Sales - Cost of Goods Sold - Bills - DSR Expenses + Adjustment Income - Adjustment Expense
+    const profitLoss = netSales - costOfGoodsSold - totalBills - totalExpenses + totalAdjustmentIncome - totalAdjustmentExpense;
 
     // ----- DSR SALES DUE -----
     // Total outstanding customer dues from all orders (amount - collectedAmount)
