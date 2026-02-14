@@ -47,6 +47,21 @@ export const manager = ac.newRole({
 });
 
 /**
+ * Super Admin Role
+ * Same permissions as admin, but with exclusive access to role management and user approval.
+ * This role can only be assigned directly in the database.
+ */
+export const superAdmin = ac.newRole({
+    product: ["create", "read", "update", "delete"],
+    category: ["create", "read", "update", "delete"],
+    brand: ["create", "read", "update", "delete"],
+    dsr: ["create", "read", "update", "delete"],
+    route: ["create", "read", "update", "delete"],
+    wholesale: ["create", "read", "update", "delete"],
+    ...adminAc.statements,
+});
+
+/**
  * DSR (Distribution Sales Representative) Role
  * Can view products and manage wholesale orders
  */

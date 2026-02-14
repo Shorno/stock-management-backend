@@ -8,7 +8,7 @@ type AuthContext = Context<{
     };
 }>;
 
-type UserRole = "admin" | "manager" | "dsr";
+type UserRole = "admin" | "manager" | "dsr" | "super_admin";
 
 /**
  * Middleware that requires the user to be authenticated.
@@ -84,12 +84,12 @@ export function requirePermission(resource: string, actions: string[]) {
  * Check if a user has admin role
  */
 export function isAdmin(user: typeof auth.$Infer.Session.user | null): boolean {
-    return user?.role === "admin";
+    return user?.role === "admin" || user?.role === "super_admin";
 }
 
 /**
  * Check if a user has manager role or higher
  */
 export function isManagerOrAdmin(user: typeof auth.$Infer.Session.user | null): boolean {
-    return user?.role === "admin" || user?.role === "manager";
+    return user?.role === "admin" || user?.role === "super_admin" || user?.role === "manager";
 }
