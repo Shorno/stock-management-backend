@@ -10,6 +10,7 @@ import {
     getDSRCollectionHistoryQuerySchema,
     collectDsrDueInputSchema,
 } from "./validation";
+import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 
 const dueCollectionRoutes = new Hono();
 
@@ -61,6 +62,28 @@ dueCollectionRoutes.post(
             if (!result.success) {
                 return c.json({ success: false, error: result.message }, 400);
             }
+
+            // Audit log
+            const userInfo = getUserInfoFromContext(c);
+            const amount = input.amount;
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Collected ৳${amount.toLocaleString()} due from customer #${input.customerId}`,
+                affectedMetrics: [
+                    { metric: "cashBalance", label: "Cash Balance", direction: "increase", amount },
+                    { metric: "dsrSalesDue", label: "DSR Sales Due", direction: "decrease", amount },
+                ],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "PAYMENT",
+                entityType: "due_collection",
+                entityId: result.collectionId!,
+                entityName: `Due Collection ৳${amount.toLocaleString()}`,
+                newValue: input,
+                metadata: { financialImpact },
+            });
 
             return c.json({
                 success: true,
@@ -160,6 +183,28 @@ dueCollectionRoutes.post(
             if (!result.success) {
                 return c.json({ success: false, error: result.message }, 400);
             }
+
+            // Audit log
+            const userInfo = getUserInfoFromContext(c);
+            const amount = input.amount;
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Collected ৳${amount.toLocaleString()} DSR due from DSR #${input.dsrId}`,
+                affectedMetrics: [
+                    { metric: "cashBalance", label: "Cash Balance", direction: "increase", amount },
+                    { metric: "dsrOwnDue", label: "DSR Own Due", direction: "decrease", amount },
+                ],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "PAYMENT",
+                entityType: "dsr_due_collection",
+                entityId: String(input.dsrId),
+                entityName: `DSR Due Collection ৳${amount.toLocaleString()}`,
+                newValue: input,
+                metadata: { financialImpact },
+            });
 
             return c.json({
                 success: true,

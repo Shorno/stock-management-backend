@@ -9,6 +9,7 @@ import {
     createRepaymentInputSchema,
 } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
+import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 
 const dsrLoanRoutes = new Hono();
 
@@ -85,6 +86,28 @@ dsrLoanRoutes.post(
                 return c.json({ success: false, error: result.message }, 400);
             }
 
+            // Audit log
+            const userInfo = getUserInfoFromContext(c);
+            const amount = input.amount;
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `DSR loan of ৳${amount.toLocaleString()} to DSR #${input.dsrId}`,
+                affectedMetrics: [
+                    { metric: "dsrOwnDue", label: "DSR Own Due", direction: "increase", amount },
+                    { metric: "cashBalance", label: "Cash Balance", direction: "decrease", amount },
+                ],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "CREATE",
+                entityType: "dsr_loan",
+                entityId: result.transactionId!,
+                entityName: `Loan ৳${amount.toLocaleString()}`,
+                newValue: input,
+                metadata: { financialImpact },
+            });
+
             return c.json({
                 success: true,
                 message: result.message,
@@ -109,6 +132,28 @@ dsrLoanRoutes.post(
             if (!result.success) {
                 return c.json({ success: false, error: result.message }, 400);
             }
+
+            // Audit log
+            const userInfo = getUserInfoFromContext(c);
+            const amount = input.amount;
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `DSR loan repayment of ৳${amount.toLocaleString()} from DSR #${input.dsrId}`,
+                affectedMetrics: [
+                    { metric: "dsrOwnDue", label: "DSR Own Due", direction: "decrease", amount },
+                    { metric: "cashBalance", label: "Cash Balance", direction: "increase", amount },
+                ],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "PAYMENT",
+                entityType: "dsr_loan",
+                entityId: result.transactionId!,
+                entityName: `Repayment ৳${amount.toLocaleString()}`,
+                newValue: input,
+                metadata: { financialImpact },
+            });
 
             return c.json({
                 success: true,
@@ -135,6 +180,18 @@ dsrLoanRoutes.delete("/transactions/:id", requireRole(["admin"]), async (c) => {
         if (!result.success) {
             return c.json({ success: false, error: result.message }, 404);
         }
+
+        // Audit log
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({
+            context: c,
+            ...userInfo,
+            action: "DELETE",
+            entityType: "dsr_loan",
+            entityId: transactionId,
+            entityName: `DSR Loan Transaction #${transactionId}`,
+            metadata: { description: "Deleted DSR loan transaction" },
+        });
 
         return c.json({ success: true, message: result.message });
     } catch (error) {

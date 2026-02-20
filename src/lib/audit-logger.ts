@@ -4,6 +4,20 @@ import type { Context } from "hono";
 import { logError } from "./error-handler";
 
 /**
+ * Describes how a transaction affects dashboard financial metrics
+ */
+export interface FinancialImpact {
+    amount: number;
+    description: string;
+    affectedMetrics: {
+        metric: string;
+        label: string;
+        direction: "increase" | "decrease";
+        amount: number;
+    }[];
+}
+
+/**
  * Helper function to create audit log entries
  */
 export async function auditLog(params: {
@@ -11,8 +25,14 @@ export async function auditLog(params: {
     userId?: string | null;
     userName?: string;
     userRole?: string;
-    action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "STATUS_CHANGE" | "VIEW";
-    entityType: "product" | "order" | "stock" | "user" | "dsr" | "route" | "brand" | "category" | "wholesale_order" | "variant" | "unit";
+    action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "STATUS_CHANGE" | "VIEW" | "PAYMENT";
+    entityType:
+    | "product" | "order" | "stock" | "user" | "dsr" | "route" | "brand" | "category"
+    | "wholesale_order" | "variant" | "unit"
+    | "bill" | "cash_withdrawal" | "investment" | "investment_withdrawal"
+    | "pl_adjustment" | "dsr_loan" | "due_collection" | "dsr_due_collection"
+    | "supplier_purchase" | "supplier_payment" | "damage_return" | "stock_adjustment"
+    | "customer" | "dsr_target" | "settings";
     entityId: string | number;
     entityName?: string;
     oldValue?: any;

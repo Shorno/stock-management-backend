@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import * as plAdjustmentsService from "./service";
 import { createPlAdjustmentSchema, getPlAdjustmentsQuerySchema } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
+import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 
 const plAdjustmentRoutes = new Hono();
 
@@ -47,6 +48,34 @@ plAdjustmentRoutes.post(
         try {
             const input = c.req.valid("json");
             const adjustment = await plAdjustmentsService.createPlAdjustment(input);
+
+            // Audit log with financial impact
+            const userInfo = getUserInfoFromContext(c);
+            const amount = parseFloat(String(input.amount));
+            const isIncome = input.type === "income";
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `P&L ${input.type}: "${input.title}" ৳${amount.toLocaleString()}`,
+                affectedMetrics: [
+                    {
+                        metric: "profitLoss",
+                        label: "Profit/Loss",
+                        direction: isIncome ? "increase" : "decrease",
+                        amount,
+                    },
+                ],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "CREATE",
+                entityType: "pl_adjustment",
+                entityId: (adjustment as any).id,
+                entityName: input.title,
+                newValue: adjustment,
+                metadata: { financialImpact },
+            });
+
             return c.json({ success: true, data: adjustment, message: "P&L adjustment created successfully" });
         } catch (error) {
             logError("Error creating P&L adjustment:", error);
@@ -63,9 +92,41 @@ plAdjustmentRoutes.delete("/:id", requireRole(["admin", "super_admin"]), async (
             return c.json({ success: false, error: "Invalid adjustment ID" }, 400);
         }
 
+        // Fetch before deleting for audit
+        const allAdjustments = await plAdjustmentsService.getPlAdjustments({});
+        const adjustmentToDelete = allAdjustments.find((a: any) => a.id === id);
+
         const deleted = await plAdjustmentsService.deletePlAdjustment(id);
         if (!deleted) {
             return c.json({ success: false, error: "Adjustment not found" }, 404);
+        }
+
+        if (adjustmentToDelete) {
+            const userInfo = getUserInfoFromContext(c);
+            const amount = parseFloat(String(adjustmentToDelete.amount || 0));
+            const isIncome = adjustmentToDelete.type === "income";
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Deleted P&L ${adjustmentToDelete.type}: "${adjustmentToDelete.title}" ৳${amount.toLocaleString()}`,
+                affectedMetrics: [
+                    {
+                        metric: "profitLoss",
+                        label: "Profit/Loss",
+                        direction: isIncome ? "decrease" : "increase",
+                        amount,
+                    },
+                ],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "DELETE",
+                entityType: "pl_adjustment",
+                entityId: id,
+                entityName: adjustmentToDelete.title,
+                oldValue: adjustmentToDelete,
+                metadata: { financialImpact },
+            });
         }
 
         return c.json({ success: true, message: "P&L adjustment deleted successfully" });
@@ -76,3 +137,4 @@ plAdjustmentRoutes.delete("/:id", requireRole(["admin", "super_admin"]), async (
 });
 
 export { plAdjustmentRoutes };
+

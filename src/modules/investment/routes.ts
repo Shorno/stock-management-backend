@@ -8,6 +8,7 @@ import {
     createWithdrawalInputSchema
 } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
+import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 
 const investmentRoutes = new Hono();
 
@@ -58,6 +59,25 @@ investmentRoutes.post(
                 return c.json({ success: false, error: result.message }, 400);
             }
 
+            // Audit log
+            const userInfo = getUserInfoFromContext(c);
+            const amount = input.amount;
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Investment deposit of ৳${amount.toLocaleString()}${input.note ? ` — ${input.note}` : ""}`,
+                affectedMetrics: [],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "CREATE",
+                entityType: "investment",
+                entityId: result.investmentId!,
+                entityName: `Investment ৳${amount.toLocaleString()}`,
+                newValue: input,
+                metadata: { financialImpact },
+            });
+
             return c.json({
                 success: true,
                 message: result.message,
@@ -78,10 +98,34 @@ investmentRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
             return c.json({ success: false, error: "Invalid investment ID" }, 400);
         }
 
+        // Fetch before deleting for audit
+        const allInvestments = await investmentService.getInvestments({});
+        const investmentToDelete = allInvestments.find((i: any) => i.id === investmentId);
+
         const result = await investmentService.deleteInvestment(investmentId);
 
         if (!result.success) {
             return c.json({ success: false, error: result.message }, 404);
+        }
+
+        if (investmentToDelete) {
+            const userInfo = getUserInfoFromContext(c);
+            const amount = parseFloat(investmentToDelete.amount || "0");
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Deleted investment of ৳${amount.toLocaleString()}`,
+                affectedMetrics: [],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "DELETE",
+                entityType: "investment",
+                entityId: investmentId,
+                entityName: `Investment ৳${amount.toLocaleString()}`,
+                oldValue: investmentToDelete,
+                metadata: { financialImpact },
+            });
         }
 
         return c.json({ success: true, message: result.message });
@@ -152,6 +196,25 @@ investmentRoutes.post(
                 return c.json({ success: false, error: result.message }, 400);
             }
 
+            // Audit log
+            const userInfo = getUserInfoFromContext(c);
+            const amount = input.amount;
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Investment withdrawal of ৳${amount.toLocaleString()}${input.note ? ` — ${input.note}` : ""}`,
+                affectedMetrics: [],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "CREATE",
+                entityType: "investment_withdrawal",
+                entityId: result.withdrawalId!,
+                entityName: `Inv. Withdrawal ৳${amount.toLocaleString()}`,
+                newValue: input,
+                metadata: { financialImpact },
+            });
+
             return c.json({
                 success: true,
                 message: result.message,
@@ -172,10 +235,34 @@ investmentRoutes.delete("/withdrawals/:id", requireRole(["admin"]), async (c) =>
             return c.json({ success: false, error: "Invalid withdrawal ID" }, 400);
         }
 
+        // Fetch before deleting for audit
+        const allWithdrawals = await investmentService.getWithdrawals({});
+        const withdrawalToDelete = allWithdrawals.find((w: any) => w.id === withdrawalId);
+
         const result = await investmentService.deleteWithdrawal(withdrawalId);
 
         if (!result.success) {
             return c.json({ success: false, error: result.message }, 404);
+        }
+
+        if (withdrawalToDelete) {
+            const userInfo = getUserInfoFromContext(c);
+            const amount = parseFloat(withdrawalToDelete.amount || "0");
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Deleted investment withdrawal of ৳${amount.toLocaleString()}`,
+                affectedMetrics: [],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "DELETE",
+                entityType: "investment_withdrawal",
+                entityId: withdrawalId,
+                entityName: `Inv. Withdrawal ৳${amount.toLocaleString()}`,
+                oldValue: withdrawalToDelete,
+                metadata: { financialImpact },
+            });
         }
 
         return c.json({ success: true, message: result.message });
@@ -186,3 +273,4 @@ investmentRoutes.delete("/withdrawals/:id", requireRole(["admin"]), async (c) =>
 });
 
 export { investmentRoutes };
+
