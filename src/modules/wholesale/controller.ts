@@ -9,7 +9,7 @@ import type { WholesaleOrderResponse } from "./types";
 import * as wholesaleService from "./service";
 import { generateInvoicePdf, generateSalesInvoicePdf, generateMainInvoicePdf } from "./pdf.service";
 import type { AdjustmentData } from "./pdf.service";
-import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 import { logError } from "../../lib/error-handler";
 
 type AppContext = Context<
@@ -32,13 +32,44 @@ type AppContext = Context<
     }
 >;
 
+// Helper to build a human-readable order object for audit logs
+function buildOrderAuditValue(order: any) {
+    return {
+        orderNumber: order.orderNumber,
+        orderDate: order.orderDate,
+        dsr: order.dsr?.name || `ID: ${order.dsrId}`,
+        route: order.route?.name || `ID: ${order.routeId}`,
+        category: order.category?.name || (order.categoryId ? `ID: ${order.categoryId}` : '—'),
+        brand: order.brand?.name || (order.brandId ? `ID: ${order.brandId}` : '—'),
+        subtotal: `৳${parseFloat(order.subtotal || 0).toLocaleString()}`,
+        discount: `৳${parseFloat(order.discount || 0).toLocaleString()}`,
+        total: `৳${parseFloat(order.total || 0).toLocaleString()}`,
+        paidAmount: `৳${parseFloat(order.paidAmount || 0).toLocaleString()}`,
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        itemCount: order.items?.length || 0,
+    };
+}
+
 export const handleCreateOrder = async (c: AppContext): Promise<Response> => {
     try {
         const validatedData = c.req.valid("json") as CreateOrderInput;
         const newOrder = await wholesaleService.createOrder(validatedData);
 
-        // Audit log
+        // Audit log with financial impact
         const userInfo = getUserInfoFromContext(c);
+        const orderTotal = (newOrder as any).items?.reduce(
+            (sum: number, item: any) => sum + (parseFloat(item.salePrice) * item.quantity - parseFloat(item.discount || 0)),
+            0
+        ) || 0;
+        const financialImpact: FinancialImpact = {
+            amount: orderTotal,
+            description: `Wholesale order ${newOrder.orderNumber} created with ${validatedData.items.length} item(s)`,
+            affectedMetrics: [
+                { metric: "netSales", label: "Net Sales", direction: "increase", amount: orderTotal },
+                { metric: "dsrSalesDue", label: "DSR Sales Due", direction: "increase", amount: orderTotal },
+            ],
+        };
         await auditLog({
             context: c,
             ...userInfo,
@@ -46,7 +77,8 @@ export const handleCreateOrder = async (c: AppContext): Promise<Response> => {
             entityType: "wholesale_order",
             entityId: newOrder.id,
             entityName: newOrder.orderNumber,
-            newValue: newOrder,
+            newValue: buildOrderAuditValue(newOrder),
+            metadata: { financialImpact, itemCount: validatedData.items.length },
         });
 
         return c.json<WholesaleOrderResponse>(
@@ -170,8 +202,9 @@ export const handleUpdateOrder = async (c: AppContext): Promise<Response> => {
             entityType: "wholesale_order",
             entityId: id,
             entityName: updatedOrder.orderNumber,
-            oldValue: oldOrder,
-            newValue: updatedOrder,
+            oldValue: buildOrderAuditValue(oldOrder),
+            newValue: buildOrderAuditValue(updatedOrder),
+            metadata: { description: `Updated wholesale order ${updatedOrder.orderNumber}` },
         });
 
         return c.json<WholesaleOrderResponse>({
@@ -218,8 +251,19 @@ export const handleDeleteOrder = async (c: AppContext): Promise<Response> => {
             );
         }
 
-        // Audit log
+        // Audit log with financial impact
         const userInfo = getUserInfoFromContext(c);
+        const deletedTotal = (order as any)?.items?.reduce(
+            (sum: number, item: any) => sum + (parseFloat(item.salePrice) * item.quantity - parseFloat(item.discount || 0)),
+            0
+        ) || 0;
+        const financialImpact: FinancialImpact = {
+            amount: deletedTotal,
+            description: `Deleted wholesale order ${order?.orderNumber} (৳${deletedTotal.toLocaleString()})`,
+            affectedMetrics: [
+                { metric: "netSales", label: "Net Sales", direction: "decrease", amount: deletedTotal },
+            ],
+        };
         await auditLog({
             context: c,
             ...userInfo,
@@ -227,7 +271,8 @@ export const handleDeleteOrder = async (c: AppContext): Promise<Response> => {
             entityType: "wholesale_order",
             entityId: id,
             entityName: order?.orderNumber,
-            oldValue: order,
+            oldValue: buildOrderAuditValue(order),
+            metadata: { financialImpact },
         });
 
         return c.json<WholesaleOrderResponse>({
@@ -512,6 +557,9 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
 
         const validatedData = c.req.valid("json") as SaveAdjustmentInput;
 
+        // Fetch old adjustment state for audit diff
+        const oldAdjustment = await wholesaleService.getOrderAdjustment(id);
+
         const result = await wholesaleService.saveOrderAdjustment(id, validatedData);
 
         if (!result) {
@@ -524,8 +572,41 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
             );
         }
 
-        // Audit log
+        // Compute financial impact of the adjustment
         const userInfo = getUserInfoFromContext(c);
+        const totalPayments = validatedData.payments.reduce((s, p) => s + p.amount, 0);
+        const totalExpenses = validatedData.expenses.reduce((s, e) => s + e.amount, 0);
+        const totalCustomerDues = validatedData.customerDues.reduce((s, d) => s + d.amount, 0);
+        const totalDsrDues = validatedData.dsrDues.reduce((s, d) => s + d.amount, 0);
+        const totalItemReturns = validatedData.itemReturns.reduce((s, r) => s + (r.returnAmount || 0), 0);
+
+        const totalDamageReturns = validatedData.damageReturns.reduce((s, d) => s + (d.quantity * d.sellingPrice), 0);
+
+        const affectedMetrics: FinancialImpact["affectedMetrics"] = [];
+        if (totalPayments > 0) affectedMetrics.push({ metric: "cashBalance", label: "Cash Balance", direction: "increase", amount: totalPayments });
+        if (totalExpenses > 0) affectedMetrics.push({ metric: "profitLoss", label: "Profit/Loss", direction: "decrease", amount: totalExpenses });
+        if (totalItemReturns > 0) affectedMetrics.push({ metric: "netSales", label: "Net Sales (Returns)", direction: "decrease", amount: totalItemReturns });
+        if (totalDamageReturns > 0) affectedMetrics.push({ metric: "netSales", label: "Damage Returns", direction: "decrease", amount: totalDamageReturns });
+        if (totalCustomerDues > 0) affectedMetrics.push({ metric: "dsrSalesDue", label: "Customer Dues", direction: "increase", amount: totalCustomerDues });
+        if (totalDsrDues > 0) affectedMetrics.push({ metric: "dsrOwnDue", label: "DSR Own Due", direction: "increase", amount: totalDsrDues });
+
+        const financialImpact: FinancialImpact = {
+            amount: totalPayments,
+            description: `Adjusted order ${result.order?.orderNumber}: ৳${totalPayments.toLocaleString()} collected`,
+            affectedMetrics,
+        };
+
+        // Build structured summary for the audit log
+        const adjustmentSummary = {
+            payments: { count: validatedData.payments.filter(p => p.amount > 0).length, total: totalPayments },
+            expenses: { count: validatedData.expenses.filter(e => e.amount > 0).length, total: totalExpenses },
+            itemReturns: { count: validatedData.itemReturns.filter(r => r.returnQuantity > 0).length, total: totalItemReturns },
+            customerDues: { count: validatedData.customerDues.filter(d => d.amount > 0).length, total: totalCustomerDues },
+            dsrDues: { count: validatedData.dsrDues.filter(d => d.amount > 0).length, total: totalDsrDues },
+            damageReturns: { count: validatedData.damageReturns.filter(d => d.quantity > 0).length, total: totalDamageReturns },
+            settlement: result.summary,
+        };
+
         await auditLog({
             context: c,
             ...userInfo,
@@ -533,11 +614,13 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
             entityType: "wholesale_order",
             entityId: id,
             entityName: result.order?.orderNumber,
-            newValue: {
-                payments: result.payments,
-                expenses: result.expenses,
-                itemReturns: result.itemReturns,
-            },
+            oldValue: oldAdjustment ? {
+                summary: oldAdjustment.summary,
+                paymentsCount: oldAdjustment.payments?.length || 0,
+                expensesCount: oldAdjustment.expenses?.length || 0,
+            } : null,
+            newValue: adjustmentSummary,
+            metadata: { financialImpact, adjustmentDetails: validatedData },
         });
 
         return c.json({
