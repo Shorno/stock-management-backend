@@ -34,6 +34,21 @@ type AppContext = Context<
 
 // Helper to build a human-readable order object for audit logs
 function buildOrderAuditValue(order: any) {
+    // Build item details for the audit log
+    const items = (order.items || []).map((item: any, index: number) => ({
+        sl: index + 1,
+        product: item.product?.name || `Product #${item.productId}`,
+        brand: item.brand?.name || `Brand #${item.brandId}`,
+        quantity: item.quantity,
+        unit: item.unit,
+        extraPieces: item.extraPieces || 0,
+        freeQuantity: item.freeQuantity || 0,
+        totalQuantity: item.totalQuantity || item.quantity,
+        salePrice: `৳${parseFloat(item.salePrice || 0).toLocaleString()}`,
+        discount: parseFloat(item.discount || 0),
+        net: `৳${parseFloat(item.net || 0).toLocaleString()}`,
+    }));
+
     return {
         orderNumber: order.orderNumber,
         orderDate: order.orderDate,
@@ -48,6 +63,7 @@ function buildOrderAuditValue(order: any) {
         status: order.status,
         paymentStatus: order.paymentStatus,
         itemCount: order.items?.length || 0,
+        items,
     };
 }
 
@@ -58,16 +74,12 @@ export const handleCreateOrder = async (c: AppContext): Promise<Response> => {
 
         // Audit log with financial impact
         const userInfo = getUserInfoFromContext(c);
-        const orderTotal = (newOrder as any).items?.reduce(
-            (sum: number, item: any) => sum + (parseFloat(item.salePrice) * item.quantity - parseFloat(item.discount || 0)),
-            0
-        ) || 0;
+        const orderTotal = parseFloat((newOrder as any).total || 0);
         const financialImpact: FinancialImpact = {
             amount: orderTotal,
             description: `Wholesale order ${newOrder.orderNumber} created with ${validatedData.items.length} item(s)`,
             affectedMetrics: [
                 { metric: "netSales", label: "Net Sales", direction: "increase", amount: orderTotal },
-                { metric: "dsrSalesDue", label: "DSR Sales Due", direction: "increase", amount: orderTotal },
             ],
         };
         await auditLog({
@@ -253,10 +265,7 @@ export const handleDeleteOrder = async (c: AppContext): Promise<Response> => {
 
         // Audit log with financial impact
         const userInfo = getUserInfoFromContext(c);
-        const deletedTotal = (order as any)?.items?.reduce(
-            (sum: number, item: any) => sum + (parseFloat(item.salePrice) * item.quantity - parseFloat(item.discount || 0)),
-            0
-        ) || 0;
+        const deletedTotal = parseFloat((order as any)?.total || 0);
         const financialImpact: FinancialImpact = {
             amount: deletedTotal,
             description: `Deleted wholesale order ${order?.orderNumber} (৳${deletedTotal.toLocaleString()})`,

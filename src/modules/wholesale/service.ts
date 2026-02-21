@@ -311,7 +311,11 @@ export const getOrders = async (
                 route: true,
                 category: true,
                 brand: true,
-                items: true,
+                items: {
+                    with: {
+                        batch: true,  // Include batch to access supplierPrice for profit calculation
+                    },
+                },
                 itemReturns: true,  // Include item returns for calculating net sale
             },
         }),
@@ -338,6 +342,21 @@ export const getOrders = async (
         const orderTotal = parseFloat(order.total || "0");
         const netTotal = orderTotal - totalReturns - totalAdjustmentDiscount;
 
+        // Calculate profit: sum of (salePrice - supplierPrice) × paidQuantity per item
+        // Then subtract returns and adjustment discounts
+        let totalProfit = 0;
+        if (order.items && order.items.length > 0) {
+            for (const item of order.items) {
+                const salePrice = parseFloat(item.salePrice || "0");
+                const supplierPrice = parseFloat(item.batch?.supplierPrice || "0");
+                const paidQty = (item.totalQuantity ?? item.quantity) - item.freeQuantity;
+                totalProfit += (salePrice - supplierPrice) * paidQty;
+            }
+            // Subtract returns and adjustment discounts from profit
+            totalProfit -= totalReturns;
+            totalProfit -= totalAdjustmentDiscount;
+        }
+
         return {
             id: order.id,
             orderNumber: order.orderNumber,
@@ -357,6 +376,7 @@ export const getOrders = async (
             totalReturns: totalReturns.toFixed(2),
             totalAdjustmentDiscount: totalAdjustmentDiscount.toFixed(2),
             netTotal: netTotal.toFixed(2),
+            profit: totalProfit.toFixed(2),
             paidAmount: order.paidAmount,
             paymentStatus: order.paymentStatus,
             status: order.status,
@@ -978,6 +998,10 @@ export const getOrderAdjustment = async (orderId: number) => {
             // Net total = (netQuantity × salePrice) - adjustmentDiscount
             const netTotal = Math.max(0, (netQuantity * salePrice) - adjustmentDiscount);
 
+            // Profit calculation: (salePrice - supplierPrice) × netQuantity
+            const supplierPrice = parseFloat(item.batch?.supplierPrice || "0");
+            const itemProfit = (salePrice - supplierPrice) * netQuantity;
+
             return {
                 id: item.id,
                 productId: item.productId,
@@ -1004,6 +1028,8 @@ export const getOrderAdjustment = async (orderId: number) => {
                 netQuantity,
                 netFreeQuantity,
                 netTotal,
+                // Profit
+                itemProfit,
             };
         })
     );
@@ -1095,6 +1121,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             totalDsrDues,
             totalAdjustment,
             due,
+            totalProfit: itemsWithCalculations.reduce((sum, item) => sum + item.itemProfit, 0),
         },
     };
 };
