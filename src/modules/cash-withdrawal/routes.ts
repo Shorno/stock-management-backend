@@ -4,6 +4,7 @@ import * as withdrawalService from "./service";
 import { logError } from "../../lib/error-handler";
 import { getWithdrawalsQuerySchema, createWithdrawalInputSchema } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
+import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 
 const cashWithdrawalRoutes = new Hono();
 
@@ -68,6 +69,28 @@ cashWithdrawalRoutes.post(
                 return c.json({ success: false, error: result.message }, 400);
             }
 
+            // Audit log with financial impact
+            const userInfo = getUserInfoFromContext(c);
+            const amount = input.amount;
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Cash withdrawal of ৳${amount.toLocaleString()}${input.note ? ` — ${input.note}` : ""}`,
+                affectedMetrics: [
+                    { metric: "cashBalance", label: "Cash Balance", direction: "decrease", amount },
+                    { metric: "netAssets", label: "Net Assets", direction: "decrease", amount },
+                ],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "CREATE",
+                entityType: "cash_withdrawal",
+                entityId: result.withdrawalId!,
+                entityName: `Withdrawal ৳${amount.toLocaleString()}`,
+                newValue: { amount: input.amount, withdrawalDate: input.withdrawalDate, note: input.note },
+                metadata: { financialImpact },
+            });
+
             return c.json({
                 success: true,
                 message: result.message,
@@ -88,10 +111,38 @@ cashWithdrawalRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
             return c.json({ success: false, error: "Invalid withdrawal ID" }, 400);
         }
 
+        // Fetch withdrawal data before deleting for audit log
+        const allWithdrawals = await withdrawalService.getWithdrawals();
+        const withdrawalToDelete = allWithdrawals.find(w => w.id === withdrawalId);
+
         const result = await withdrawalService.deleteWithdrawal(withdrawalId);
 
         if (!result.success) {
             return c.json({ success: false, error: result.message }, 404);
+        }
+
+        // Audit log with financial impact
+        if (withdrawalToDelete) {
+            const userInfo = getUserInfoFromContext(c);
+            const amount = parseFloat(withdrawalToDelete.amount);
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Deleted cash withdrawal of ৳${amount.toLocaleString()}`,
+                affectedMetrics: [
+                    { metric: "cashBalance", label: "Cash Balance", direction: "increase", amount },
+                    { metric: "netAssets", label: "Net Assets", direction: "increase", amount },
+                ],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "DELETE",
+                entityType: "cash_withdrawal",
+                entityId: withdrawalId,
+                entityName: `Withdrawal ৳${amount.toLocaleString()}`,
+                oldValue: withdrawalToDelete,
+                metadata: { financialImpact },
+            });
         }
 
         return c.json({ success: true, message: result.message });
@@ -102,3 +153,4 @@ cashWithdrawalRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
 });
 
 export { cashWithdrawalRoutes };
+

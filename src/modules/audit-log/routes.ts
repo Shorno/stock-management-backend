@@ -9,7 +9,7 @@ const app = new Hono();
 // Get all audit logs (Admin and Manager only)
 app.get(
     "/",
-    requireRole(["admin", "manager"]),
+    requireRole(["admin", "super_admin", "manager"]),
     zValidator("query", getLogsQuerySchema, (result, ctx) => {
         if (!result.success) {
             return ctx.json(
@@ -29,6 +29,6 @@ app.get(
 );
 
 // Get audit log by ID (Admin and Manager only)
-app.get("/:id", requireRole(["admin", "manager"]), auditLogController.handleGetLogById);
+app.get("/:id", requireRole(["admin", "super_admin", "manager"]), auditLogController.handleGetLogById);
 
 export default app;

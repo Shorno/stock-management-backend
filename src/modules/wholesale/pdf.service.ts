@@ -275,6 +275,7 @@ interface AdjustmentItemWithCalculations {
     netQuantity: number;
     netFreeQuantity: number;
     netTotal: number;
+    itemProfit?: number;
 }
 
 interface AdjustmentSummary {
@@ -289,6 +290,7 @@ interface AdjustmentSummary {
     totalCustomerDues: number;
     totalAdjustment: number;
     due: number;
+    totalProfit?: number;
 }
 
 export interface AdjustmentData {
@@ -538,7 +540,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             // === ITEMS TABLE ===
             const tableLeft = 40;
             const tableWidth = 515;
-            const colWidths = { sl: 20, product: 100, brand: 60, qty: 30, free: 28, price: 50, disc: 45, subtotal: 55, retQty: 30, netTotal: 50 };
+            const colWidths = { sl: 20, product: 90, brand: 55, qty: 28, free: 28, price: 45, disc: 40, subtotal: 50, retQty: 28, netTotal: 48, profit: 48 };
 
             // Table header
             doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
@@ -564,6 +566,8 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             doc.text("Ret", colX, currentY + 7, { width: colWidths.retQty, align: "right" });
             colX += colWidths.retQty;
             doc.text("Net", colX, currentY + 7, { width: colWidths.netTotal, align: "right" });
+            colX += colWidths.netTotal;
+            doc.text("Profit", colX, currentY + 7, { width: colWidths.profit, align: "right" });
 
             currentY += 24;
 
@@ -610,6 +614,9 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 doc.fillColor(retQty > 0 ? "#dc3545" : mediumGray).text(retQty.toString(), colX, currentY + 3, { width: colWidths.retQty, align: "right" });
                 colX += colWidths.retQty;
                 doc.fillColor(black).font("BanglaBold").text(formatCurrencyShort(item.netTotal), colX, currentY + 3, { width: colWidths.netTotal, align: "right" });
+                colX += colWidths.netTotal;
+                const itemProfit = (item as any).itemProfit || 0;
+                doc.fillColor(itemProfit >= 0 ? "#2563eb" : "#dc3545").text(formatCurrencyShort(itemProfit), colX, currentY + 3, { width: colWidths.profit, align: "right" });
                 doc.font("BanglaRegular");
 
                 currentY += 18;
@@ -746,6 +753,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 { label: "Payments", value: -summaryData.totalPayments, bold: false, color: "#28a745" },
                 { label: "Expenses", value: -summaryData.totalExpenses, bold: false, color: "#dc3545" },
                 { label: "Cust. Dues", value: -summaryData.totalCustomerDues, bold: false, color: "#e67e22" },
+                { label: "Total Profit", value: summaryData.totalProfit || 0, bold: true, color: "#2563eb" },
             ];
 
             summaryItems.forEach(item => {

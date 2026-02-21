@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import * as stockAdjustmentService from "./service";
 import { logError } from "../../lib/error-handler";
+import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 import {
     createStockAdjustmentSchema,
     getStockAdjustmentsQuerySchema,
@@ -23,6 +24,28 @@ stockAdjustmentRoutes.post(
             if (!result.success) {
                 return c.json({ success: false, error: result.message }, 400);
             }
+
+            // Audit log
+            const userInfo = getUserInfoFromContext(c);
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "CREATE",
+                entityType: "stock_adjustment",
+                entityId: (result as any).adjustmentId || "new",
+                entityName: `Stock Adjustment (${input.adjustmentType})`,
+                newValue: input,
+                metadata: {
+                    description: `Stock ${input.adjustmentType} adjustment`,
+                    financialImpact: {
+                        amount: 0,
+                        description: `Stock ${input.adjustmentType} for variant #${input.variantId}`,
+                        affectedMetrics: [
+                            { metric: "currentStock", label: "Current Stock", direction: input.adjustmentType === "damage" ? "decrease" : "increase", amount: input.quantity },
+                        ],
+                    } as FinancialImpact,
+                },
+            });
 
             return c.json({ success: true, data: result });
         } catch (error) {

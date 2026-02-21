@@ -7,6 +7,7 @@ import {
 } from "./validation";
 import * as damageReturnService from "./service";
 import { requireRole } from "../../lib/auth-middleware";
+import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 
 const app = new Hono();
 
@@ -78,6 +79,20 @@ app.post(
         try {
             const data = ctx.req.valid("json");
             const result = await damageReturnService.createDamageReturn(data);
+
+            // Audit log
+            const userInfo = getUserInfoFromContext(ctx);
+            await auditLog({
+                context: ctx,
+                ...userInfo,
+                action: "CREATE",
+                entityType: "damage_return",
+                entityId: (result as any).id || "new",
+                entityName: `Damage Return`,
+                newValue: result,
+                metadata: { description: "Created damage return request" },
+            });
+
             return ctx.json({
                 success: true,
                 data: result,
@@ -117,6 +132,20 @@ app.patch(
             const approvedById = undefined;
 
             const result = await damageReturnService.updateDamageReturnStatus(id, data, approvedById);
+
+            // Audit log
+            const userInfo = getUserInfoFromContext(ctx);
+            await auditLog({
+                context: ctx,
+                ...userInfo,
+                action: "STATUS_CHANGE",
+                entityType: "damage_return",
+                entityId: id,
+                entityName: `Damage Return #${id}`,
+                newValue: { status: data.status },
+                metadata: { description: `Damage return ${data.status}` },
+            });
+
             return ctx.json({
                 success: true,
                 data: result,
@@ -140,6 +169,19 @@ app.delete("/:id", requireRole(["admin"]), async (ctx) => {
         }
 
         await damageReturnService.deleteDamageReturn(id);
+
+        // Audit log
+        const userInfo = getUserInfoFromContext(ctx);
+        await auditLog({
+            context: ctx,
+            ...userInfo,
+            action: "DELETE",
+            entityType: "damage_return",
+            entityId: id,
+            entityName: `Damage Return #${id}`,
+            metadata: { description: "Deleted damage return" },
+        });
+
         return ctx.json({
             success: true,
             message: "Damage return deleted successfully",
