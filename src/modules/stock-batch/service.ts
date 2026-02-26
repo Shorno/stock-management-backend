@@ -17,6 +17,7 @@ export const createStockBatch = async (
         remainingQuantity: data.quantity,
         initialFreeQty: data.freeQuantity,
         remainingFreeQty: data.freeQuantity,
+        unit: data.unit,
     };
 
     const [createdBatch] = await db.insert(stockBatch).values(newBatch).returning();

@@ -1,0 +1,1 @@
+ALTER TABLE "stock_batch" ADD COLUMN "unit" varchar(20) DEFAULT 'PCS';
