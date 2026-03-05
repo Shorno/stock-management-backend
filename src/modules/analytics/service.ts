@@ -496,6 +496,7 @@ export interface DashboardStats {
     dsrOwnDue: number;
     cashBalance: number;
     supplierDue: number;
+    damageReturnsValue: number;
     netAssets: number;
 }
 
@@ -854,12 +855,18 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
     const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
 
+    // ----- DAMAGE RETURNS VALUE (at cost — can be returned to supplier) -----
+    const damageValueResult = await db
+        .select({ totalAtCost: sql<string>`COALESCE(SUM(CAST(${orderDamageItems.unitPrice} AS DECIMAL) * ${orderDamageItems.quantity}), 0)` })
+        .from(orderDamageItems);
+    const damageReturnsValue = Number(damageValueResult[0]?.totalAtCost || 0);
+
     // ----- NET ASSETS -----
     // Total business value = Assets - Liabilities
-    // Assets: Current Stock + Cash Balance + Receivables (DSR Sales Due + DSR Own Due)
+    // Assets: Current Stock + Cash Balance + Receivables (DSR Sales Due + DSR Own Due) + Damage Returns (at cost)
     // Liabilities: Supplier Due (if negative, we owe them)
     // Supplier Balance: positive = they owe us (add), negative = we owe them (subtract)
-    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + supplierDue;
+    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + supplierDue + damageReturnsValue;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
@@ -871,6 +878,7 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         cashBalance: Math.round(cashBalance * 100) / 100,
         supplierDue: Math.round(supplierDue * 100) / 100,
         netAssets: Math.round(netAssets * 100) / 100,
+        damageReturnsValue: Math.round(damageReturnsValue * 100) / 100,
     };
 }
 

@@ -325,9 +325,7 @@ export const getOrders = async (
             .where(whereClause),
     ]);
 
-    // Transform orders to include item count, totalReturns, and netTotal
-    // Type assertion needed because Drizzle's query type inference doesn't include relations properly
-    const transformedOrders = orders.map((order: any) => {
+    const transformedOrders = await Promise.all(orders.map(async (order: any) => {
         // Calculate total returns and adjustment discounts from item returns
         let totalReturns = 0;
         let totalAdjustmentDiscount = 0;
@@ -342,19 +340,29 @@ export const getOrders = async (
         const orderTotal = parseFloat(order.total || "0");
         const netTotal = orderTotal - totalReturns - totalAdjustmentDiscount;
 
-        // Calculate profit: sum of (salePrice - supplierPrice) × paidQuantity per item
-        // Then subtract returns and adjustment discounts
+        // Calculate profit: sum of (salePrice - supplierPrice) × netPaidQuantity per item
+        // Must account for returned quantities per-item to get correct margin
         let totalProfit = 0;
         if (order.items && order.items.length > 0) {
             for (const item of order.items) {
                 const salePrice = parseFloat(item.salePrice || "0");
                 const supplierPrice = parseFloat(item.batch?.supplierPrice || "0");
                 const paidQty = (item.totalQuantity ?? item.quantity) - item.freeQuantity;
-                totalProfit += (salePrice - supplierPrice) * paidQty;
+
+                // Find return for this specific item
+                const itemReturn = order.itemReturns?.find((r: any) => r.orderItemId === item.id);
+                let returnQtyInBase = 0;
+                if (itemReturn) {
+                    const retQty = itemReturn.returnQuantity ?? 0;
+                    const retUnit = itemReturn.returnUnit ?? "PCS";
+                    const retExtraPieces = itemReturn.returnExtraPieces ?? 0;
+                    const unitMultiplier = await getUnitMultiplier(retUnit);
+                    returnQtyInBase = (retQty * unitMultiplier) + retExtraPieces;
+                }
+
+                const netPaidQty = Math.max(0, paidQty - returnQtyInBase);
+                totalProfit += (salePrice - supplierPrice) * netPaidQty;
             }
-            // Subtract returns and adjustment discounts from profit
-            totalProfit -= totalReturns;
-            totalProfit -= totalAdjustmentDiscount;
         }
 
         return {
@@ -384,7 +392,7 @@ export const getOrders = async (
             createdAt: order.createdAt,
             updatedAt: order.updatedAt,
         };
-    });
+    }));
 
     return {
         orders: transformedOrders,
