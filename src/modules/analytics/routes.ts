@@ -27,5 +27,8 @@ analyticsRoutes.get("/dashboard-stats", controller.handleGetDashboardStats);
 // GET /api/analytics/returns-list - Combined returns list with adjustment amounts
 analyticsRoutes.get("/returns-list", controller.handleGetReturnsList);
 
+// GET /api/analytics/money-flow - Comprehensive money flow tracker
+analyticsRoutes.get("/money-flow", controller.handleGetMoneyFlow);
+
 export default analyticsRoutes;
 

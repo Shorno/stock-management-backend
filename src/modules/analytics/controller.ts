@@ -199,3 +199,23 @@ export const handleGetReturnsList = async (c: AppContext): Promise<Response> => 
         );
     }
 };
+
+export const handleGetMoneyFlow = async (c: AppContext): Promise<Response> => {
+    try {
+        const result = await analyticsService.getMoneyFlowDetails();
+
+        return c.json({
+            success: true,
+            data: result,
+        });
+    } catch (error) {
+        logError("Error fetching money flow details:", error);
+        return c.json(
+            {
+                success: false,
+                message: "Failed to fetch money flow details",
+            },
+            500
+        );
+    }
+};
