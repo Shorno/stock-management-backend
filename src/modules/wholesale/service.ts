@@ -879,7 +879,7 @@ export const saveOrderAdjustment = async (
         // Insert new damage items
         for (const damageItem of data.damageReturns || []) {
             if (damageItem.quantity > 0) {
-                const total = damageItem.quantity * damageItem.sellingPrice;
+                const total = damageItem.quantity * damageItem.unitPrice;
                 await tx.insert(orderDamageItems).values({
                     orderId,
                     orderItemId: damageItem.orderItemId || null,
