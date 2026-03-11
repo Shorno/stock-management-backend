@@ -107,7 +107,7 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
     // Delivered quantities for partial completion
     deliveredQuantity: integer("delivered_quantity"),
     deliveredFreeQty: integer("delivered_free_qty"),
-    salePrice: decimal("sale_price", { precision: 10, scale: 2 }).notNull(),
+    salePrice: decimal("sale_price", { precision: 12, scale: 6 }).notNull(),
     subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
     discount: decimal("discount", { precision: 10, scale: 2 }).notNull().default("0"),
     net: decimal("net", { precision: 10, scale: 2 }).notNull(),

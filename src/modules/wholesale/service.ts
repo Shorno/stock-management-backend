@@ -444,11 +444,16 @@ export const updateOrder = async (
         // Validate batches and get batch data
         const itemsWithBatchData = await Promise.all(
             data.items.map(async (item) => {
-                // Validate batch exists and has sufficient quantity
+                // Calculate paid quantity for validation (quantity × multiplier + extraPieces)
+                const multiplier = await getUnitMultiplier(item.unit);
+                const extraPieces = item.extraPieces || 0;
+                const paidQuantity = (item.quantity * multiplier) + extraPieces;
+
+                // Validate batch exists and has sufficient quantity (using calculated paidQuantity)
                 await validateAndGetBatch(
                     item.batchId,
                     item.productId,
-                    item.quantity,
+                    paidQuantity,
                     item.freeQuantity,
                     tx
                 );
@@ -750,8 +755,8 @@ export const saveOrderAdjustment = async (
             if (existingReturn.returnQuantity > 0 || existingReturnExtraPieces > 0 || existingReturn.returnFreeQuantity > 0) {
                 const orderItem = orderItemsMap.get(existingReturn.orderItemId);
                 if (orderItem) {
-                    // Get unit multiplier for the item
-                    const unitMultiplier = FALLBACK_UNIT_MULTIPLIERS[orderItem.unit.toUpperCase()] || 1;
+                    // Get unit multiplier for the item (use DB lookup, not hardcoded fallback)
+                    const unitMultiplier = await getUnitMultiplier(orderItem.unit);
                     // Total return = (returnQuantity × multiplier) + returnExtraPieces
                     const returnQtyInBase = (existingReturn.returnQuantity * unitMultiplier) + existingReturnExtraPieces;
                     const returnFreeQtyInBase = existingReturn.returnFreeQuantity;
@@ -857,7 +862,7 @@ export const saveOrderAdjustment = async (
                 if (itemReturn.returnQuantity > 0 || returnExtraPieces > 0 || itemReturn.returnFreeQuantity > 0) {
                     const orderItem = orderItemsMap.get(itemReturn.itemId);
                     if (orderItem) {
-                        const unitMultiplier = FALLBACK_UNIT_MULTIPLIERS[orderItem.unit.toUpperCase()] || 1;
+                        const unitMultiplier = await getUnitMultiplier(orderItem.unit);
                         // Total return = (returnQuantity × multiplier) + returnExtraPieces
                         const returnQtyInBase = (itemReturn.returnQuantity * unitMultiplier) + returnExtraPieces;
                         const returnFreeQtyInBase = itemReturn.returnFreeQuantity;
@@ -879,7 +884,7 @@ export const saveOrderAdjustment = async (
         // Insert new damage items
         for (const damageItem of data.damageReturns || []) {
             if (damageItem.quantity > 0) {
-                const total = damageItem.quantity * damageItem.sellingPrice;
+                const total = damageItem.quantity * damageItem.unitPrice;
                 await tx.insert(orderDamageItems).values({
                     orderId,
                     orderItemId: damageItem.orderItemId || null,

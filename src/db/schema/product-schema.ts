@@ -51,8 +51,8 @@ export const stockBatch = pgTable("stock_batch", {
   variantId: integer("variant_id")
     .notNull()
     .references(() => productVariant.id, { onDelete: "cascade" }),
-  supplierPrice: numeric("supplier_price", { precision: 10, scale: 2 }).notNull(),
-  sellPrice: numeric("sell_price", { precision: 10, scale: 2 }).notNull(),
+  supplierPrice: numeric("supplier_price", { precision: 12, scale: 6 }).notNull(),
+  sellPrice: numeric("sell_price", { precision: 12, scale: 6 }).notNull(),
   initialQuantity: integer("initial_quantity").notNull(),
   remainingQuantity: integer("remaining_quantity").notNull(),
   initialFreeQty: integer("initial_free_qty").notNull().default(0),
