@@ -2,12 +2,15 @@ import { db } from "../../db/config";
 import {
     orderCustomerDues,
     orderDsrDues,
+    orderSrDues,
     dueCollections,
     dsrDueCollections,
+    srDueCollections,
     customer,
     wholesaleOrders,
     route,
-    dsr
+    dsr,
+    sr
 } from "../../db/schema";
 import { eq, and, gte, lte, sql, desc, gt } from "drizzle-orm";
 import type {
@@ -16,7 +19,10 @@ import type {
     GetCollectionHistoryQuery,
     GetDSRDueSummaryQuery,
     GetDSRCollectionHistoryQuery,
-    CollectDsrDueInput
+    CollectDsrDueInput,
+    GetSRDueSummaryQuery,
+    GetSRCollectionHistoryQuery,
+    CollectSrDueInput
 } from "./validation";
 
 // ==================== INTERFACES ====================
@@ -107,6 +113,37 @@ export interface DSRCollectionRecord {
     paymentMethod: string | null;
     collectedByDsrId: number | null;
     collectedByDsrName: string | null;
+    note: string | null;
+    createdAt: Date;
+}
+
+export interface SRDueSummary {
+    srId: number;
+    srName: string;
+    totalOutstanding: string;
+    totalCollected: string;
+    pendingDuesCount: number;
+}
+
+export interface SRDueDetail {
+    dueId: number;
+    orderId: number;
+    orderNumber: string;
+    orderDate: string;
+    originalAmount: string;
+    collectedAmount: string;
+    remainingDue: string;
+    note: string | null;
+}
+
+export interface SRCollectionRecord {
+    id: number;
+    orderId: number;
+    orderNumber: string;
+    orderDate: string;
+    amount: string;
+    collectionDate: string;
+    paymentMethod: string | null;
     note: string | null;
     createdAt: Date;
 }
@@ -733,6 +770,278 @@ export const collectDsrDue = async (
         await db.insert(dsrDueCollections).values({
             dsrDueId: due.id,
             dsrId,
+            orderId: due.orderId,
+            amount: amountToApply.toFixed(2),
+            collectionDate,
+            paymentMethod,
+            note,
+        });
+
+        remainingAmount -= amountToApply;
+    }
+
+    return {
+        success: true,
+        message: `Collection of ৳${amount.toFixed(2)} recorded successfully`
+    };
+};
+
+// ==================== SR DUE TRACKING FUNCTIONS ====================
+
+/**
+ * Get SR due summary - aggregated dues by SR
+ */
+export const getSRDueSummary = async (
+    _query: GetSRDueSummaryQuery
+): Promise<SRDueSummary[]> => {
+    const results = await db
+        .select({
+            srId: sr.id,
+            srName: sr.name,
+            totalOriginal: sql<string>`COALESCE(SUM(CAST(${orderSrDues.amount} AS DECIMAL)), 0)`,
+            totalCollected: sql<string>`COALESCE(SUM(CAST(COALESCE(${orderSrDues.collectedAmount}, '0') AS DECIMAL)), 0)`,
+            pendingDuesCount: sql<number>`COUNT(CASE WHEN CAST(${orderSrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderSrDues.collectedAmount}, '0') AS DECIMAL) > 0 THEN 1 END)`,
+        })
+        .from(sr)
+        .leftJoin(orderSrDues, eq(orderSrDues.srId, sr.id))
+        .groupBy(sr.id, sr.name)
+        .orderBy(desc(sql`COALESCE(SUM(CAST(${orderSrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderSrDues.collectedAmount}, '0') AS DECIMAL)), 0)`));
+
+    return results.map(row => {
+        const totalOriginal = parseFloat(row.totalOriginal || "0");
+        const totalCollected = parseFloat(row.totalCollected || "0");
+        const totalOutstanding = Math.max(0, totalOriginal - totalCollected);
+
+        return {
+            srId: row.srId,
+            srName: row.srName,
+            totalOutstanding: totalOutstanding.toFixed(2),
+            totalCollected: totalCollected.toFixed(2),
+            pendingDuesCount: Number(row.pendingDuesCount) || 0,
+        };
+    });
+};
+
+/**
+ * Get detailed dues for a specific SR
+ */
+export const getSRDueDetails = async (
+    srId: number
+): Promise<{ sr: { id: number; name: string }; dues: SRDueDetail[]; totalOutstanding: string; totalCollected: string }> => {
+    // Get SR info
+    const srInfo = await db
+        .select({ id: sr.id, name: sr.name })
+        .from(sr)
+        .where(eq(sr.id, srId))
+        .limit(1);
+
+    if (!srInfo.length) {
+        return {
+            sr: { id: srId, name: "Unknown" },
+            dues: [],
+            totalOutstanding: "0.00",
+            totalCollected: "0.00"
+        };
+    }
+
+    // Get ALL SR dues for this SR
+    const allDues = await db
+        .select({
+            dueId: orderSrDues.id,
+            orderId: orderSrDues.orderId,
+            orderNumber: wholesaleOrders.orderNumber,
+            orderDate: wholesaleOrders.orderDate,
+            originalAmount: orderSrDues.amount,
+            collectedAmount: orderSrDues.collectedAmount,
+            note: orderSrDues.note,
+        })
+        .from(orderSrDues)
+        .innerJoin(wholesaleOrders, eq(orderSrDues.orderId, wholesaleOrders.id))
+        .where(eq(orderSrDues.srId, srId))
+        .orderBy(wholesaleOrders.orderDate);
+
+    // Filter for pending dues only (for display)
+    const pendingDues = allDues.filter(due => {
+        const remaining = parseFloat(due.originalAmount) - parseFloat(due.collectedAmount);
+        return remaining > 0;
+    });
+
+    const duesWithRemaining = pendingDues.map(due => ({
+        dueId: due.dueId,
+        orderId: due.orderId,
+        orderNumber: due.orderNumber,
+        orderDate: due.orderDate,
+        originalAmount: due.originalAmount,
+        collectedAmount: due.collectedAmount,
+        remainingDue: (parseFloat(due.originalAmount) - parseFloat(due.collectedAmount)).toFixed(2),
+        note: due.note,
+    }));
+
+    // Calculate totals from ALL dues
+    const totalOutstanding = allDues.reduce(
+        (sum, due) => sum + Math.max(0, parseFloat(due.originalAmount) - parseFloat(due.collectedAmount)),
+        0
+    );
+
+    const totalCollected = allDues.reduce(
+        (sum, due) => sum + parseFloat(due.collectedAmount),
+        0
+    );
+
+    return {
+        sr: srInfo[0]!,
+        dues: duesWithRemaining,
+        totalOutstanding: totalOutstanding.toFixed(2),
+        totalCollected: totalCollected.toFixed(2),
+    };
+};
+
+/**
+ * Get collection history for a specific SR
+ */
+export const getSRCollectionHistory = async (
+    query: GetSRCollectionHistoryQuery
+): Promise<SRCollectionRecord[]> => {
+    const conditions = [eq(srDueCollections.srId, query.srId)];
+
+    if (query.startDate) {
+        conditions.push(gte(srDueCollections.collectionDate, query.startDate));
+    }
+    if (query.endDate) {
+        conditions.push(lte(srDueCollections.collectionDate, query.endDate));
+    }
+
+    const results = await db
+        .select({
+            id: srDueCollections.id,
+            orderId: srDueCollections.orderId,
+            orderNumber: wholesaleOrders.orderNumber,
+            orderDate: wholesaleOrders.orderDate,
+            amount: srDueCollections.amount,
+            collectionDate: srDueCollections.collectionDate,
+            paymentMethod: srDueCollections.paymentMethod,
+            note: srDueCollections.note,
+            createdAt: srDueCollections.createdAt,
+        })
+        .from(srDueCollections)
+        .leftJoin(wholesaleOrders, eq(srDueCollections.orderId, wholesaleOrders.id))
+        .where(and(...conditions))
+        .orderBy(desc(srDueCollections.collectionDate), desc(srDueCollections.createdAt));
+
+    return results.map(row => ({
+        id: row.id,
+        orderId: row.orderId!,
+        orderNumber: row.orderNumber || "",
+        orderDate: row.orderDate || "",
+        amount: row.amount,
+        collectionDate: row.collectionDate,
+        paymentMethod: row.paymentMethod,
+        note: row.note,
+        createdAt: row.createdAt,
+    }));
+};
+
+// ==================== SR DUE COLLECTION ====================
+
+/**
+ * Collect SR's own due (money SR owes to company from order adjustments)
+ */
+export const collectSrDue = async (
+    input: CollectSrDueInput
+): Promise<{ success: boolean; message: string }> => {
+    const { srId, amount, collectionDate, paymentMethod, note, srDueId } = input;
+
+    // If specific srDueId provided, apply to that due only
+    if (srDueId) {
+        const due = await db
+            .select()
+            .from(orderSrDues)
+            .where(eq(orderSrDues.id, srDueId))
+            .limit(1);
+
+        if (!due.length) {
+            return { success: false, message: "SR due record not found" };
+        }
+
+        const dueRecord = due[0]!;
+        const collectedAmount = parseFloat(dueRecord.collectedAmount || "0");
+        const remaining = parseFloat(dueRecord.amount) - collectedAmount;
+
+        if (amount > remaining) {
+            return { success: false, message: `Amount exceeds remaining due of ৳${remaining.toFixed(2)}` };
+        }
+
+        // Update collected amount on the SR due record
+        await db
+            .update(orderSrDues)
+            .set({
+                collectedAmount: (collectedAmount + amount).toFixed(2),
+                note: note ? `${dueRecord.note || ""}\n[${collectionDate}] Collected ৳${amount} via ${paymentMethod || "cash"}${note ? ": " + note : ""}` : dueRecord.note,
+            })
+            .where(eq(orderSrDues.id, srDueId));
+
+        // Insert SR due collection record
+        await db.insert(srDueCollections).values({
+            srDueId,
+            srId,
+            orderId: dueRecord.orderId,
+            amount: amount.toFixed(2),
+            collectionDate,
+            paymentMethod,
+            note,
+        });
+
+        return { success: true, message: `Collected ৳${amount.toFixed(2)} from SR` };
+    }
+
+    // Auto-apply to oldest SR dues (FIFO)
+    let remainingAmount = amount;
+
+    const outstandingDues = await db
+        .select({
+            id: orderSrDues.id,
+            orderId: orderSrDues.orderId,
+            amount: orderSrDues.amount,
+            collectedAmount: orderSrDues.collectedAmount,
+            note: orderSrDues.note,
+        })
+        .from(orderSrDues)
+        .innerJoin(wholesaleOrders, eq(orderSrDues.orderId, wholesaleOrders.id))
+        .where(
+            and(
+                eq(orderSrDues.srId, srId),
+                gt(
+                    sql`CAST(${orderSrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderSrDues.collectedAmount}, '0') AS DECIMAL)`,
+                    0
+                )
+            )
+        )
+        .orderBy(wholesaleOrders.orderDate);
+
+    if (!outstandingDues.length) {
+        return { success: false, message: "No outstanding SR dues found" };
+    }
+
+    for (const due of outstandingDues) {
+        if (remainingAmount <= 0) break;
+
+        const collectedSoFar = parseFloat(due.collectedAmount || "0");
+        const dueRemaining = parseFloat(due.amount) - collectedSoFar;
+        const amountToApply = Math.min(remainingAmount, dueRemaining);
+
+        // Update collected amount on SR due
+        await db
+            .update(orderSrDues)
+            .set({
+                collectedAmount: (collectedSoFar + amountToApply).toFixed(2),
+                note: note ? `${due.note || ""}\n[${collectionDate}] Collected ৳${amountToApply} via ${paymentMethod || "cash"}${note ? ": " + note : ""}` : due.note,
+            })
+            .where(eq(orderSrDues.id, due.id));
+
+        // Insert SR due collection record
+        await db.insert(srDueCollections).values({
+            srDueId: due.id,
+            srId,
             orderId: due.orderId,
             amount: amountToApply.toFixed(2),
             collectionDate,

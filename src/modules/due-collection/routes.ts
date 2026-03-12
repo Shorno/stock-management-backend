@@ -9,6 +9,9 @@ import {
     getDSRDueSummaryQuerySchema,
     getDSRCollectionHistoryQuerySchema,
     collectDsrDueInputSchema,
+    getSRDueSummaryQuerySchema,
+    getSRCollectionHistoryQuerySchema,
+    collectSrDueInputSchema,
 } from "./validation";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 
@@ -213,6 +216,110 @@ dueCollectionRoutes.post(
         } catch (error) {
             logError("Error collecting DSR due:", error);
             return c.json({ success: false, error: "Failed to record DSR collection" }, 500);
+        }
+    }
+);
+
+// ==================== SR DUE TRACKING ROUTES ====================
+
+// Get SR due summary (all SRs with their outstanding dues)
+dueCollectionRoutes.get(
+    "/sr-summary",
+    zValidator("query", getSRDueSummaryQuerySchema),
+    async (c) => {
+        try {
+            const query = c.req.valid("query");
+            const summary = await dueCollectionService.getSRDueSummary(query);
+            return c.json({ success: true, data: summary });
+        } catch (error) {
+            logError("Error fetching SR due summary:", error);
+            return c.json({ success: false, error: "Failed to fetch SR summary" }, 500);
+        }
+    }
+);
+
+// Get detailed dues for a specific SR
+dueCollectionRoutes.get("/sr/:srId/dues", async (c) => {
+    try {
+        const srId = Number(c.req.param("srId"));
+        if (isNaN(srId)) {
+            return c.json({ success: false, error: "Invalid SR ID" }, 400);
+        }
+
+        const details = await dueCollectionService.getSRDueDetails(srId);
+        return c.json({ success: true, data: details });
+    } catch (error) {
+        logError("Error fetching SR due details:", error);
+        return c.json({ success: false, error: "Failed to fetch SR details" }, 500);
+    }
+});
+
+// Get collection history for a specific SR
+dueCollectionRoutes.get(
+    "/sr/:srId/collections",
+    zValidator("query", getSRCollectionHistoryQuerySchema),
+    async (c) => {
+        try {
+            const srId = Number(c.req.param("srId"));
+            if (isNaN(srId)) {
+                return c.json({ success: false, error: "Invalid SR ID" }, 400);
+            }
+
+            const query = c.req.valid("query");
+            const history = await dueCollectionService.getSRCollectionHistory({
+                ...query,
+                srId
+            });
+            return c.json({ success: true, data: history });
+        } catch (error) {
+            logError("Error fetching SR collection history:", error);
+            return c.json({ success: false, error: "Failed to fetch SR collection history" }, 500);
+        }
+    }
+);
+
+// Collect SR's own due (from order adjustments)
+dueCollectionRoutes.post(
+    "/sr/collect",
+    zValidator("json", collectSrDueInputSchema),
+    async (c) => {
+        try {
+            const input = c.req.valid("json");
+            const result = await dueCollectionService.collectSrDue(input);
+
+            if (!result.success) {
+                return c.json({ success: false, error: result.message }, 400);
+            }
+
+            // Audit log
+            const userInfo = getUserInfoFromContext(c);
+            const amount = input.amount;
+            const financialImpact: FinancialImpact = {
+                amount,
+                description: `Collected \u09f3${amount.toLocaleString()} SR due from SR #${input.srId}`,
+                affectedMetrics: [
+                    { metric: "cashBalance", label: "Cash Balance", direction: "increase", amount },
+                    { metric: "srOwnDue", label: "SR Own Due", direction: "decrease", amount },
+                ],
+            };
+            await auditLog({
+                context: c,
+                ...userInfo,
+                action: "PAYMENT",
+                entityType: "sr_due_collection",
+                entityId: String(input.srId),
+                entityName: `SR Due Collection \u09f3${amount.toLocaleString()}`,
+                newValue: input,
+                metadata: { financialImpact },
+            });
+
+            return c.json({
+                success: true,
+                message: result.message,
+            });
+        } catch (error) {
+            logError("Error collecting SR due:", error);
+            return c.json({ success: false, error: "Failed to record SR collection" }, 500);
         }
     }
 );

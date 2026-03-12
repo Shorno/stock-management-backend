@@ -683,6 +683,8 @@ export const handleGenerateSalesInvoicePdf = async (c: AppContext): Promise<Resp
             expenses: adjustmentData.expenses || [],
             itemsWithCalculations: adjustmentData.itemsWithCalculations || [],
             customerDues: adjustmentData.customerDues || [],
+            dsrDues: adjustmentData.dsrDues || [],
+            srDues: adjustmentData.srDues || [],
             summary: adjustmentData.summary,
         } : null;
 
@@ -743,6 +745,8 @@ export const handleGenerateMainInvoicePdf = async (c: AppContext): Promise<Respo
             itemsWithCalculations: adjustmentData.itemsWithCalculations || [],
             customerDues: adjustmentData.customerDues || [],
             damageReturns: adjustmentData.damageReturns || [],
+            dsrDues: adjustmentData.dsrDues || [],
+            srDues: adjustmentData.srDues || [],
             summary: adjustmentData.summary,
         } : null;
 

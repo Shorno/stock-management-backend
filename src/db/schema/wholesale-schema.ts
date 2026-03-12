@@ -9,6 +9,12 @@ export const dsr = pgTable("dsr", {
     ...timestamps
 });
 
+export const sr = pgTable("sr", {
+    id: serial("id").primaryKey(),
+    name: varchar("name", { length: 100 }).notNull(),
+    ...timestamps
+});
+
 export const route = pgTable("route", {
     id: serial("id").primaryKey(),
     name: varchar("name", { length: 100 }).notNull(),
@@ -530,6 +536,75 @@ export const dsrDueCollectionsRelations = relations(dsrDueCollections, ({ one })
     }),
     order: one(wholesaleOrders, {
         fields: [dsrDueCollections.orderId],
+        references: [wholesaleOrders.id],
+    }),
+}));
+
+// ==================== ORDER SR DUES ====================
+
+export const orderSrDues = pgTable("order_sr_dues", {
+    id: serial("id").primaryKey(),
+    orderId: integer("order_id")
+        .notNull()
+        .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+    srId: integer("sr_id")
+        .notNull()
+        .references(() => sr.id, { onDelete: "cascade" }),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    collectedAmount: decimal("collected_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+    note: text("note"),
+    ...timestamps
+}, (table) => ({
+    orderIdx: index("idx_order_sr_dues_order").on(table.orderId),
+    srIdx: index("idx_order_sr_dues_sr").on(table.srId),
+}));
+
+// Order SR dues relations
+export const orderSrDuesRelations = relations(orderSrDues, ({ one }) => ({
+    order: one(wholesaleOrders, {
+        fields: [orderSrDues.orderId],
+        references: [wholesaleOrders.id],
+    }),
+    sr: one(sr, {
+        fields: [orderSrDues.srId],
+        references: [sr.id],
+    }),
+}));
+
+// ==================== SR DUE COLLECTIONS ====================
+
+export const srDueCollections = pgTable("sr_due_collections", {
+    id: serial("id").primaryKey(),
+    srDueId: integer("sr_due_id")
+        .references(() => orderSrDues.id, { onDelete: "set null" }),
+    srId: integer("sr_id")
+        .references(() => sr.id, { onDelete: "set null" }),
+    orderId: integer("order_id")
+        .references(() => wholesaleOrders.id, { onDelete: "set null" }),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    collectionDate: date("collection_date").notNull(),
+    paymentMethod: varchar("payment_method", { length: 50 }),
+    note: text("note"),
+    ...timestamps
+}, (table) => ({
+    srDueIdx: index("idx_sr_due_collections_sr_due").on(table.srDueId),
+    srIdx: index("idx_sr_due_collections_sr").on(table.srId),
+    orderIdx: index("idx_sr_due_collections_order").on(table.orderId),
+    dateIdx: index("idx_sr_due_collections_date").on(table.collectionDate),
+}));
+
+// SR due collections relations
+export const srDueCollectionsRelations = relations(srDueCollections, ({ one }) => ({
+    srDue: one(orderSrDues, {
+        fields: [srDueCollections.srDueId],
+        references: [orderSrDues.id],
+    }),
+    sr: one(sr, {
+        fields: [srDueCollections.srId],
+        references: [sr.id],
+    }),
+    order: one(wholesaleOrders, {
+        fields: [srDueCollections.orderId],
         references: [wholesaleOrders.id],
     }),
 }));

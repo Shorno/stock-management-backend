@@ -61,3 +61,35 @@ export const collectDsrDueInputSchema = z.object({
 });
 
 export type CollectDsrDueInput = z.infer<typeof collectDsrDueInputSchema>;
+
+// ==================== SR DUE VALIDATION ====================
+
+// Query schema for SR due summary
+export const getSRDueSummaryQuerySchema = z.object({
+    search: z.string().optional(),
+});
+
+export type GetSRDueSummaryQuery = z.infer<typeof getSRDueSummaryQuerySchema>;
+
+// Query schema for SR collection history (srId comes from URL params, not query)
+export const getSRCollectionHistoryQuerySchema = z.object({
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+});
+
+// Full type includes srId which is added from URL params
+export type GetSRCollectionHistoryQuery = z.infer<typeof getSRCollectionHistoryQuerySchema> & {
+    srId: number;
+};
+
+// Input schema for collecting SR due (SR's own due from order adjustments)
+export const collectSrDueInputSchema = z.object({
+    srId: z.number(),
+    amount: z.number().positive("Amount must be greater than 0"),
+    collectionDate: z.string(),
+    paymentMethod: z.string().optional(),
+    note: z.string().optional(),
+    srDueId: z.number().optional(), // Optional: specify a specific SR due record to collect from
+});
+
+export type CollectSrDueInput = z.infer<typeof collectSrDueInputSchema>;
