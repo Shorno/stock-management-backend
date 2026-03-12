@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections, dsrDueCollections, plAdjustments } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, orderSrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections, dsrDueCollections, srDueCollections, plAdjustments } from "../../db/schema";
 import { product, productVariant, stockAdjustments, cashWithdrawals } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
 import { getUnitMultiplier } from "../unit/service";
@@ -494,6 +494,7 @@ export interface DashboardStats {
     profitLoss: number;
     dsrSalesDue: number;
     dsrOwnDue: number;
+    srOwnDue: number;
     cashBalance: number;
     supplierDue: number;
     damageReturnsValue: number;
@@ -754,6 +755,16 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const dsrOwnDue = Number(dsrOwnDuesResult[0]?.totalDue || 0);
 
+    // ----- SR OWN DUE -----
+    // Total outstanding SR dues from all orders (amount - collectedAmount)
+    const srOwnDuesResult = await db
+        .select({
+            totalDue: sql<string>`SUM(CAST(${orderSrDues.amount} AS DECIMAL) - CAST(${orderSrDues.collectedAmount} AS DECIMAL))`,
+        })
+        .from(orderSrDues);
+
+    const srOwnDue = Number(srOwnDuesResult[0]?.totalDue || 0);
+
     // ----- CASH BALANCE -----
     // Total payments received - total expenses
     let paymentFilters = undefined;
@@ -851,9 +862,26 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalDsrDueCollections = Number(dsrDueCollectionsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received + Due Collections + DSR Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
+    // ----- SR DUE COLLECTIONS (SR Own Dues Collected) -----
+    // Add collected SR dues to cash balance
+    let srDueCollectionFilters = undefined;
+    if (dateRange?.startDate) {
+        srDueCollectionFilters = and(
+            gte(srDueCollections.collectionDate, dateRange.startDate),
+            dateRange.endDate ? lte(srDueCollections.collectionDate, dateRange.endDate) : undefined
+        );
+    }
+
+    const srDueCollectionsResult = await db
+        .select({ total: sum(srDueCollections.amount) })
+        .from(srDueCollections)
+        .where(srDueCollectionFilters);
+
+    const totalSrDueCollections = Number(srDueCollectionsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received + Due Collections + DSR Due Collections + SR Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
     // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
-    const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
+    const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections + totalSrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
 
     // ----- DAMAGE RETURNS VALUE (at cost — can be returned to supplier) -----
     const damageValueResult = await db
@@ -863,10 +891,10 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     // ----- NET ASSETS -----
     // Total business value = Assets - Liabilities
-    // Assets: Current Stock + Cash Balance + Receivables (DSR Sales Due + DSR Own Due) + Damage Returns (at cost)
+    // Assets: Current Stock + Cash Balance + Receivables (DSR Sales Due + DSR Own Due + SR Own Due) + Damage Returns (at cost)
     // Liabilities: Supplier Due (if negative, we owe them)
     // Supplier Balance: positive = they owe us (add), negative = we owe them (subtract)
-    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + supplierDue + damageReturnsValue;
+    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + srOwnDue + supplierDue + damageReturnsValue;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
@@ -875,6 +903,7 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         profitLoss: Math.round(profitLoss * 100) / 100,
         dsrSalesDue: Math.round(dsrSalesDue * 100) / 100,
         dsrOwnDue: Math.round(dsrOwnDue * 100) / 100,
+        srOwnDue: Math.round(srOwnDue * 100) / 100,
         cashBalance: Math.round(cashBalance * 100) / 100,
         supplierDue: Math.round(supplierDue * 100) / 100,
         netAssets: Math.round(netAssets * 100) / 100,
@@ -935,9 +964,16 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     const totalBills = Number(billsResult[0]?.total || 0);
 
-    // Cash Balance = Payments Received + Due Collections + DSR Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
+    // Total SR due collections (SR own dues collected) - all time
+    const srDueCollectionsResult = await db
+        .select({ total: sum(srDueCollections.amount) })
+        .from(srDueCollections);
+
+    const totalSrDueCollections = Number(srDueCollectionsResult[0]?.total || 0);
+
+    // Cash Balance = Payments Received + Due Collections + DSR Due Collections + SR Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
     // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
-    const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
+    const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections + totalSrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
 
     return Math.round(cashBalance * 100) / 100;
 }
