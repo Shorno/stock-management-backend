@@ -29,6 +29,7 @@ import srRoutes from "./modules/sr/routes";
 import { cashWithdrawalRoutes } from "./modules/cash-withdrawal";
 import { investmentRoutes } from "./modules/investment";
 import { plAdjustmentRoutes } from "./modules/pl-adjustments";
+import damageClaimsRoutes from "./modules/damage-claims/routes";
 
 const app = new Hono<{
     Variables: {
@@ -119,6 +120,7 @@ app.route("/srs", srRoutes);
 app.route("/cash-withdrawals", cashWithdrawalRoutes);
 app.route("/investments", investmentRoutes);
 app.route("/pl-adjustments", plAdjustmentRoutes);
+app.route("/damage-claims", damageClaimsRoutes);
 
 
 const port = Number(process.env.PORT) || 3000;
