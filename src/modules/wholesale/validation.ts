@@ -136,6 +136,7 @@ export const adjustmentDsrDueSchema = z.object({
 export const adjustmentSrDueSchema = z.object({
     srId: z.coerce.number().int().positive("SR ID must be positive"),
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
+    customerId: z.coerce.number().int().positive().optional(),
     note: z.string().optional(),
 });
 

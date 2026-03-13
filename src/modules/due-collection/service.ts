@@ -853,10 +853,13 @@ export const getSRDueDetails = async (
             orderDate: wholesaleOrders.orderDate,
             originalAmount: orderSrDues.amount,
             collectedAmount: orderSrDues.collectedAmount,
+            customerId: orderSrDues.customerId,
+            customerName: customer.name,
             note: orderSrDues.note,
         })
         .from(orderSrDues)
         .innerJoin(wholesaleOrders, eq(orderSrDues.orderId, wholesaleOrders.id))
+        .leftJoin(customer, eq(orderSrDues.customerId, customer.id))
         .where(eq(orderSrDues.srId, srId))
         .orderBy(wholesaleOrders.orderDate);
 
@@ -874,6 +877,8 @@ export const getSRDueDetails = async (
         originalAmount: due.originalAmount,
         collectedAmount: due.collectedAmount,
         remainingDue: (parseFloat(due.originalAmount) - parseFloat(due.collectedAmount)).toFixed(2),
+        customerId: due.customerId,
+        customerName: due.customerName,
         note: due.note,
     }));
 

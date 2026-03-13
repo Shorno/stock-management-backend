@@ -850,6 +850,7 @@ export const saveOrderAdjustment = async (
                     orderId,
                     srId: srDue.srId,
                     amount: srDue.amount.toFixed(2),
+                    customerId: srDue.customerId || null,
                     note: srDue.note || null,
                 });
                 totalSrDuesAmount += srDue.amount;
@@ -985,10 +986,10 @@ export const getOrderAdjustment = async (orderId: number) => {
         where: (d, { eq }) => eq(d.orderId, orderId),
     });
 
-    // Get SR dues (with SR name)
+    // Get SR dues (with SR name and customer name)
     const srDuesData = await db.query.orderSrDues.findMany({
         where: (d, { eq }) => eq(d.orderId, orderId),
-        with: { sr: true },
+        with: { sr: true, customer: true },
     });
 
     // Calculate totals
@@ -1116,6 +1117,8 @@ export const getOrderAdjustment = async (orderId: number) => {
             id: d.id,
             srId: d.srId,
             srName: (d as any).sr?.name || undefined,
+            customerId: d.customerId || undefined,
+            customerName: (d as any).customer?.name || undefined,
             amount: parseFloat(d.amount),
             note: d.note || undefined,
         })),
