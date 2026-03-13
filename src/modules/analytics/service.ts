@@ -883,11 +883,21 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
     const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections + totalSrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
 
-    // ----- DAMAGE RETURNS VALUE (at cost — can be returned to supplier) -----
+    // ----- DAMAGE RETURNS VALUE (at cost — unclaimed only, since claimed amounts are already in supplierDue) -----
+    const { damageClaims } = await import("../../db/schema/damage-claims-schema");
+
     const damageValueResult = await db
         .select({ totalAtCost: sql<string>`COALESCE(SUM(CAST(${orderDamageItems.unitPrice} AS DECIMAL) * ${orderDamageItems.quantity}), 0)` })
         .from(orderDamageItems);
-    const damageReturnsValue = Number(damageValueResult[0]?.totalAtCost || 0);
+    const totalDamageAtCost = Number(damageValueResult[0]?.totalAtCost || 0);
+
+    const claimedResult = await db
+        .select({ totalClaimed: sql<string>`COALESCE(SUM(CAST(${damageClaims.amount} AS DECIMAL)), 0)` })
+        .from(damageClaims);
+    const totalClaimed = Number(claimedResult[0]?.totalClaimed || 0);
+
+    // Only unclaimed damage value counts as an asset (claimed amounts are already reflected in supplierDue)
+    const damageReturnsValue = Math.max(0, totalDamageAtCost - totalClaimed);
 
     // ----- NET ASSETS -----
     // Total business value = Assets - Liabilities

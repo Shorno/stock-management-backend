@@ -175,7 +175,7 @@ export const handleGetDashboardStats = async (c: AppContext): Promise<Response> 
 
 export const handleGetReturnsList = async (c: AppContext): Promise<Response> => {
     try {
-        const { startDate, endDate, limit, offset, brandId, dsrId, routeId } = c.req.query();
+        const { startDate, endDate, limit, offset, brandId, dsrId, routeId, approvalStatus } = c.req.query();
 
         const result = await getReturnsList({
             startDate,
@@ -184,7 +184,8 @@ export const handleGetReturnsList = async (c: AppContext): Promise<Response> => 
             offset: offset ? parseInt(offset) : 0,
             brandId,
             dsrId,
-            routeId
+            routeId,
+            approvalStatus: approvalStatus as 'pending' | 'approved' | 'all',
         });
 
         return c.json(result);

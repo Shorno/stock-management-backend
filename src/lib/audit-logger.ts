@@ -25,7 +25,7 @@ export async function auditLog(params: {
     userId?: string | null;
     userName?: string;
     userRole?: string;
-    action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "STATUS_CHANGE" | "VIEW" | "PAYMENT";
+    action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "STATUS_CHANGE" | "VIEW" | "PAYMENT" | "APPROVE";
     entityType:
     | "product" | "order" | "stock" | "user" | "dsr" | "route" | "brand" | "category"
     | "wholesale_order" | "variant" | "unit"
@@ -33,7 +33,8 @@ export async function auditLog(params: {
     | "pl_adjustment" | "dsr_loan" | "due_collection" | "dsr_due_collection"
     | "supplier_purchase" | "supplier_payment" | "damage_return" | "stock_adjustment"
     | "customer" | "dsr_target" | "settings"
-    | "sr" | "sr_due_collection";
+    | "sr" | "sr_due_collection"
+    | "damage_claim";
     entityId: string | number;
     entityName?: string;
     oldValue?: any;

@@ -33,6 +33,7 @@ export const supplierPayments = pgTable("supplier_payments", {
     paymentDate: date("payment_date").notNull(),
     paymentMethod: varchar("payment_method", { length: 50 }),
     fromCashBalance: boolean("from_cash_balance").notNull().default(false),
+    isDamageCredit: boolean("is_damage_credit").notNull().default(false),
     note: text("note"),
     ...timestamps
 }, (table) => ({

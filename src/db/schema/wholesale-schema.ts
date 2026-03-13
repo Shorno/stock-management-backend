@@ -366,6 +366,8 @@ export const orderDamageItems = pgTable("order_damage_items", {
     sellingPrice: decimal("selling_price", { precision: 10, scale: 2 }).notNull(),
     total: decimal("total", { precision: 10, scale: 2 }).notNull(),
     isOther: boolean("is_other").default(false).notNull(), // If true, damage is not related to order - excluded from settlement
+    approvedAt: date("approved_at"),
+    approvedById: integer("approved_by_id"),
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_damage_items_order").on(table.orderId),
@@ -427,6 +429,8 @@ export const damageReturnItems = pgTable("damage_return_items", {
     total: decimal("total", { precision: 10, scale: 2 }).notNull(),
     condition: varchar("condition", { length: 20 }).notNull().default("damaged"), // resellable, damaged
     reason: text("reason"),
+    approvedAt: date("approved_at"),
+    approvedById: integer("approved_by_id"),
     ...timestamps
 }, (table) => ({
     returnIdx: index("idx_damage_return_items_return").on(table.returnId),

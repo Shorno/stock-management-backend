@@ -12,7 +12,7 @@ import {
     orderDamageItems,
     wholesaleOrders
 } from "../../db/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, isNull, isNotNull } from "drizzle-orm";
 
 export interface ReturnsListQueryParams {
     startDate?: string;
@@ -21,11 +21,14 @@ export interface ReturnsListQueryParams {
     offset?: number;
     brandId?: string;
     dsrId?: string;
-    routeId?: string; // Kept for interface consistency, though currently not linkable in backend
+    routeId?: string;
+    approvalStatus?: 'pending' | 'approved' | 'all';
 }
 
 export interface ReturnListItem {
     id: string; // Unique ID (prefix + id)
+    sourceId: number; // Raw database ID
+    sourceType: 'damage_return' | 'order_damage'; // Which table the item comes from
     orderId?: number; // Order ID for linking (only for Order Damage type)
     returnDate: string;
     updatedAt: string; // For sorting by most recently updated
@@ -50,7 +53,7 @@ export interface ReturnsListResponse {
 }
 
 export const getReturnsList = async (params: ReturnsListQueryParams): Promise<ReturnsListResponse> => {
-    const { startDate, endDate, limit = 50, offset = 0, brandId, dsrId } = params;
+    const { startDate, endDate, limit = 50, offset = 0, brandId, dsrId, approvalStatus = 'all' } = params;
 
     // Get Damage Returns (standalone)
     const damageReturnsConditions = [eq(damageReturns.status, 'approved')];
@@ -88,6 +91,13 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
         damageReturnsConditions.push(eq(product.brandId, Number(brandId)));
     }
 
+    // Apply approval status filter
+    if (approvalStatus === 'pending') {
+        damageReturnsConditions.push(isNull(damageReturnItems.approvedAt));
+    } else if (approvalStatus === 'approved') {
+        damageReturnsConditions.push(isNotNull(damageReturnItems.approvedAt));
+    }
+
     // Apply WHERE clause
     damageReturnsQuery.where(and(...damageReturnsConditions));
 
@@ -104,6 +114,8 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
 
         return {
             id: `DMG-${item.id}`,
+            sourceId: item.id,
+            sourceType: 'damage_return' as const,
             returnDate: item.date,
             updatedAt: item.updatedAt?.toISOString() || item.date,
             productName: item.productName,
@@ -158,13 +170,19 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
         .leftJoin(productVariant, eq(product.id, productVariant.productId))
         .leftJoin(stockBatch, eq(productVariant.id, stockBatch.variantId));
 
-    if (orderDamageConditions.length > 0) {
-        orderDamageQuery.where(and(...orderDamageConditions));
-    }
-
     // Apply brand filter for order damage items
     if (brandId && brandId !== "all") {
-        // Brand name is stored directly in orderDamageItems, filter on that
+        orderDamageConditions.push(eq(product.brandId, Number(brandId)));
+    }
+
+    // Apply approval status filter for order damage
+    if (approvalStatus === 'pending') {
+        orderDamageConditions.push(isNull(orderDamageItems.approvedAt));
+    } else if (approvalStatus === 'approved') {
+        orderDamageConditions.push(isNotNull(orderDamageItems.approvedAt));
+    }
+
+    if (orderDamageConditions.length > 0) {
         orderDamageQuery.where(and(...orderDamageConditions));
     }
 
@@ -187,6 +205,8 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
 
         return {
             id: `ODM-${item.id}`,
+            sourceId: item.id,
+            sourceType: 'order_damage' as const,
             orderId: item.orderId,
             returnDate: item.orderDate,
             updatedAt: item.updatedAt?.toISOString() || item.orderDate,
