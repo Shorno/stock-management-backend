@@ -158,13 +158,12 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
         .leftJoin(productVariant, eq(product.id, productVariant.productId))
         .leftJoin(stockBatch, eq(productVariant.id, stockBatch.variantId));
 
-    if (orderDamageConditions.length > 0) {
-        orderDamageQuery.where(and(...orderDamageConditions));
-    }
-
     // Apply brand filter for order damage items
     if (brandId && brandId !== "all") {
-        // Brand name is stored directly in orderDamageItems, filter on that
+        orderDamageConditions.push(eq(product.brandId, Number(brandId)));
+    }
+
+    if (orderDamageConditions.length > 0) {
         orderDamageQuery.where(and(...orderDamageConditions));
     }
 
