@@ -1,4 +1,4 @@
-﻿import PDFDocument from "pdfkit";
+import PDFDocument from "pdfkit";
 import path from "path";
 import type { OrderWithItems } from "./types";
 
@@ -283,11 +283,13 @@ interface AdjustmentSummary {
     discount: number;
     total: number;
     totalReturns: number;
-    totalAdjustmentDiscount: number;  // Total adjustment discount across all items
+    totalAdjustmentDiscount: number;
     netTotal: number;
     totalPayments: number;
     totalExpenses: number;
     totalCustomerDues: number;
+    totalDsrDues?: number;
+    totalSrDues?: number;
     totalAdjustment: number;
     due: number;
     totalProfit?: number;
@@ -298,6 +300,8 @@ export interface AdjustmentData {
     expenses: AdjustmentExpense[];
     customerDues: AdjustmentCustomerDue[];
     damageReturns?: DamageReturn[];
+    dsrDues?: { id?: number; amount: number; note?: string }[];
+    srDues?: { id?: number; srId: number; srName?: string; amount: number; note?: string }[];
     itemsWithCalculations: AdjustmentItemWithCalculations[];
     summary: AdjustmentSummary;
 }
@@ -738,6 +742,36 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 currentY += 16;
             }
 
+            // Left column: DSR Dues
+            if (adjustment?.dsrDues && adjustment.dsrDues.length > 0) {
+                doc.fontSize(9).font("BanglaBold").fillColor("#e67e22");
+                doc.text("DSR Dues", leftCol, currentY);
+                currentY += 14;
+
+                doc.fontSize(8).font("BanglaRegular");
+                adjustment.dsrDues.forEach(due => {
+                    doc.fillColor(mediumGray).text(due.note || "DSR Due", leftCol, currentY);
+                    doc.fillColor("#e67e22").text(formatCurrency(due.amount), leftCol + 100, currentY);
+                    currentY += 12;
+                });
+                currentY += 8;
+            }
+
+            // Left column: SR Dues
+            if (adjustment?.srDues && adjustment.srDues.length > 0) {
+                doc.fontSize(9).font("BanglaBold").fillColor("#4f46e5");
+                doc.text("SR Dues", leftCol, currentY);
+                currentY += 14;
+
+                doc.fontSize(8).font("BanglaRegular");
+                adjustment.srDues.forEach(due => {
+                    doc.fillColor(mediumGray).text(due.srName || due.note || `SR #${due.srId}`, leftCol, currentY);
+                    doc.fillColor("#4f46e5").text(formatCurrency(due.amount), leftCol + 100, currentY);
+                    currentY += 12;
+                });
+                currentY += 8;
+            }
+
 
             // Right column - Summary totals (positioned at same Y as payments started)
             let rightY = paymentEndY - (adjustment?.payments?.length || 1) * 12 - 14;
@@ -753,6 +787,8 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 { label: "Payments", value: -summaryData.totalPayments, bold: false, color: "#28a745" },
                 { label: "Expenses", value: -summaryData.totalExpenses, bold: false, color: "#dc3545" },
                 { label: "Cust. Dues", value: -summaryData.totalCustomerDues, bold: false, color: "#e67e22" },
+                { label: "DSR Due", value: -(summaryData.totalDsrDues || 0), bold: false, color: "#e67e22" },
+                { label: "SR Due", value: -(summaryData.totalSrDues || 0), bold: false, color: "#4f46e5" },
                 { label: "Total Profit", value: summaryData.totalProfit || 0, bold: true, color: "#2563eb" },
             ];
 

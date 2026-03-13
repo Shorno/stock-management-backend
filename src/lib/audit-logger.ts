@@ -32,7 +32,8 @@ export async function auditLog(params: {
     | "bill" | "cash_withdrawal" | "investment" | "investment_withdrawal"
     | "pl_adjustment" | "dsr_loan" | "due_collection" | "dsr_due_collection"
     | "supplier_purchase" | "supplier_payment" | "damage_return" | "stock_adjustment"
-    | "customer" | "dsr_target" | "settings";
+    | "customer" | "dsr_target" | "settings"
+    | "sr" | "sr_due_collection";
     entityId: string | number;
     entityName?: string;
     oldValue?: any;

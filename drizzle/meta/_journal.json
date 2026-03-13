@@ -57,6 +57,20 @@
       "when": 1773234500423,
       "tag": "0007_ambitious_doctor_octopus",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1773323608320,
+      "tag": "0008_sudden_amazoness",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1773332272842,
+      "tag": "0009_bitter_ironclad",
+      "breakpoints": true
     }
   ]
 }

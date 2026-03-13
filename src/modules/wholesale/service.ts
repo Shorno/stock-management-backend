@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDsrDues, orderDamageItems } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDsrDues, orderSrDues, orderDamageItems } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte, sql, ne } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
@@ -779,6 +779,7 @@ export const saveOrderAdjustment = async (
         await tx.delete(orderItemReturns).where(eq(orderItemReturns.orderId, orderId));
         await tx.delete(orderCustomerDues).where(eq(orderCustomerDues.orderId, orderId));
         await tx.delete(orderDsrDues).where(eq(orderDsrDues.orderId, orderId));
+        await tx.delete(orderSrDues).where(eq(orderSrDues.orderId, orderId));
         await tx.delete(orderDamageItems).where(eq(orderDamageItems.orderId, orderId));
 
         let totalPayments = 0;
@@ -786,6 +787,7 @@ export const saveOrderAdjustment = async (
         let totalReturnsAmount = 0;
         let totalCustomerDuesAmount = 0;
         let totalDsrDuesAmount = 0;
+        let totalSrDuesAmount = 0;
         let totalDamageAmount = 0;
 
         // Insert new payments
@@ -838,6 +840,20 @@ export const saveOrderAdjustment = async (
                     note: dsrDue.note || null,
                 });
                 totalDsrDuesAmount += dsrDue.amount;
+            }
+        }
+
+        // Insert new SR dues
+        for (const srDue of data.srDues || []) {
+            if (srDue.amount > 0) {
+                await tx.insert(orderSrDues).values({
+                    orderId,
+                    srId: srDue.srId,
+                    amount: srDue.amount.toFixed(2),
+                    customerId: srDue.customerId || null,
+                    note: srDue.note || null,
+                });
+                totalSrDuesAmount += srDue.amount;
             }
         }
 
@@ -970,6 +986,12 @@ export const getOrderAdjustment = async (orderId: number) => {
         where: (d, { eq }) => eq(d.orderId, orderId),
     });
 
+    // Get SR dues (with SR name and customer name)
+    const srDuesData = await db.query.orderSrDues.findMany({
+        where: (d, { eq }) => eq(d.orderId, orderId),
+        with: { sr: true, customer: true },
+    });
+
     // Calculate totals
     const totalPayments = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
     const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
@@ -979,6 +1001,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Track remaining dues separately for collection tracking
     const remainingCustomerDues = customerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0);
     const totalDsrDues = dsrDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+    const totalSrDues = srDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
     const totalAdjustmentDiscount = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.adjustmentDiscount || "0"), 0);
 
     // Calculate per-item net values
@@ -1060,8 +1083,8 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Net Total = After Returns - Settlement Damages
     const netTotalAfterDamage = netTotalAfterReturns - settlementDamage;
 
-    // Adjustment = Payments + Expenses + Customer Dues + DSR Dues (all reduce what's owed)
-    const totalAdjustment = totalPayments + totalExpenses + totalCustomerDues + totalDsrDues;
+    // Adjustment = Payments + Expenses + Customer Dues + DSR Dues + SR Dues (all reduce what's owed)
+    const totalAdjustment = totalPayments + totalExpenses + totalCustomerDues + totalDsrDues + totalSrDues;
     const due = Math.max(0, netTotalAfterDamage - totalAdjustment);
 
     return {
@@ -1087,6 +1110,15 @@ export const getOrderAdjustment = async (orderId: number) => {
         dsrDues: dsrDuesData.map(d => ({
             id: d.id,
             dsrId: d.dsrId,
+            amount: parseFloat(d.amount),
+            note: d.note || undefined,
+        })),
+        srDues: srDuesData.map(d => ({
+            id: d.id,
+            srId: d.srId,
+            srName: (d as any).sr?.name || undefined,
+            customerId: d.customerId || undefined,
+            customerName: (d as any).customer?.name || undefined,
             amount: parseFloat(d.amount),
             note: d.note || undefined,
         })),
@@ -1132,6 +1164,7 @@ export const getOrderAdjustment = async (orderId: number) => {
             totalCustomerDues,
             remainingCustomerDues, // Remaining dues after collection (for tracking)
             totalDsrDues,
+            totalSrDues,
             totalAdjustment,
             due,
             totalProfit: itemsWithCalculations.reduce((sum, item) => sum + item.itemProfit, 0),
