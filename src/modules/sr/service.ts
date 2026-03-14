@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { sr, wholesaleOrderItems } from "../../db/schema";
+import { sr, wholesaleOrderItems, orderItemReturns } from "../../db/schema";
 import { eq, ilike, count, and, sql } from "drizzle-orm";
 import type { CreateSrInput, UpdateSrInput, GetSrsQuery } from "./validation";
 import type { SrWithBrand, NewSr } from "./types";
@@ -92,9 +92,10 @@ export const deleteSr = async (id: number): Promise<boolean> => {
   return result.length > 0;
 };
 
-// Get SR stats: total orders, sales amount, quantity sold
+// Get SR stats: total orders, sales amount, quantity sold — adjusted for returns and damages
 export const getSrStats = async (id: number) => {
-  const result = await db
+  // Gross sales from order items
+  const grossResult = await db
     .select({
       totalOrders: sql<number>`COUNT(DISTINCT ${wholesaleOrderItems.orderId})`,
       totalSalesAmount: sql<number>`COALESCE(SUM(CAST(${wholesaleOrderItems.net} AS NUMERIC)), 0)`,
@@ -103,10 +104,29 @@ export const getSrStats = async (id: number) => {
     .from(wholesaleOrderItems)
     .where(eq(wholesaleOrderItems.srId, id));
 
+  // Returns: sum of returnAmount + adjustmentDiscount from order_item_returns
+  // linked through orderItemId → wholesale_order_items where srId matches
+  const returnsResult = await db
+    .select({
+      totalReturns: sql<number>`COALESCE(SUM(CAST(${orderItemReturns.returnAmount} AS NUMERIC) + CAST(${orderItemReturns.adjustmentDiscount} AS NUMERIC)), 0)`,
+      totalReturnQty: sql<number>`COALESCE(SUM(${orderItemReturns.returnQuantity}), 0)`,
+    })
+    .from(orderItemReturns)
+    .innerJoin(wholesaleOrderItems, eq(orderItemReturns.orderItemId, wholesaleOrderItems.id))
+    .where(eq(wholesaleOrderItems.srId, id));
+
+  const grossSales = Number(grossResult[0]?.totalSalesAmount || 0);
+  const totalReturns = Number(returnsResult[0]?.totalReturns || 0);
+  const grossQty = Number(grossResult[0]?.totalQuantitySold || 0);
+  const returnQty = Number(returnsResult[0]?.totalReturnQty || 0);
+
   return {
-    totalOrders: Number(result[0]?.totalOrders || 0),
-    totalSalesAmount: Number(result[0]?.totalSalesAmount || 0),
-    totalQuantitySold: Number(result[0]?.totalQuantitySold || 0),
+    totalOrders: Number(grossResult[0]?.totalOrders || 0),
+    totalSalesAmount: grossSales - totalReturns,
+    totalQuantitySold: grossQty - returnQty,
+    // Breakdown for transparency
+    grossSalesAmount: grossSales,
+    totalReturns,
   };
 };
 
