@@ -773,32 +773,111 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             }
 
 
-            // Right column - Summary totals (positioned at same Y as payments started)
+            // Right column - Summary totals with running balance waterfall
             let rightY = paymentEndY - (adjustment?.payments?.length || 1) * 12 - 14;
 
             doc.fontSize(9);
-            const summaryItems = [
-                { label: "Subtotal", value: summaryData.subtotal, bold: false },
-                { label: "Discount", value: -summaryData.discount, bold: false, color: "#dc3545" },
-                { label: "Total", value: summaryData.total, bold: true },
-                { label: "Returns", value: -summaryData.totalReturns, bold: false, color: "#dc3545" },
-                { label: "Adj. Discount", value: -(summaryData.totalAdjustmentDiscount || 0), bold: false, color: "#dc3545" },
-                { label: "Net Total", value: summaryData.netTotal, bold: true },
-                { label: "Payments", value: -summaryData.totalPayments, bold: false, color: "#28a745" },
-                { label: "Expenses", value: -summaryData.totalExpenses, bold: false, color: "#dc3545" },
-                { label: "Cust. Dues", value: -summaryData.totalCustomerDues, bold: false, color: "#e67e22" },
-                { label: "DSR Due", value: -(summaryData.totalDsrDues || 0), bold: false, color: "#e67e22" },
-                { label: "SR Due", value: -(summaryData.totalSrDues || 0), bold: false, color: "#4f46e5" },
-                { label: "Total Profit", value: summaryData.totalProfit || 0, bold: true, color: "#2563eb" },
-            ];
 
-            summaryItems.forEach(item => {
-                doc.font(item.bold ? "BanglaBold" : "BanglaRegular").fillColor(mediumGray);
-                doc.text(item.label, rightCol, rightY);
-                doc.fillColor(item.color || darkGray);
-                doc.text(formatCurrency(Math.abs(item.value)), rightCol + labelWidth, rightY, { width: valueWidth, align: "right" });
+            // Running balance waterfall
+            const subtotal = summaryData.subtotal;
+            const discount = summaryData.discount;
+            const total = summaryData.total;
+            const returns = summaryData.totalReturns;
+            const adjDiscount = summaryData.totalAdjustmentDiscount || 0;
+            const damageSettlement = adjustment?.damageReturns
+                ?.filter(d => !(d as any).isOther)
+                ?.reduce((sum, d) => sum + (d.quantity * d.unitPrice), 0) || 0;
+            const netTotal = total - returns - adjDiscount - damageSettlement;
+            const payments = summaryData.totalPayments;
+            const expenses = summaryData.totalExpenses;
+            const custDues = summaryData.totalCustomerDues;
+            const dsrDues = summaryData.totalDsrDues || 0;
+            const srDues = summaryData.totalSrDues || 0;
+
+            // Helper to render a summary line
+            const renderLine = (label: string, value: string, options?: { bold?: boolean; color?: string }) => {
+                doc.font(options?.bold ? "BanglaBold" : "BanglaRegular").fillColor(mediumGray);
+                doc.text(label, rightCol, rightY);
+                doc.fillColor(options?.color || darkGray);
+                doc.text(value, rightCol + labelWidth, rightY, { width: valueWidth, align: "right" });
                 rightY += 14;
-            });
+            };
+
+            const renderRunning = (value: number) => {
+                doc.font("BanglaRegular").fillColor("#999999").fontSize(7);
+                doc.text(`= ${formatCurrency(value)}`, rightCol + labelWidth, rightY - 2, { width: valueWidth, align: "right" });
+                rightY += 10;
+                doc.fontSize(9);
+            };
+
+            // Subtotal
+            renderLine("Subtotal", formatCurrency(subtotal));
+
+            // Discount (only if > 0)
+            if (discount > 0) {
+                renderLine("Discount", `-${formatCurrency(discount)}`, { color: "#dc3545" });
+            }
+
+            // Total
+            renderLine("Total", formatCurrency(total), { bold: true });
+
+            // Returns
+            if (returns > 0) {
+                renderLine("Returns", `-${formatCurrency(returns)}`, { color: "#dc3545" });
+                renderRunning(total - returns);
+            }
+
+            // Adj. Discount
+            if (adjDiscount > 0) {
+                renderLine("Adj. Discount", `-${formatCurrency(adjDiscount)}`, { color: "#dc3545" });
+                renderRunning(total - returns - adjDiscount);
+            }
+
+            // Damage Returns
+            if (damageSettlement > 0) {
+                renderLine("Damage Returns", `-${formatCurrency(damageSettlement)}`, { color: "#9333ea" });
+            }
+
+            // Net Total
+            rightY += 4;
+            renderLine("Net Total", formatCurrency(netTotal), { bold: true });
+            rightY += 4;
+
+            // Payments
+            renderLine("Payments", `-${formatCurrency(payments)}`, { color: "#28a745" });
+            let running = netTotal - payments;
+            renderRunning(running);
+
+            // Expenses
+            if (expenses > 0) {
+                renderLine("Expenses", `-${formatCurrency(expenses)}`, { color: "#dc3545" });
+                running -= expenses;
+                renderRunning(running);
+            }
+
+            // Customer Dues
+            if (custDues > 0) {
+                renderLine("Cust. Dues", `-${formatCurrency(custDues)}`, { color: "#e67e22" });
+                running -= custDues;
+                renderRunning(running);
+            }
+
+            // DSR Due
+            if (dsrDues > 0) {
+                renderLine("DSR Due", `-${formatCurrency(dsrDues)}`, { color: "#e67e22" });
+                running -= dsrDues;
+                renderRunning(running);
+            }
+
+            // SR Due
+            if (srDues > 0) {
+                renderLine("SR Due", `-${formatCurrency(srDues)}`, { color: "#4f46e5" });
+            }
+
+            // Profit
+            const profit = summaryData.totalProfit || 0;
+            rightY += 4;
+            renderLine("Total Profit", formatCurrency(profit), { bold: true, color: profit >= 0 ? "#2563eb" : "#dc3545" });
 
             // Due amount (highlighted)
             rightY += 5;
