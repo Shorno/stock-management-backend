@@ -279,6 +279,7 @@ export const wholesaleOrdersExpenseRelation = relations(wholesaleOrders, ({ many
     expenses: many(orderExpenses),
     itemReturns: many(orderItemReturns),
     customerDues: many(orderCustomerDues),
+    damageItems: many(orderDamageItems),
 }));
 
 // ==================== ORDER CUSTOMER DUES ====================

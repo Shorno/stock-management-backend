@@ -568,25 +568,27 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalDamageProfit = Number(damageReturnsResult[0]?.totalProfit || 0);
 
-    // Get order damage items lost profit margin (from order adjustments)
-    // These are damaged products recorded during order adjustments
-    // Lost profit = (sellingPrice - unitPrice) × quantity
-    // Customer receives replacement (revenue intact), supplier covers cost, only margin is lost
-    let totalOrderDamageProfit = 0;
+    // Get order damage items — both margin (for P&L) and buying price (for Net Sales display)
+    let totalOrderDamageMargin = 0;
+    let totalOrderDamageCost = 0;
     if (orderIds.length > 0) {
         const orderDamageResult = await db
             .select({
                 lostMargin: sql<number>`sum((${orderDamageItems.sellingPrice} - ${orderDamageItems.unitPrice}) * ${orderDamageItems.quantity})`,
+                totalCost: sql<number>`sum(CAST(${orderDamageItems.unitPrice} AS DECIMAL) * ${orderDamageItems.quantity})`,
             })
             .from(orderDamageItems)
             .where(sql`${orderDamageItems.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
 
-        totalOrderDamageProfit = Number(orderDamageResult[0]?.lostMargin || 0);
+        totalOrderDamageMargin = Number(orderDamageResult[0]?.lostMargin || 0);
+        totalOrderDamageCost = Number(orderDamageResult[0]?.totalCost || 0);
     }
 
-    // Subtract Order Returns (Adjustments), Damage Returns Profit, and Order Damage Items from Net Sales
-    // User logic: effectively only removing the profit margin of the damaged item from the total sales
-    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageProfit;
+    // Net Sales (display): deducts damage at buying price — reflects actual revenue collected
+    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageCost;
+
+    // Net Sales for P&L: deducts only the lost margin — keeps profit calculation accurate
+    const netSalesForPL = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageMargin;
 
     // ----- NET PURCHASE -----
     // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
@@ -731,8 +733,9 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     const totalAdjustmentIncome = Number(plAdjustmentResult[0]?.totalIncome || 0);
     const totalAdjustmentExpense = Number(plAdjustmentResult[0]?.totalExpenseAdj || 0);
 
-    // Profit = Net Sales - Cost of Goods Sold - Bills - DSR Expenses + Adjustment Income - Adjustment Expense
-    const profitLoss = netSales - costOfGoodsSold - totalBills - totalExpenses + totalAdjustmentIncome - totalAdjustmentExpense;
+    // Profit = Net Sales (margin-adjusted) - Cost of Goods Sold - Bills - DSR Expenses + Adjustment Income - Adjustment Expense
+    // Uses netSalesForPL (margin deduction) instead of netSales (buying price deduction) to keep P&L accurate
+    const profitLoss = netSalesForPL - costOfGoodsSold - totalBills - totalExpenses + totalAdjustmentIncome - totalAdjustmentExpense;
 
     // ----- DSR SALES DUE -----
     // Total outstanding customer dues from all orders (amount - collectedAmount)
@@ -1171,15 +1174,21 @@ export async function getMoneyFlowDetails(): Promise<MoneyFlowDetails> {
         .where(eq(damageReturns.status, 'approved'));
     const totalDamageProfit = Number(damageReturnsResult[0]?.totalProfit || 0);
 
-    // Order damage items
+    // Order damage items — both margin (for P&L) and buying price (for Net Sales display)
     const orderDamageResult = await db
         .select({
             lostMargin: sql<number>`sum((${orderDamageItems.sellingPrice} - ${orderDamageItems.unitPrice}) * ${orderDamageItems.quantity})`,
+            totalCost: sql<number>`sum(CAST(${orderDamageItems.unitPrice} AS DECIMAL) * ${orderDamageItems.quantity})`,
         })
         .from(orderDamageItems);
     const totalOrderDamageLostMargin = Number(orderDamageResult[0]?.lostMargin || 0);
+    const totalOrderDamageCost = Number(orderDamageResult[0]?.totalCost || 0);
 
-    const netSales = grossSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageLostMargin;
+    // Net Sales (display): deducts damage at buying price
+    const netSales = grossSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageCost;
+
+    // Net Sales for P&L: deducts only the lost margin
+    const netSalesForPL = grossSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageLostMargin;
 
     // ----- CASH FLOW -----
     const paymentsReceivedResult = await db.select({ total: sum(orderPayments.amount) }).from(orderPayments);
@@ -1371,7 +1380,7 @@ export async function getMoneyFlowDetails(): Promise<MoneyFlowDetails> {
     const plAdjustmentExpense = Number(plAdjustmentResult[0]?.totalExpenseAdj || 0);
 
     // Profit = Net Sales - COGS (per order) - Bills - Expenses + PL Adj Income - PL Adj Expense
-    const profitLossValue = netSales - cogsPerOrder - totalBillsAmount - totalExpensesAmount + plAdjustmentIncome - plAdjustmentExpense;
+    const profitLossValue = netSalesForPL - cogsPerOrder - totalBillsAmount - totalExpensesAmount + plAdjustmentIncome - plAdjustmentExpense;
 
     // ----- ACCOUNTING VERIFICATION -----
     const currentStockPlusCogs = currentStock + cogs;
