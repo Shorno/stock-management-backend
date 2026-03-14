@@ -96,6 +96,8 @@ export interface DSRDueDetail {
     customerId: number | null;
     customerName: string;
     shopName: string | null;
+    routeId: number | null;
+    routeName: string | null;
     originalAmount: string;
     collectedAmount: string;
     remainingDue: string;
@@ -108,6 +110,8 @@ export interface DSRCollectionRecord {
     orderDate: string;
     customerId: number | null;
     customerName: string;
+    routeId: number | null;
+    routeName: string | null;
     amount: string;
     collectionDate: string;
     paymentMethod: string | null;
@@ -133,6 +137,10 @@ export interface SRDueDetail {
     originalAmount: string;
     collectedAmount: string;
     remainingDue: string;
+    customerId: number | null;
+    customerName: string | null;
+    routeId: number | null;
+    routeName: string | null;
     note: string | null;
 }
 
@@ -145,6 +153,10 @@ export interface SRCollectionRecord {
     collectionDate: string;
     paymentMethod: string | null;
     note: string | null;
+    customerId: number | null;
+    customerName: string | null;
+    routeId: number | null;
+    routeName: string | null;
     createdAt: Date;
 }
 
@@ -553,12 +565,15 @@ export const getDSRDueDetails = async (
             customerId: orderCustomerDues.customerId,
             customerName: orderCustomerDues.customerName,
             shopName: customer.shopName,
+            routeId: wholesaleOrders.routeId,
+            routeName: route.name,
             originalAmount: orderCustomerDues.amount,
             collectedAmount: orderCustomerDues.collectedAmount,
         })
         .from(orderCustomerDues)
         .innerJoin(wholesaleOrders, eq(orderCustomerDues.orderId, wholesaleOrders.id))
         .leftJoin(customer, eq(orderCustomerDues.customerId, customer.id))
+        .leftJoin(route, eq(wholesaleOrders.routeId, route.id))
         .where(eq(wholesaleOrders.dsrId, dsrId))
         .orderBy(wholesaleOrders.orderDate);
 
@@ -576,6 +591,8 @@ export const getDSRDueDetails = async (
         customerId: due.customerId,
         customerName: due.customerName,
         shopName: due.shopName,
+        routeId: due.routeId,
+        routeName: due.routeName,
         originalAmount: due.originalAmount,
         collectedAmount: due.collectedAmount,
         remainingDue: (parseFloat(due.originalAmount) - parseFloat(due.collectedAmount)).toFixed(2),
@@ -615,7 +632,6 @@ export const getDSRCollectionHistory = async (
         conditions.push(lte(dueCollections.collectionDate, query.endDate));
     }
 
-    // First, get the collections with basic info (without collector name to avoid alias issue)
     const results = await db
         .select({
             id: dueCollections.id,
@@ -624,6 +640,8 @@ export const getDSRCollectionHistory = async (
             orderDate: wholesaleOrders.orderDate,
             customerId: dueCollections.customerId,
             customerName: customer.name,
+            routeId: wholesaleOrders.routeId,
+            routeName: route.name,
             amount: dueCollections.amount,
             collectionDate: dueCollections.collectionDate,
             paymentMethod: dueCollections.paymentMethod,
@@ -634,6 +652,7 @@ export const getDSRCollectionHistory = async (
         .from(dueCollections)
         .innerJoin(wholesaleOrders, eq(dueCollections.orderId, wholesaleOrders.id))
         .leftJoin(customer, eq(dueCollections.customerId, customer.id))
+        .leftJoin(route, eq(wholesaleOrders.routeId, route.id))
         .where(and(...conditions))
         .orderBy(desc(dueCollections.collectionDate), desc(dueCollections.createdAt));
 
@@ -659,6 +678,8 @@ export const getDSRCollectionHistory = async (
         orderDate: row.orderDate,
         customerId: row.customerId,
         customerName: row.customerName || "Unknown",
+        routeId: row.routeId || null,
+        routeName: row.routeName || null,
         amount: row.amount,
         collectionDate: row.collectionDate,
         paymentMethod: row.paymentMethod,
@@ -851,6 +872,8 @@ export const getSRDueDetails = async (
             orderId: orderSrDues.orderId,
             orderNumber: wholesaleOrders.orderNumber,
             orderDate: wholesaleOrders.orderDate,
+            routeId: wholesaleOrders.routeId,
+            routeName: route.name,
             originalAmount: orderSrDues.amount,
             collectedAmount: orderSrDues.collectedAmount,
             customerId: orderSrDues.customerId,
@@ -860,6 +883,7 @@ export const getSRDueDetails = async (
         .from(orderSrDues)
         .innerJoin(wholesaleOrders, eq(orderSrDues.orderId, wholesaleOrders.id))
         .leftJoin(customer, eq(orderSrDues.customerId, customer.id))
+        .leftJoin(route, eq(wholesaleOrders.routeId, route.id))
         .where(eq(orderSrDues.srId, srId))
         .orderBy(wholesaleOrders.orderDate);
 
@@ -879,6 +903,8 @@ export const getSRDueDetails = async (
         remainingDue: (parseFloat(due.originalAmount) - parseFloat(due.collectedAmount)).toFixed(2),
         customerId: due.customerId,
         customerName: due.customerName,
+        routeId: due.routeId,
+        routeName: due.routeName,
         note: due.note,
     }));
 
@@ -922,14 +948,21 @@ export const getSRCollectionHistory = async (
             orderId: srDueCollections.orderId,
             orderNumber: wholesaleOrders.orderNumber,
             orderDate: wholesaleOrders.orderDate,
+            routeId: wholesaleOrders.routeId,
+            routeName: route.name,
             amount: srDueCollections.amount,
             collectionDate: srDueCollections.collectionDate,
             paymentMethod: srDueCollections.paymentMethod,
             note: srDueCollections.note,
+            customerId: orderSrDues.customerId,
+            customerName: customer.name,
             createdAt: srDueCollections.createdAt,
         })
         .from(srDueCollections)
         .leftJoin(wholesaleOrders, eq(srDueCollections.orderId, wholesaleOrders.id))
+        .leftJoin(route, eq(wholesaleOrders.routeId, route.id))
+        .leftJoin(orderSrDues, eq(srDueCollections.srDueId, orderSrDues.id))
+        .leftJoin(customer, eq(orderSrDues.customerId, customer.id))
         .where(and(...conditions))
         .orderBy(desc(srDueCollections.collectionDate), desc(srDueCollections.createdAt));
 
@@ -942,6 +975,10 @@ export const getSRCollectionHistory = async (
         collectionDate: row.collectionDate,
         paymentMethod: row.paymentMethod,
         note: row.note,
+        customerId: row.customerId || null,
+        customerName: row.customerName || null,
+        routeId: row.routeId || null,
+        routeName: row.routeName || null,
         createdAt: row.createdAt,
     }));
 };
