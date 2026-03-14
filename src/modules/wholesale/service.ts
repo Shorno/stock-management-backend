@@ -317,6 +317,7 @@ export const getOrders = async (
                     },
                 },
                 itemReturns: true,  // Include item returns for calculating net sale
+                damageItems: true,  // Include damage items for deducting from net sale
             },
         }),
         db
@@ -338,7 +339,16 @@ export const getOrders = async (
         }
 
         const orderTotal = parseFloat(order.total || "0");
-        const netTotal = orderTotal - totalReturns - totalAdjustmentDiscount;
+
+        // Calculate total damage cost (at buying price) from damage items
+        let totalDamageCost = 0;
+        if (order.damageItems && order.damageItems.length > 0) {
+            for (const damageItem of order.damageItems) {
+                totalDamageCost += parseFloat(damageItem.total || "0");
+            }
+        }
+
+        const netTotal = orderTotal - totalReturns - totalAdjustmentDiscount - totalDamageCost;
 
         // Calculate profit: sum of (salePrice - supplierPrice) × netPaidQuantity per item
         // Must account for returned quantities per-item to get correct margin
