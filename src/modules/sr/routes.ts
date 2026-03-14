@@ -4,6 +4,7 @@ import {
   createSrSchema,
   updateSrSchema,
   getSrsQuerySchema,
+  srOrderItemsQuerySchema,
 } from "./validation";
 import * as srController from "./controller";
 import { requireRole } from "../../lib/auth-middleware";
@@ -51,6 +52,20 @@ app.get(
 );
 
 app.get("/:id", srController.handleGetSrById);
+
+// SR stats route
+app.get("/:id/stats", srController.handleGetSrStats);
+
+// SR order items route (paginated)
+app.get(
+  "/:id/order-items",
+  zValidator("query", srOrderItemsQuerySchema, (result, ctx) => {
+    if (!result.success) {
+      return ctx.json({ success: false, message: "Invalid query parameters" }, 400);
+    }
+  }),
+  srController.handleGetSrOrderItems
+);
 
 // Update an SR (Admin only)
 app.put(
