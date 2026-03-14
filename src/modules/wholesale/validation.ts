@@ -17,6 +17,7 @@ export const orderItemSchema = z.object({
     extraPieces: z.coerce.number().int("Extra pieces must be an integer").nonnegative("Extra pieces cannot be negative").default(0),
     salePrice: z.coerce.number().positive("Sale price must be greater than 0"),
     discount: z.coerce.number().nonnegative("Discount must be non-negative").default(0),
+    srId: z.coerce.number().int("SR ID must be an integer").positive("SR ID must be positive").optional(),
 });
 
 // Create order schema

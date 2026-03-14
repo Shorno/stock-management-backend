@@ -12,8 +12,12 @@ export const dsr = pgTable("dsr", {
 export const sr = pgTable("sr", {
     id: serial("id").primaryKey(),
     name: varchar("name", { length: 100 }).notNull(),
+    brandId: integer("brand_id")
+        .references(() => brand.id, { onDelete: "set null" }),
     ...timestamps
-});
+}, (table) => ({
+    brandIdx: index("idx_sr_brand").on(table.brandId),
+}));
 
 export const route = pgTable("route", {
     id: serial("id").primaryKey(),
@@ -104,6 +108,8 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
     brandId: integer("brand_id")
         .notNull()
         .references(() => brand.id, { onDelete: "restrict" }),
+    srId: integer("sr_id")
+        .references(() => sr.id, { onDelete: "set null" }),
     quantity: integer("quantity").notNull(),
     unit: varchar("unit", { length: 20 }).notNull(),
     totalQuantity: integer("total_quantity").notNull(),
@@ -122,6 +128,7 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
     orderIdx: index("idx_wholesale_order_items_order").on(table.orderId),
     productIdx: index("idx_wholesale_order_items_product").on(table.productId),
     batchIdx: index("idx_wholesale_order_items_batch").on(table.batchId),
+    srIdx: index("idx_wholesale_order_items_sr").on(table.srId),
 }));
 
 // Relations
@@ -134,6 +141,13 @@ export const dsrTargetRelations = relations(dsrTarget, ({ one }) => ({
     dsr: one(dsr, {
         fields: [dsrTarget.dsrId],
         references: [dsr.id],
+    }),
+}));
+
+export const srRelations = relations(sr, ({ one }) => ({
+    brand: one(brand, {
+        fields: [sr.brandId],
+        references: [brand.id],
     }),
 }));
 
@@ -177,6 +191,10 @@ export const wholesaleOrderItemsRelations = relations(wholesaleOrderItems, ({ on
     brand: one(brand, {
         fields: [wholesaleOrderItems.brandId],
         references: [brand.id],
+    }),
+    sr: one(sr, {
+        fields: [wholesaleOrderItems.srId],
+        references: [sr.id],
     }),
 }));
 

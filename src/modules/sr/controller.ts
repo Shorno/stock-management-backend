@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import type { CreateSrInput, UpdateSrInput, GetSrsQuery } from "./validation";
-import type { SrResponse } from "./types";
+import type { SrResponse, SrStatsResponse } from "./types";
 import * as srService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 import { formatDatabaseError, logError } from "../../lib/error-handler";
@@ -170,5 +170,80 @@ export const handleDeleteSr = async (c: AppContext): Promise<Response> => {
       },
       500
     );
+  }
+};
+
+export const handleGetSrStats = async (c: AppContext): Promise<Response> => {
+  try {
+    const id = Number(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json<SrStatsResponse>(
+        {
+          success: false,
+          message: "Invalid SR ID",
+        },
+        400
+      );
+    }
+
+    const sr = await srService.getSrById(id);
+    if (!sr) {
+      return c.json<SrStatsResponse>(
+        {
+          success: false,
+          message: "SR not found",
+        },
+        404
+      );
+    }
+
+    const stats = await srService.getSrStats(id);
+
+    return c.json({
+      success: true,
+      data: {
+        sr,
+        stats,
+      },
+    });
+  } catch (error) {
+    logError("Error fetching SR stats:", error);
+    return c.json<SrStatsResponse>(
+      {
+        success: false,
+        message: "Failed to fetch SR stats",
+      },
+      500
+    );
+  }
+};
+
+// GET /srs/:id/order-items - Paginated order items for an SR
+export const handleGetSrOrderItems = async (c: Context) => {
+  try {
+    const id = Number(c.req.param("id"));
+    if (isNaN(id) || id <= 0) {
+      return c.json({ success: false, message: "Invalid SR ID" }, 400);
+    }
+
+    const query = c.req.valid("query" as never) as { page: number; limit: number };
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const offset = (page - 1) * limit;
+
+    const { items, total } = await srService.getSrOrderItems(id, limit, offset);
+
+    return c.json({
+      success: true,
+      data: items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    logError("Error fetching SR order items:", error);
+    return c.json({ success: false, message: "Failed to fetch SR order items" }, 500);
   }
 };
