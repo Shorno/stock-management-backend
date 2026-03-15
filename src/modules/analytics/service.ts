@@ -584,11 +584,30 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         totalOrderDamageCost = Number(orderDamageResult[0]?.totalCost || 0);
     }
 
-    // Net Sales (display): deducts damage at buying price — reflects actual revenue collected
-    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageCost;
+    // ----- DSR EXPENSES -----
+    // Fetch DSR expenses from order adjustments for the date range (needed for Net Sales)
+    let expenseFilters = undefined;
+    if (dateRange?.startDate) {
+        expenseFilters = and(
+            gte(orderExpenses.createdAt, new Date(dateRange.startDate)),
+            dateRange.endDate ? lte(orderExpenses.createdAt, new Date(dateRange.endDate + 'T23:59:59')) : undefined
+        );
+    }
 
-    // Net Sales for P&L: deducts only the lost margin — keeps profit calculation accurate
-    const netSalesForPL = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageMargin;
+    const expensesResult = await db
+        .select({
+            total: sum(orderExpenses.amount),
+        })
+        .from(orderExpenses)
+        .where(expenseFilters);
+
+    const totalExpenses = Number(expensesResult[0]?.total || 0);
+
+    // Net Sales (display): deducts damage at buying price and expenses — reflects actual revenue collected
+    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageCost - totalExpenses;
+
+    // Net Sales for P&L: deducts only the lost margin and expenses — keeps profit calculation accurate
+    const netSalesForPL = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageMargin - totalExpenses;
 
     // ----- NET PURCHASE -----
     // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
@@ -693,24 +712,6 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalBills = Number(billsResult[0]?.totalBills || 0);
 
-    // ----- DSR EXPENSES -----
-    // Fetch DSR expenses from order adjustments for the date range
-    let expenseFilters = undefined;
-    if (dateRange?.startDate) {
-        expenseFilters = and(
-            gte(orderExpenses.createdAt, new Date(dateRange.startDate)),
-            dateRange.endDate ? lte(orderExpenses.createdAt, new Date(dateRange.endDate + 'T23:59:59')) : undefined
-        );
-    }
-
-    const expensesResult = await db
-        .select({
-            total: sum(orderExpenses.amount),
-        })
-        .from(orderExpenses)
-        .where(expenseFilters);
-
-    const totalExpenses = Number(expensesResult[0]?.total || 0);
 
     // ----- P&L ADJUSTMENTS -----
     // Manual adjustments to profit & loss (income adds, expense subtracts)
@@ -733,9 +734,9 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     const totalAdjustmentIncome = Number(plAdjustmentResult[0]?.totalIncome || 0);
     const totalAdjustmentExpense = Number(plAdjustmentResult[0]?.totalExpenseAdj || 0);
 
-    // Profit = Net Sales (margin-adjusted) - Cost of Goods Sold - Bills - DSR Expenses + Adjustment Income - Adjustment Expense
-    // Uses netSalesForPL (margin deduction) instead of netSales (buying price deduction) to keep P&L accurate
-    const profitLoss = netSalesForPL - costOfGoodsSold - totalBills - totalExpenses + totalAdjustmentIncome - totalAdjustmentExpense;
+    // Profit = Net Sales (margin-adjusted, includes expenses) - Cost of Goods Sold - Bills + Adjustment Income - Adjustment Expense
+    // Uses netSalesForPL (margin deduction + expenses) instead of netSales (buying price deduction) to keep P&L accurate
+    const profitLoss = netSalesForPL - costOfGoodsSold - totalBills + totalAdjustmentIncome - totalAdjustmentExpense;
 
     // ----- DSR SALES DUE -----
     // Total outstanding customer dues from all orders (amount - collectedAmount)
@@ -1184,11 +1185,15 @@ export async function getMoneyFlowDetails(): Promise<MoneyFlowDetails> {
     const totalOrderDamageLostMargin = Number(orderDamageResult[0]?.lostMargin || 0);
     const totalOrderDamageCost = Number(orderDamageResult[0]?.totalCost || 0);
 
-    // Net Sales (display): deducts damage at buying price
-    const netSales = grossSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageCost;
+    // ----- EXPENSES (needed for Net Sales) -----
+    const expensesResult = await db.select({ total: sum(orderExpenses.amount) }).from(orderExpenses);
+    const totalExpensesAmount = Number(expensesResult[0]?.total || 0);
 
-    // Net Sales for P&L: deducts only the lost margin
-    const netSalesForPL = grossSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageLostMargin;
+    // Net Sales (display): deducts damage at buying price and expenses
+    const netSales = grossSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageCost - totalExpensesAmount;
+
+    // Net Sales for P&L: deducts only the lost margin and expenses
+    const netSalesForPL = grossSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageLostMargin - totalExpensesAmount;
 
     // ----- CASH FLOW -----
     const paymentsReceivedResult = await db.select({ total: sum(orderPayments.amount) }).from(orderPayments);
@@ -1214,8 +1219,6 @@ export async function getMoneyFlowDetails(): Promise<MoneyFlowDetails> {
     const billsResult = await db.select({ total: sum(bills.amount) }).from(bills);
     const totalBillsAmount = Number(billsResult[0]?.total || 0);
 
-    const expensesResult = await db.select({ total: sum(orderExpenses.amount) }).from(orderExpenses);
-    const totalExpensesAmount = Number(expensesResult[0]?.total || 0);
 
     const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections - supplierPaymentsFromCash - totalWithdrawals - totalBillsAmount;
 
@@ -1379,8 +1382,8 @@ export async function getMoneyFlowDetails(): Promise<MoneyFlowDetails> {
     const plAdjustmentIncome = Number(plAdjustmentResult[0]?.totalIncome || 0);
     const plAdjustmentExpense = Number(plAdjustmentResult[0]?.totalExpenseAdj || 0);
 
-    // Profit = Net Sales - COGS (per order) - Bills - Expenses + PL Adj Income - PL Adj Expense
-    const profitLossValue = netSalesForPL - cogsPerOrder - totalBillsAmount - totalExpensesAmount + plAdjustmentIncome - plAdjustmentExpense;
+    // Profit = Net Sales (includes expenses) - COGS (per order) - Bills + PL Adj Income - PL Adj Expense
+    const profitLossValue = netSalesForPL - cogsPerOrder - totalBillsAmount + plAdjustmentIncome - plAdjustmentExpense;
 
     // ----- ACCOUNTING VERIFICATION -----
     const currentStockPlusCogs = currentStock + cogs;

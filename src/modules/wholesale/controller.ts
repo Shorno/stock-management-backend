@@ -593,7 +593,7 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
 
         const affectedMetrics: FinancialImpact["affectedMetrics"] = [];
         if (totalPayments > 0) affectedMetrics.push({ metric: "cashBalance", label: "Cash Balance", direction: "increase", amount: totalPayments });
-        if (totalExpenses > 0) affectedMetrics.push({ metric: "profitLoss", label: "Profit/Loss", direction: "decrease", amount: totalExpenses });
+        if (totalExpenses > 0) affectedMetrics.push({ metric: "netSales", label: "Net Sales (Expenses)", direction: "decrease", amount: totalExpenses });
         if (totalItemReturns > 0) affectedMetrics.push({ metric: "netSales", label: "Net Sales (Returns)", direction: "decrease", amount: totalItemReturns });
         if (totalDamageReturns > 0) affectedMetrics.push({ metric: "netSales", label: "Damage Returns", direction: "decrease", amount: totalDamageReturns });
         if (totalCustomerDues > 0) affectedMetrics.push({ metric: "dsrSalesDue", label: "Customer Dues", direction: "increase", amount: totalCustomerDues });

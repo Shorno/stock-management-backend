@@ -787,9 +787,9 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             const damageSettlement = adjustment?.damageReturns
                 ?.filter(d => !(d as any).isOther)
                 ?.reduce((sum, d) => sum + (d.quantity * d.unitPrice), 0) || 0;
-            const netTotal = total - returns - adjDiscount - damageSettlement;
             const payments = summaryData.totalPayments;
             const expenses = summaryData.totalExpenses;
+            const netTotal = total - returns - adjDiscount - damageSettlement - expenses;
             const custDues = summaryData.totalCustomerDues;
             const dsrDues = summaryData.totalDsrDues || 0;
             const srDues = summaryData.totalSrDues || 0;
@@ -838,6 +838,11 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 renderLine("Damage Returns", `-${formatCurrency(damageSettlement)}`, { color: "#9333ea" });
             }
 
+            // Expenses
+            if (expenses > 0) {
+                renderLine("Expenses", `-${formatCurrency(expenses)}`, { color: "#dc3545" });
+            }
+
             // Net Total
             rightY += 4;
             renderLine("Net Total", formatCurrency(netTotal), { bold: true });
@@ -848,12 +853,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             let running = netTotal - payments;
             renderRunning(running);
 
-            // Expenses
-            if (expenses > 0) {
-                renderLine("Expenses", `-${formatCurrency(expenses)}`, { color: "#dc3545" });
-                running -= expenses;
-                renderRunning(running);
-            }
+
 
             // Customer Dues
             if (custDues > 0) {
