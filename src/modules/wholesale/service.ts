@@ -320,6 +320,7 @@ export const getOrders = async (
                 },
                 itemReturns: true,  // Include item returns for calculating net sale
                 damageItems: true,  // Include damage items for deducting from net sale
+                expenses: true,  // Include expenses for deducting from net sale
             },
         }),
         db
@@ -350,7 +351,15 @@ export const getOrders = async (
             }
         }
 
-        const netTotal = orderTotal - totalReturns - totalAdjustmentDiscount - totalDamageCost;
+        // Calculate total expenses for this order
+        let totalExpensesForOrder = 0;
+        if (order.expenses && order.expenses.length > 0) {
+            for (const expense of order.expenses) {
+                totalExpensesForOrder += parseFloat(expense.amount || "0");
+            }
+        }
+
+        const netTotal = orderTotal - totalReturns - totalAdjustmentDiscount - totalDamageCost - totalExpensesForOrder;
 
         // Calculate profit: sum of (salePrice - supplierPrice) × netPaidQuantity per item
         // Must account for returned quantities per-item to get correct margin
@@ -1094,11 +1103,11 @@ export const getOrderAdjustment = async (orderId: number) => {
         .filter(d => !d.isOther)
         .reduce((sum, d) => sum + parseFloat(d.total), 0);
 
-    // Net Total = After Returns - Settlement Damages
-    const netTotalAfterDamage = netTotalAfterReturns - settlementDamage;
+    // Net Total = After Returns - Settlement Damages - Expenses
+    const netTotalAfterDamage = netTotalAfterReturns - settlementDamage - totalExpenses;
 
-    // Adjustment = Payments + Expenses + Customer Dues + DSR Dues + SR Dues (all reduce what's owed)
-    const totalAdjustment = totalPayments + totalExpenses + totalCustomerDues + totalDsrDues + totalSrDues;
+    // Adjustment = Payments + Customer Dues + DSR Dues + SR Dues (expenses already in Net Total)
+    const totalAdjustment = totalPayments + totalCustomerDues + totalDsrDues + totalSrDues;
     const due = Math.max(0, netTotalAfterDamage - totalAdjustment);
 
     return {

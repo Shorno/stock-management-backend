@@ -145,8 +145,8 @@ export const getDailySalesCollection = async (
         // Due = Customer Dues (what DSR needs to collect from customers)
         const due = duesByOrder.get(order.orderId) || 0;
 
-        // Grand Total = Sale - Returns - Adjustment Discounts
-        const grandTotal = sale - returnAmount - adjustmentDiscount;
+        // Grand Total = Sale - Returns - Adjustment Discounts - Expenses
+        const grandTotal = sale - returnAmount - adjustmentDiscount - expense;
 
         // Aggregate totals
         totalSales += sale;
@@ -353,7 +353,7 @@ export const getDsrLedger = async (
         const totalCollectedFromDues = orderCustomerDues.reduce((sum, d) => sum + parseFloat(d.collectedAmount), 0);
         const remainingCustomerDue = totalCustomerDue - totalCollectedFromDues;
         const orderTotal = parseFloat(sale.total);
-        const netOrderTotal = orderTotal - orderReturns - orderAdjDiscounts;
+        const netOrderTotal = orderTotal - orderReturns - orderAdjDiscounts - totalExpenses;
 
         return {
             orderId: sale.orderId,
@@ -475,9 +475,9 @@ export const getAllDsrLedgerSummaries = async (
         // Calculate totals
         const grossSales = orders.reduce((sum, o) => sum + parseFloat(o.total), 0);
         const totalReturns = returnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount) + parseFloat(r.adjustmentDiscount || "0"), 0);
-        const totalNetSales = grossSales - totalReturns;
         const totalCollected = paymentsData.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const totalExpenses = expensesData.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+        const totalNetSales = grossSales - totalReturns - totalExpenses;
         // Calculate remaining due (original - collected)
         const totalOriginalDue = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
         const totalCollectedFromDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.collectedAmount), 0);
@@ -1353,6 +1353,11 @@ export const getDailySettlement = async (
     let totalReceived = 0;
     let totalDue = 0;
 
+    const expensesByOrder = new Map<number, number>();
+    for (const e of allExpenses) {
+        expensesByOrder.set(e.orderId, (expensesByOrder.get(e.orderId) || 0) + parseFloat(e.amount));
+    }
+
     const netSales: NetSalesItem[] = orders.map((order) => {
         const sale = parseFloat(order.total);
         const discount = parseFloat(order.discount);
@@ -1361,8 +1366,9 @@ export const getDailySettlement = async (
         const adjustmentDiscount = returns.adjustmentDiscount;
         const payments = paymentsByOrder.get(order.orderId) || { cash: 0, mobileBank: 0, bank: 0, total: 0 };
         const due = duesByOrder.get(order.orderId) || 0;
+        const orderExpensesAmount = expensesByOrder.get(order.orderId) || 0;
 
-        const netSalesAmount = sale - returnAmount - adjustmentDiscount;
+        const netSalesAmount = sale - returnAmount - adjustmentDiscount - orderExpensesAmount;
 
         totalNetSales += netSalesAmount;
         totalReceived += payments.total;
