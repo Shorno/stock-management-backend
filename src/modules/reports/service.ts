@@ -2116,6 +2116,7 @@ export const getSrWiseSales = async (
             deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
             net: wholesaleOrderItems.net,
             supplierPrice: stockBatch.supplierPrice,
+            salePrice: wholesaleOrderItems.salePrice,
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
@@ -2176,8 +2177,8 @@ export const getSrWiseSales = async (
 
         const netQty = Number(item.deliveredQty) - ret.returnQty;
         const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
-        const netSales = parseFloat(item.net) - ret.returnAmount - ret.adjDiscount;
         const dbPrice = netQty * parseFloat(item.supplierPrice);
+        const salesPrice = netQty * parseFloat(item.salePrice);
 
         const existing = srMap.get(key);
         if (existing) {
@@ -2185,7 +2186,7 @@ export const getSrWiseSales = async (
             existing.totalFreeQty += netFreeQty;
             existing.totalReturnQty += ret.returnQty;
             existing.dbPriceTotal += dbPrice;
-            existing.salesPriceTotal += netSales;
+            existing.salesPriceTotal += salesPrice;
             existing.orderIds.add(item.orderId);
             existing.productIds.add(item.productId);
         } else {
@@ -2197,7 +2198,7 @@ export const getSrWiseSales = async (
                 totalFreeQty: netFreeQty,
                 totalReturnQty: ret.returnQty,
                 dbPriceTotal: dbPrice,
-                salesPriceTotal: netSales,
+                salesPriceTotal: salesPrice,
                 orderIds: new Set([item.orderId]),
                 productIds: new Set([item.productId]),
             });
@@ -2380,8 +2381,8 @@ export const getSrSalesDetails = async (
 
         const netQty = Number(item.deliveredQty) - ret.returnQty;
         const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
-        const netSales = parseFloat(item.net) - ret.returnAmount - ret.adjDiscount;
         const dbPrice = netQty * parseFloat(item.supplierPrice);
+        const salesPrice = netQty * parseFloat(item.salePrice);
 
         const existing = productMap.get(item.productId);
         if (existing) {
@@ -2389,7 +2390,7 @@ export const getSrSalesDetails = async (
             existing.totalFreeQty += netFreeQty;
             existing.totalReturnQty += ret.returnQty;
             existing.dbPriceTotal += dbPrice;
-            existing.salesPriceTotal += netSales;
+            existing.salesPriceTotal += salesPrice;
             existing.orderIds.add(item.orderId);
         } else {
             productMap.set(item.productId, {
@@ -2401,7 +2402,7 @@ export const getSrSalesDetails = async (
                 totalFreeQty: netFreeQty,
                 totalReturnQty: ret.returnQty,
                 dbPriceTotal: dbPrice,
-                salesPriceTotal: netSales,
+                salesPriceTotal: salesPrice,
                 orderIds: new Set([item.orderId]),
                 batchMap: new Map(),
             });
@@ -2415,7 +2416,7 @@ export const getSrSalesDetails = async (
             batchExisting.totalFreeQty += netFreeQty;
             batchExisting.totalReturnQty += ret.returnQty;
             batchExisting.dbPriceTotal += dbPrice;
-            batchExisting.salesPriceTotal += netSales;
+            batchExisting.salesPriceTotal += salesPrice;
         } else {
             prodEntry.batchMap.set(item.batchId, {
                 batchDate: item.batchCreatedAt instanceof Date ? item.batchCreatedAt.toISOString().split('T')[0]! : String(item.batchCreatedAt),
@@ -2425,7 +2426,7 @@ export const getSrSalesDetails = async (
                 totalFreeQty: netFreeQty,
                 totalReturnQty: ret.returnQty,
                 dbPriceTotal: dbPrice,
-                salesPriceTotal: netSales,
+                salesPriceTotal: salesPrice,
             });
         }
     }
