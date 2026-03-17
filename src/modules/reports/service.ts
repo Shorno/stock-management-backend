@@ -1,9 +1,10 @@
 import { db } from "../../db/config";
 import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant, sr } from "../../db/schema";
-import { eq, and, gte, lte, sql, ne, countDistinct, desc } from "drizzle-orm";
+import { eq, and, gte, lte, sql, ne, countDistinct, desc, inArray } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
 export interface DailySalesCollectionItem {
+    orderId: number;
     orderDate: string;
     dsrId: number;
     dsrName: string;
@@ -12,26 +13,53 @@ export interface DailySalesCollectionItem {
     sale: string;           // Original order total
     returnAmount: string;   // Sum of item returns
     discount: string;       // Order discount
-    grandTotal: string;     // sale - returns - discount
+    grandTotal: string;     // Net Sales = sale - returns - adjDiscount (NO expense deduction)
     expense: string;        // Sum of expenses
     received: string;       // Sum of payments
-    due: string;            // grandTotal - received
+    due: string;            // Customer + DSR + SR dues combined
 }
 
 export interface DailySalesCollectionSummary {
     totalSales: string;           // Sum of all order totals
-    totalReturns: string;         // Sum of return amounts ONLY (not adjustment discounts)
+    totalReturns: string;         // Sum of return amounts ONLY
     totalAdjustmentDiscount: string; // Sum of adjustment discounts
     totalDiscount: string;        // Sum of order-level discounts
-    totalGrandTotal: string;      // Net sales after returns and adjustments
+    totalGrandTotal: string;      // Net Sales = totalSales - totalReturns - adjDiscount
     totalExpenses: string;
     totalReceived: string;
-    totalDue: string;             // Sum of customer dues
+    totalDue: string;             // Combined customer + DSR + SR dues
+    totalDueCollected: string;    // Due collected on these dates
     orderCount: number;
+}
+
+export interface DailySalesCollectionDueCollectionItem {
+    collectionDate: string;
+    type: 'customer' | 'dsr' | 'sr';
+    entityName: string;
+    amount: string;
+    paymentMethod: string | null;
+}
+
+export interface ProductSoldItem {
+    productName: string;
+    brandName: string;
+    quantity: number;
+    freeQuantity: number;
+    totalAmount: string;
+}
+
+export interface ProductReturnedItem {
+    productName: string;
+    brandName: string;
+    returnQuantity: number;
+    returnAmount: string;
 }
 
 export interface DailySalesCollectionResponse {
     items: DailySalesCollectionItem[];
+    dueCollections: DailySalesCollectionDueCollectionItem[];
+    productsSold: ProductSoldItem[];
+    productsReturned: ProductReturnedItem[];
     summary: DailySalesCollectionSummary;
 }
 
@@ -124,6 +152,25 @@ export const getDailySalesCollection = async (
         duesByOrder.set(d.orderId, (duesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
     }
 
+    // Also fetch DSR dues and SR dues
+    const allDsrDues = orderIds.length > 0 ? await db.query.orderDsrDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
+    const allSrDues = orderIds.length > 0 ? await db.query.orderSrDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
+    const dsrDuesByOrder = new Map<number, number>();
+    for (const d of allDsrDues) {
+        dsrDuesByOrder.set(d.orderId, (dsrDuesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
+    }
+
+    const srDuesByOrder = new Map<number, number>();
+    for (const d of allSrDues) {
+        srDuesByOrder.set(d.orderId, (srDuesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
+    }
+
     // Transform data and calculate amounts
     let totalSales = 0;
     let totalReturns = 0;              // Only return amounts
@@ -138,20 +185,24 @@ export const getDailySalesCollection = async (
         const sale = parseFloat(order.total);
         const discount = parseFloat(order.discount);
         const returns = returnsByOrder.get(order.orderId) || { returnAmount: 0, adjustmentDiscount: 0 };
-        const returnAmount = returns.returnAmount;              // Only return amount
-        const adjustmentDiscount = returns.adjustmentDiscount;  // Separate adjustment discount
+        const returnAmount = returns.returnAmount;
+        const adjustmentDiscount = returns.adjustmentDiscount;
         const expense = expensesByOrder.get(order.orderId) || 0;
         const received = paymentsByOrder.get(order.orderId) || 0;
-        // Due = Customer Dues (what DSR needs to collect from customers)
-        const due = duesByOrder.get(order.orderId) || 0;
+        // Total Due = Customer Due + DSR Due + SR Due
+        const customerDue = duesByOrder.get(order.orderId) || 0;
+        const dsrDue = dsrDuesByOrder.get(order.orderId) || 0;
+        const srDue = srDuesByOrder.get(order.orderId) || 0;
+        const due = customerDue + dsrDue + srDue;
 
-        // Grand Total = Sale - Returns - Adjustment Discounts - Expenses
-        const grandTotal = sale - returnAmount - adjustmentDiscount - expense;
+        // Net Sales = Sale - Returns - Adjustment Discounts (NO expense deduction)
+        // Identity: Net Sales = Received + Due + Expense
+        const grandTotal = sale - returnAmount - adjustmentDiscount;
 
         // Aggregate totals
         totalSales += sale;
-        totalReturns += returnAmount;                    // Only return amount
-        totalAdjustmentDiscount += adjustmentDiscount;   // Separate adjustment discount
+        totalReturns += returnAmount;
+        totalAdjustmentDiscount += adjustmentDiscount;
         totalDiscount += discount;
         totalGrandTotal += grandTotal;
         totalExpenses += expense;
@@ -159,13 +210,14 @@ export const getDailySalesCollection = async (
         totalDue += due;
 
         return {
+            orderId: order.orderId,
             orderDate: order.orderDate,
             dsrId: order.dsrId,
             dsrName: order.dsrName,
             routeId: order.routeId,
             routeName: order.routeName,
             sale: sale.toFixed(2),
-            returnAmount: returnAmount.toFixed(2),       // Only return amount (not combined)
+            returnAmount: returnAmount.toFixed(2),
             discount: discount.toFixed(2),
             grandTotal: grandTotal.toFixed(2),
             expense: expense.toFixed(2),
@@ -174,8 +226,153 @@ export const getDailySalesCollection = async (
         };
     });
 
+    // Fetch due collections for the date range
+    const { dueCollections: dueCollectionsTable, dsrDueCollections, srDueCollections, customer } = await import("../../db/schema");
+
+    const collectionStartDate = (query.startDate || query.date || new Date().toISOString().split("T")[0])!;
+    const collectionEndDate = (query.endDate || query.date || new Date().toISOString().split("T")[0])!;
+
+    const customerCollections = await db
+        .select({
+            collectionDate: dueCollectionsTable.collectionDate,
+            amount: dueCollectionsTable.amount,
+            paymentMethod: dueCollectionsTable.paymentMethod,
+            customerName: customer.name,
+        })
+        .from(dueCollectionsTable)
+        .leftJoin(customer, eq(dueCollectionsTable.customerId, customer.id))
+        .where(and(
+            gte(dueCollectionsTable.collectionDate, collectionStartDate),
+            lte(dueCollectionsTable.collectionDate, collectionEndDate),
+        ));
+
+    const dsrCollections = await db
+        .select({
+            collectionDate: dsrDueCollections.collectionDate,
+            amount: dsrDueCollections.amount,
+            paymentMethod: dsrDueCollections.paymentMethod,
+            dsrName: dsr.name,
+        })
+        .from(dsrDueCollections)
+        .leftJoin(dsr, eq(dsrDueCollections.dsrId, dsr.id))
+        .where(and(
+            gte(dsrDueCollections.collectionDate, collectionStartDate),
+            lte(dsrDueCollections.collectionDate, collectionEndDate),
+        ));
+
+    const srCollections = await db
+        .select({
+            collectionDate: srDueCollections.collectionDate,
+            amount: srDueCollections.amount,
+            paymentMethod: srDueCollections.paymentMethod,
+            srName: sr.name,
+        })
+        .from(srDueCollections)
+        .leftJoin(sr, eq(srDueCollections.srId, sr.id))
+        .where(and(
+            gte(srDueCollections.collectionDate, collectionStartDate),
+            lte(srDueCollections.collectionDate, collectionEndDate),
+        ));
+
+    let totalDueCollected = 0;
+    const dueCollections: DailySalesCollectionDueCollectionItem[] = [
+        ...customerCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return { collectionDate: c.collectionDate, type: 'customer' as const, entityName: c.customerName || 'Unknown', amount: amt.toFixed(2), paymentMethod: c.paymentMethod };
+        }),
+        ...dsrCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return { collectionDate: c.collectionDate, type: 'dsr' as const, entityName: c.dsrName || 'Unknown', amount: amt.toFixed(2), paymentMethod: c.paymentMethod };
+        }),
+        ...srCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return { collectionDate: c.collectionDate, type: 'sr' as const, entityName: c.srName || 'Unknown', amount: amt.toFixed(2), paymentMethod: c.paymentMethod };
+        }),
+    ];
+
+    // Fetch products sold (order items) aggregated by product
+    const { wholesaleOrderItems, product, brand: brandTable } = await import("../../db/schema");
+
+    const allOrderItems = orderIds.length > 0 ? await db
+        .select({
+            productName: product.name,
+            brandName: brandTable.name,
+            quantity: wholesaleOrderItems.totalQuantity,
+            freeQuantity: wholesaleOrderItems.freeQuantity,
+            net: wholesaleOrderItems.net,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
+        .innerJoin(brandTable, eq(wholesaleOrderItems.brandId, brandTable.id))
+        .where(inArray(wholesaleOrderItems.orderId, orderIds))
+    : [];
+
+    // Aggregate by product name + brand
+    const soldMap = new Map<string, ProductSoldItem>();
+    for (const item of allOrderItems) {
+        const key = `${item.productName}|${item.brandName}`;
+        const existing = soldMap.get(key);
+        if (existing) {
+            existing.quantity += item.quantity;
+            existing.freeQuantity += item.freeQuantity;
+            existing.totalAmount = (parseFloat(existing.totalAmount) + parseFloat(item.net)).toFixed(2);
+        } else {
+            soldMap.set(key, {
+                productName: item.productName,
+                brandName: item.brandName,
+                quantity: item.quantity,
+                freeQuantity: item.freeQuantity,
+                totalAmount: parseFloat(item.net).toFixed(2),
+            });
+        }
+    }
+    const productsSold = Array.from(soldMap.values()).sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
+
+    // Fetch products returned aggregated by product
+    const { orderItemReturns } = await import("../../db/schema");
+
+    const allReturnItems = orderIds.length > 0 ? await db
+        .select({
+            productName: product.name,
+            brandName: brandTable.name,
+            returnQuantity: orderItemReturns.returnQuantity,
+            returnAmount: orderItemReturns.returnAmount,
+        })
+        .from(orderItemReturns)
+        .innerJoin(wholesaleOrderItems, eq(orderItemReturns.orderItemId, wholesaleOrderItems.id))
+        .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
+        .innerJoin(brandTable, eq(wholesaleOrderItems.brandId, brandTable.id))
+        .where(inArray(orderItemReturns.orderId, orderIds))
+    : [];
+
+    // Aggregate returns by product
+    const returnMap = new Map<string, ProductReturnedItem>();
+    for (const item of allReturnItems) {
+        if (item.returnQuantity === 0) continue;
+        const key = `${item.productName}|${item.brandName}`;
+        const existing = returnMap.get(key);
+        if (existing) {
+            existing.returnQuantity += item.returnQuantity;
+            existing.returnAmount = (parseFloat(existing.returnAmount) + parseFloat(item.returnAmount)).toFixed(2);
+        } else {
+            returnMap.set(key, {
+                productName: item.productName,
+                brandName: item.brandName,
+                returnQuantity: item.returnQuantity,
+                returnAmount: parseFloat(item.returnAmount).toFixed(2),
+            });
+        }
+    }
+    const productsReturned = Array.from(returnMap.values()).sort((a, b) => parseFloat(b.returnAmount) - parseFloat(a.returnAmount));
+
     return {
         items,
+        dueCollections,
+        productsSold,
+        productsReturned,
         summary: {
             totalSales: totalSales.toFixed(2),
             totalReturns: totalReturns.toFixed(2),
@@ -185,6 +382,7 @@ export const getDailySalesCollection = async (
             totalExpenses: totalExpenses.toFixed(2),
             totalReceived: totalReceived.toFixed(2),
             totalDue: totalDue.toFixed(2),
+            totalDueCollected: totalDueCollected.toFixed(2),
             orderCount: items.length,
         },
     };
@@ -1390,6 +1588,12 @@ export const getDailySettlement = async (
         expensesByOrder.set(e.orderId, (expensesByOrder.get(e.orderId) || 0) + parseFloat(e.amount));
     }
 
+    // Group damage items by order (only non-other damage, matching adjustment page's settlementDamage)
+    const damageByOrder = new Map<number, number>();
+    for (const d of allDamageItems) {
+        damageByOrder.set(d.orderId, (damageByOrder.get(d.orderId) || 0) + parseFloat(d.total));
+    }
+
     const netSales: NetSalesItem[] = orders.map((order) => {
         const sale = parseFloat(order.total);
         const discount = parseFloat(order.discount);
@@ -1399,8 +1603,11 @@ export const getDailySettlement = async (
         const payments = paymentsByOrder.get(order.orderId) || { cash: 0, mobileBank: 0, bank: 0, total: 0 };
         const due = duesByOrder.get(order.orderId) || 0;
         const orderExpensesAmount = expensesByOrder.get(order.orderId) || 0;
+        const orderDamageAmount = damageByOrder.get(order.orderId) || 0;
 
-        const netSalesAmount = sale - returnAmount - adjustmentDiscount - orderExpensesAmount;
+        // Match adjustment page: netOwed = total - returns - adjDiscount - damage
+        // Then: netSales = netOwed - expense
+        const netSalesAmount = sale - returnAmount - adjustmentDiscount - orderDamageAmount - orderExpensesAmount;
 
         totalNetSales += netSalesAmount;
         totalReceived += payments.total;
@@ -1444,7 +1651,7 @@ export const getDailySettlement = async (
     const paymentsReceived: PaymentReceivedItem[] = allPayments.map((payment) => {
         const order = orderMap.get(payment.orderId);
         return {
-            paymentDate: payment.paymentDate,
+            paymentDate: order?.orderDate || payment.paymentDate,
             dsrId: order?.dsrId || 0,
             dsrName: order?.dsrName || "",
             routeId: order?.routeId || 0,
