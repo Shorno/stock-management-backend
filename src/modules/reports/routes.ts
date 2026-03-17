@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema, brandWiseSalesQuerySchema, dailySettlementQuerySchema, brandWisePurchaseQuerySchema } from "./validation";
+import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema, brandWiseSalesQuerySchema, dailySettlementQuerySchema, brandWisePurchaseQuerySchema, srSalesQuerySchema } from "./validation";
 import * as reportsService from "./service";
 import { logError } from "../../lib/error-handler";
 
@@ -391,6 +391,91 @@ app.get(
                 {
                     success: false,
                     message: error instanceof Error ? error.message : "Failed to fetch brand wise purchase report",
+                },
+                500
+            );
+        }
+    }
+);
+
+// Get SR Wise Sales report (overview)
+app.get(
+    "/sr-sales",
+    zValidator("query", srSalesQuerySchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Invalid query parameters",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    async (ctx) => {
+        try {
+            const query = ctx.req.valid("query");
+            const data = await reportsService.getSrWiseSales(query);
+
+            return ctx.json({
+                success: true,
+                data,
+            });
+        } catch (error) {
+            logError("Error fetching SR wise sales:", error);
+            return ctx.json(
+                {
+                    success: false,
+                    message: error instanceof Error ? error.message : "Failed to fetch SR sales report",
+                },
+                500
+            );
+        }
+    }
+);
+
+// Get SR Sales Details (product-level for a specific SR)
+app.get(
+    "/sr-sales/:srId",
+    zValidator("query", srSalesQuerySchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Invalid query parameters",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    async (ctx) => {
+        try {
+            const srId = Number(ctx.req.param("srId"));
+            if (isNaN(srId)) {
+                return ctx.json({ success: false, message: "Invalid SR ID" }, 400);
+            }
+
+            const query = ctx.req.valid("query");
+            const data = await reportsService.getSrSalesDetails(srId, query);
+
+            return ctx.json({
+                success: true,
+                data,
+            });
+        } catch (error) {
+            logError("Error fetching SR sales details:", error);
+            return ctx.json(
+                {
+                    success: false,
+                    message: error instanceof Error ? error.message : "Failed to fetch SR sales details",
                 },
                 500
             );

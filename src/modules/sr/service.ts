@@ -131,6 +131,7 @@ export const getSrStats = async (id: number) => {
 };
 
 // Get order items linked to this SR (paginated, with product, brand, order details)
+// Includes return/adjustment data so the frontend can display adjusted values
 export const getSrOrderItems = async (id: number, limit = 10, offset = 0) => {
   const [items, countResult] = await Promise.all([
     db.query.wholesaleOrderItems.findMany({
@@ -160,8 +161,51 @@ export const getSrOrderItems = async (id: number, limit = 10, offset = 0) => {
       .where(eq(wholesaleOrderItems.srId, id)),
   ]);
 
+  // Fetch returns for these items to compute adjusted values
+  const itemIds = items.map((i) => i.id);
+  let returnsMap = new Map<number, { returnQuantity: number; returnFreeQuantity: number; returnAmount: number; adjustmentDiscount: number }>();
+
+  if (itemIds.length > 0) {
+    const returnsData = await db
+      .select({
+        orderItemId: orderItemReturns.orderItemId,
+        totalReturnQty: sql<number>`SUM(${orderItemReturns.returnQuantity})`,
+        totalReturnFreeQty: sql<number>`SUM(${orderItemReturns.returnFreeQuantity})`,
+        totalReturnAmount: sql<string>`SUM(CAST(${orderItemReturns.returnAmount} AS DECIMAL))`,
+        totalAdjDiscount: sql<string>`SUM(CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL))`,
+      })
+      .from(orderItemReturns)
+      .where(sql`${orderItemReturns.orderItemId} IN (${sql.join(itemIds.map(id => sql`${id}`), sql`, `)})`)
+      .groupBy(orderItemReturns.orderItemId);
+
+    for (const r of returnsData) {
+      returnsMap.set(r.orderItemId, {
+        returnQuantity: Number(r.totalReturnQty) || 0,
+        returnFreeQuantity: Number(r.totalReturnFreeQty) || 0,
+        returnAmount: parseFloat(r.totalReturnAmount ?? "0") || 0,
+        adjustmentDiscount: parseFloat(r.totalAdjDiscount ?? "0") || 0,
+      });
+    }
+  }
+
+  // Merge return data into items
+  const itemsWithReturns = items.map((item) => {
+    const ret = returnsMap.get(item.id) || { returnQuantity: 0, returnFreeQuantity: 0, returnAmount: 0, adjustmentDiscount: 0 };
+    const net = parseFloat(item.net);
+    const adjustedNet = net - ret.returnAmount - ret.adjustmentDiscount;
+
+    return {
+      ...item,
+      returnQuantity: ret.returnQuantity,
+      returnFreeQuantity: ret.returnFreeQuantity,
+      returnAmount: ret.returnAmount,
+      adjustmentDiscount: ret.adjustmentDiscount,
+      adjustedNet: Math.max(0, adjustedNet),
+    };
+  });
+
   return {
-    items,
+    items: itemsWithReturns,
     total: Number(countResult[0]?.count || 0),
   };
 };

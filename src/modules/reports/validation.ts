@@ -71,3 +71,13 @@ export const brandWisePurchaseQuerySchema = z.object({
 });
 
 export type BrandWisePurchaseQuery = z.infer<typeof brandWisePurchaseQuerySchema>;
+
+// Query schema for SR Sales report
+export const srSalesQuerySchema = z.object({
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    srId: z.coerce.number().int().positive().optional(),
+    routeId: z.coerce.number().int().positive().optional(),
+});
+
+export type SrSalesQuery = z.infer<typeof srSalesQuerySchema>;

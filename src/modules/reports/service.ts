@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant } from "../../db/schema";
+import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant, sr } from "../../db/schema";
 import { eq, and, gte, lte, sql, ne, countDistinct, desc } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
@@ -1651,3 +1651,420 @@ export const getBrandWisePurchases = async (
 };
 
 
+// ==================== SR WISE SALES ====================
+
+import type { SrSalesQuery } from "./validation";
+import { isNull } from "drizzle-orm";
+
+export interface SrSalesProductItem {
+    productId: number;
+    productName: string;
+    brandId: number;
+    brandName: string;
+    unit: string;
+    totalQuantity: number;     // Net quantity after returns
+    freeQuantity: number;
+    returnQuantity: number;
+    dbPriceTotal: string;      // Total at supplier/DB price
+    salesPriceTotal: string;   // Total at sales price
+    orderCount: number;
+}
+
+export interface SrSalesItem {
+    srId: number | null;       // null = Distributor's Point
+    srName: string;
+    brandId: number | null;
+    brandName: string | null;
+    totalQuantity: number;
+    freeQuantity: number;
+    returnQuantity: number;
+    dbPriceTotal: string;      // Total at DB/supplier price
+    salesPriceTotal: string;   // Total at sales price
+    orderCount: number;
+    productCount: number;
+}
+
+export interface SrSalesSummary {
+    totalSRs: number;          // Including Distributor's Point
+    totalQuantitySold: number;
+    totalFreeQuantity: number;
+    grandDbPriceTotal: string;
+    grandSalesPriceTotal: string;
+}
+
+export interface SrSalesResponse {
+    items: SrSalesItem[];
+    summary: SrSalesSummary;
+}
+
+export interface SrSalesDetailResponse {
+    srId: number | null;
+    srName: string;
+    products: SrSalesProductItem[];
+    summary: SrSalesSummary;
+}
+
+/**
+ * Get SR-wise sales report (overview - all SRs)
+ * Groups by SR, null srId = "পরিবেশকের পয়েন্ট"
+ * Uses application-level return aggregation to avoid LEFT JOIN duplicate counting
+ */
+export const getSrWiseSales = async (
+    query: SrSalesQuery
+): Promise<SrSalesResponse> => {
+    const orderConditions = [
+        ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "return"),
+    ];
+
+    if (query.startDate) {
+        orderConditions.push(gte(wholesaleOrders.orderDate, query.startDate));
+    }
+    if (query.endDate) {
+        orderConditions.push(lte(wholesaleOrders.orderDate, query.endDate));
+    }
+    if (query.routeId) {
+        orderConditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    const itemConditions: any[] = [];
+    if (query.srId) {
+        itemConditions.push(eq(wholesaleOrderItems.srId, query.srId));
+    }
+
+    // Step 1: Fetch order items WITHOUT returns join
+    const items = await db
+        .select({
+            itemId: wholesaleOrderItems.id,
+            srId: wholesaleOrderItems.srId,
+            srName: sr.name,
+            srBrandId: sr.brandId,
+            srBrandName: brand.name,
+            orderId: wholesaleOrderItems.orderId,
+            productId: wholesaleOrderItems.productId,
+            deliveredQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})`,
+            deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
+            net: wholesaleOrderItems.net,
+            supplierPrice: stockBatch.supplierPrice,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+        .leftJoin(sr, eq(wholesaleOrderItems.srId, sr.id))
+        .leftJoin(brand, eq(sr.brandId, brand.id))
+        .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])));
+
+    if (items.length === 0) {
+        return {
+            items: [],
+            summary: { totalSRs: 0, totalQuantitySold: 0, totalFreeQuantity: 0, grandDbPriceTotal: "0.00", grandSalesPriceTotal: "0.00" },
+        };
+    }
+
+    // Step 2: Fetch returns for these items (pre-aggregated per item)
+    const itemIds = items.map(i => i.itemId);
+    const returnsData = await db
+        .select({
+            orderItemId: orderItemReturns.orderItemId,
+            totalReturnQty: sql<number>`SUM(${orderItemReturns.returnQuantity})`,
+            totalReturnFreeQty: sql<number>`SUM(${orderItemReturns.returnFreeQuantity})`,
+            totalReturnAmount: sql<string>`SUM(CAST(${orderItemReturns.returnAmount} AS DECIMAL))`,
+            totalAdjDiscount: sql<string>`SUM(CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL))`,
+        })
+        .from(orderItemReturns)
+        .where(sql`${orderItemReturns.orderItemId} IN (${sql.join(itemIds.map(id => sql`${id}`), sql`, `)})`)
+        .groupBy(orderItemReturns.orderItemId);
+
+    // Build returns lookup
+    const returnsMap = new Map<number, { returnQty: number; returnFreeQty: number; returnAmount: number; adjDiscount: number }>();
+    for (const r of returnsData) {
+        returnsMap.set(r.orderItemId, {
+            returnQty: Number(r.totalReturnQty) || 0,
+            returnFreeQty: Number(r.totalReturnFreeQty) || 0,
+            returnAmount: parseFloat(r.totalReturnAmount ?? "0") || 0,
+            adjDiscount: parseFloat(r.totalAdjDiscount ?? "0") || 0,
+        });
+    }
+
+    // Step 3: Aggregate by SR
+    const srMap = new Map<number | null, {
+        srName: string;
+        srBrandId: number | null;
+        srBrandName: string | null;
+        totalQty: number;
+        totalFreeQty: number;
+        totalReturnQty: number;
+        dbPriceTotal: number;
+        salesPriceTotal: number;
+        orderIds: Set<number>;
+        productIds: Set<number>;
+    }>();
+
+    for (const item of items) {
+        const key = item.srId;
+        const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
+
+        const netQty = Number(item.deliveredQty) - ret.returnQty;
+        const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
+        const netSales = parseFloat(item.net) - ret.returnAmount - ret.adjDiscount;
+        const dbPrice = netQty * parseFloat(item.supplierPrice);
+
+        const existing = srMap.get(key);
+        if (existing) {
+            existing.totalQty += netQty;
+            existing.totalFreeQty += netFreeQty;
+            existing.totalReturnQty += ret.returnQty;
+            existing.dbPriceTotal += dbPrice;
+            existing.salesPriceTotal += netSales;
+            existing.orderIds.add(item.orderId);
+            existing.productIds.add(item.productId);
+        } else {
+            srMap.set(key, {
+                srName: item.srId ? (item.srName ?? "Unknown SR") : "পরিবেশকের পয়েন্ট",
+                srBrandId: item.srBrandId,
+                srBrandName: item.srBrandName,
+                totalQty: netQty,
+                totalFreeQty: netFreeQty,
+                totalReturnQty: ret.returnQty,
+                dbPriceTotal: dbPrice,
+                salesPriceTotal: netSales,
+                orderIds: new Set([item.orderId]),
+                productIds: new Set([item.productId]),
+            });
+        }
+    }
+
+    // Step 4: Build response
+    let totalQuantitySold = 0;
+    let totalFreeQuantity = 0;
+    let grandDbPriceTotal = 0;
+    let grandSalesPriceTotal = 0;
+
+    const srItems: SrSalesItem[] = [];
+    for (const [srId, data] of srMap) {
+        totalQuantitySold += data.totalQty;
+        totalFreeQuantity += data.totalFreeQty;
+        grandDbPriceTotal += data.dbPriceTotal;
+        grandSalesPriceTotal += data.salesPriceTotal;
+
+        srItems.push({
+            srId,
+            srName: data.srName,
+            brandId: data.srBrandId,
+            brandName: data.srBrandName,
+            totalQuantity: data.totalQty,
+            freeQuantity: data.totalFreeQty,
+            returnQuantity: data.totalReturnQty,
+            dbPriceTotal: data.dbPriceTotal.toFixed(2),
+            salesPriceTotal: data.salesPriceTotal.toFixed(2),
+            orderCount: data.orderIds.size,
+            productCount: data.productIds.size,
+        });
+    }
+
+    // Sort by sales price descending
+    srItems.sort((a, b) => parseFloat(b.salesPriceTotal) - parseFloat(a.salesPriceTotal));
+
+    return {
+        items: srItems,
+        summary: {
+            totalSRs: srItems.length,
+            totalQuantitySold,
+            totalFreeQuantity,
+            grandDbPriceTotal: grandDbPriceTotal.toFixed(2),
+            grandSalesPriceTotal: grandSalesPriceTotal.toFixed(2),
+        },
+    };
+};
+
+/**
+ * Get SR sales details for a single SR (product-level breakdown)
+ * srId = 0 means "Distributor's Point" (null srId items)
+ * Uses application-level return aggregation to avoid LEFT JOIN duplicate counting
+ */
+export const getSrSalesDetails = async (
+    srId: number,
+    query: SrSalesQuery
+): Promise<SrSalesDetailResponse> => {
+    const isDistributor = srId === 0;
+
+    // Get SR info
+    let srName = "পরিবেশকের পয়েন্ট";
+    if (!isDistributor) {
+        const srInfo = await db.query.sr.findFirst({
+            where: (s, { eq }) => eq(s.id, srId),
+        });
+        if (!srInfo) {
+            throw new Error(`SR with ID ${srId} not found`);
+        }
+        srName = srInfo.name;
+    }
+
+    const orderConditions = [
+        ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "return"),
+    ];
+
+    if (query.startDate) {
+        orderConditions.push(gte(wholesaleOrders.orderDate, query.startDate));
+    }
+    if (query.endDate) {
+        orderConditions.push(lte(wholesaleOrders.orderDate, query.endDate));
+    }
+    if (query.routeId) {
+        orderConditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    // Filter by SR
+    const itemConditions: any[] = [];
+    if (isDistributor) {
+        itemConditions.push(isNull(wholesaleOrderItems.srId));
+    } else {
+        itemConditions.push(eq(wholesaleOrderItems.srId, srId));
+    }
+
+    // Step 1: Fetch items WITHOUT returns join
+    const items = await db
+        .select({
+            itemId: wholesaleOrderItems.id,
+            orderId: wholesaleOrderItems.orderId,
+            productId: wholesaleOrderItems.productId,
+            productName: product.name,
+            brandId: wholesaleOrderItems.brandId,
+            brandName: brand.name,
+            unit: wholesaleOrderItems.unit,
+            deliveredQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})`,
+            deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
+            net: wholesaleOrderItems.net,
+            supplierPrice: stockBatch.supplierPrice,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
+        .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+        .where(and(...orderConditions, ...itemConditions));
+
+    if (items.length === 0) {
+        return {
+            srId: isDistributor ? null : srId,
+            srName,
+            products: [],
+            summary: { totalSRs: 1, totalQuantitySold: 0, totalFreeQuantity: 0, grandDbPriceTotal: "0.00", grandSalesPriceTotal: "0.00" },
+        };
+    }
+
+    // Step 2: Fetch returns pre-aggregated
+    const itemIds = items.map(i => i.itemId);
+    const returnsData = await db
+        .select({
+            orderItemId: orderItemReturns.orderItemId,
+            totalReturnQty: sql<number>`SUM(${orderItemReturns.returnQuantity})`,
+            totalReturnFreeQty: sql<number>`SUM(${orderItemReturns.returnFreeQuantity})`,
+            totalReturnAmount: sql<string>`SUM(CAST(${orderItemReturns.returnAmount} AS DECIMAL))`,
+            totalAdjDiscount: sql<string>`SUM(CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL))`,
+        })
+        .from(orderItemReturns)
+        .where(sql`${orderItemReturns.orderItemId} IN (${sql.join(itemIds.map(id => sql`${id}`), sql`, `)})`)
+        .groupBy(orderItemReturns.orderItemId);
+
+    const returnsMap = new Map<number, { returnQty: number; returnFreeQty: number; returnAmount: number; adjDiscount: number }>();
+    for (const r of returnsData) {
+        returnsMap.set(r.orderItemId, {
+            returnQty: Number(r.totalReturnQty) || 0,
+            returnFreeQty: Number(r.totalReturnFreeQty) || 0,
+            returnAmount: parseFloat(r.totalReturnAmount ?? "0") || 0,
+            adjDiscount: parseFloat(r.totalAdjDiscount ?? "0") || 0,
+        });
+    }
+
+    // Step 3: Aggregate by product
+    const productMap = new Map<number, {
+        productName: string;
+        brandId: number;
+        brandName: string;
+        unit: string;
+        totalQty: number;
+        totalFreeQty: number;
+        totalReturnQty: number;
+        dbPriceTotal: number;
+        salesPriceTotal: number;
+        orderIds: Set<number>;
+    }>();
+
+    for (const item of items) {
+        const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
+
+        const netQty = Number(item.deliveredQty) - ret.returnQty;
+        const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
+        const netSales = parseFloat(item.net) - ret.returnAmount - ret.adjDiscount;
+        const dbPrice = netQty * parseFloat(item.supplierPrice);
+
+        const existing = productMap.get(item.productId);
+        if (existing) {
+            existing.totalQty += netQty;
+            existing.totalFreeQty += netFreeQty;
+            existing.totalReturnQty += ret.returnQty;
+            existing.dbPriceTotal += dbPrice;
+            existing.salesPriceTotal += netSales;
+            existing.orderIds.add(item.orderId);
+        } else {
+            productMap.set(item.productId, {
+                productName: item.productName,
+                brandId: item.brandId,
+                brandName: item.brandName,
+                unit: item.unit,
+                totalQty: netQty,
+                totalFreeQty: netFreeQty,
+                totalReturnQty: ret.returnQty,
+                dbPriceTotal: dbPrice,
+                salesPriceTotal: netSales,
+                orderIds: new Set([item.orderId]),
+            });
+        }
+    }
+
+    // Step 4: Build response
+    let totalQuantitySold = 0;
+    let totalFreeQuantity = 0;
+    let grandDbPriceTotal = 0;
+    let grandSalesPriceTotal = 0;
+
+    const products: SrSalesProductItem[] = [];
+    for (const [productId, data] of productMap) {
+        totalQuantitySold += data.totalQty;
+        totalFreeQuantity += data.totalFreeQty;
+        grandDbPriceTotal += data.dbPriceTotal;
+        grandSalesPriceTotal += data.salesPriceTotal;
+
+        products.push({
+            productId,
+            productName: data.productName,
+            brandId: data.brandId,
+            brandName: data.brandName,
+            unit: data.unit,
+            totalQuantity: data.totalQty,
+            freeQuantity: data.totalFreeQty,
+            returnQuantity: data.totalReturnQty,
+            dbPriceTotal: data.dbPriceTotal.toFixed(2),
+            salesPriceTotal: data.salesPriceTotal.toFixed(2),
+            orderCount: data.orderIds.size,
+        });
+    }
+
+    // Sort by sales price descending
+    products.sort((a, b) => parseFloat(b.salesPriceTotal) - parseFloat(a.salesPriceTotal));
+
+    return {
+        srId: isDistributor ? null : srId,
+        srName,
+        products,
+        summary: {
+            totalSRs: 1,
+            totalQuantitySold,
+            totalFreeQuantity,
+            grandDbPriceTotal: grandDbPriceTotal.toFixed(2),
+            grandSalesPriceTotal: grandSalesPriceTotal.toFixed(2),
+        },
+    };
+};
