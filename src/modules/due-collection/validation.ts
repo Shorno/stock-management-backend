@@ -26,8 +26,7 @@ export type CollectDueInput = z.infer<typeof collectDueInputSchema>;
 export const getCollectionHistoryQuerySchema = z.object({
     startDate: z.string().optional(),
     endDate: z.string().optional(),
-    customerId: z.coerce.number().optional(),
-    dsrId: z.coerce.number().optional(),
+    type: z.enum(["customer", "dsr", "sr"]).optional(),
 });
 
 export type GetCollectionHistoryQuery = z.infer<typeof getCollectionHistoryQuerySchema>;

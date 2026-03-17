@@ -125,6 +125,10 @@ app.route("/damage-claims", damageClaimsRoutes);
 
 const port = Number(process.env.PORT) || 3000;
 
+// Start automatic daily inventory snapshot scheduler
+import { scheduleSnapshotCron } from "./jobs/inventory-snapshot";
+scheduleSnapshotCron();
+
 export default {
     port,
     fetch: app.fetch,

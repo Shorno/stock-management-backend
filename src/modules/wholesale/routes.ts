@@ -65,6 +65,9 @@ app.get(
 // Get total due for a specific DSR - MUST be before /:id route
 app.get("/dsr-due/:dsrId", wholesaleController.handleGetDsrTotalDue);
 
+// Get total due for a specific SR - MUST be before /:id route
+app.get("/sr-due/:srId", wholesaleController.handleGetSrTotalDue);
+
 // Get overdue pending orders (for notifications) - MUST be before /:id route
 app.get("/overdue-pending", wholesaleController.handleGetOverduePendingOrders);
 

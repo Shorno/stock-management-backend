@@ -65,8 +65,9 @@ export interface CustomerDueDetailsResponse {
 
 export interface CollectionRecord {
     id: number;
-    customerId: number | null;
-    customerName: string;
+    type: "customer" | "dsr" | "sr";
+    entityName: string; // Customer name, DSR name, or SR name
+    entityId: number | null;
     orderId: number | null;
     orderNumber: string | null;
     amount: string;
@@ -416,62 +417,161 @@ export const collectDue = async (
 };
 
 /**
- * Get collection history
+ * Get unified collection history across Customer, DSR, and SR collections
  */
 export const getCollectionHistory = async (
     query: GetCollectionHistoryQuery
 ): Promise<CollectionRecord[]> => {
-    const conditions = [];
+    const allRecords: CollectionRecord[] = [];
 
-    if (query.startDate) {
-        conditions.push(gte(dueCollections.collectionDate, query.startDate));
-    }
-    if (query.endDate) {
-        conditions.push(lte(dueCollections.collectionDate, query.endDate));
-    }
-    if (query.customerId) {
-        conditions.push(eq(dueCollections.customerId, query.customerId));
-    }
-    if (query.dsrId) {
-        conditions.push(eq(dueCollections.collectedByDsrId, query.dsrId));
+    // Only fetch types that match the filter (or all if no type filter)
+    const fetchCustomer = !query.type || query.type === "customer";
+    const fetchDsr = !query.type || query.type === "dsr";
+    const fetchSr = !query.type || query.type === "sr";
+
+    // 1. Customer collections
+    if (fetchCustomer) {
+        const custConditions = [];
+        if (query.startDate) custConditions.push(gte(dueCollections.collectionDate, query.startDate));
+        if (query.endDate) custConditions.push(lte(dueCollections.collectionDate, query.endDate));
+
+        const custResults = await db
+            .select({
+                id: dueCollections.id,
+                customerId: dueCollections.customerId,
+                customerName: customer.name,
+                orderId: dueCollections.orderId,
+                orderNumber: wholesaleOrders.orderNumber,
+                amount: dueCollections.amount,
+                collectionDate: dueCollections.collectionDate,
+                paymentMethod: dueCollections.paymentMethod,
+                collectedByDsrId: dueCollections.collectedByDsrId,
+                collectedByDsrName: dsr.name,
+                note: dueCollections.note,
+                createdAt: dueCollections.createdAt,
+            })
+            .from(dueCollections)
+            .leftJoin(customer, eq(dueCollections.customerId, customer.id))
+            .leftJoin(wholesaleOrders, eq(dueCollections.orderId, wholesaleOrders.id))
+            .leftJoin(dsr, eq(dueCollections.collectedByDsrId, dsr.id))
+            .where(custConditions.length > 0 ? and(...custConditions) : undefined)
+            .orderBy(desc(dueCollections.collectionDate));
+
+        for (const row of custResults) {
+            allRecords.push({
+                id: row.id,
+                type: "customer",
+                entityName: row.customerName || "Unknown",
+                entityId: row.customerId,
+                orderId: row.orderId,
+                orderNumber: row.orderNumber || null,
+                amount: row.amount,
+                collectionDate: row.collectionDate,
+                paymentMethod: row.paymentMethod,
+                collectedByDsrId: row.collectedByDsrId,
+                collectedByDsrName: row.collectedByDsrName || null,
+                note: row.note,
+                createdAt: row.createdAt,
+            });
+        }
     }
 
-    const results = await db
-        .select({
-            id: dueCollections.id,
-            customerId: dueCollections.customerId,
-            customerName: customer.name,
-            orderId: dueCollections.orderId,
-            orderNumber: wholesaleOrders.orderNumber,
-            amount: dueCollections.amount,
-            collectionDate: dueCollections.collectionDate,
-            paymentMethod: dueCollections.paymentMethod,
-            collectedByDsrId: dueCollections.collectedByDsrId,
-            collectedByDsrName: dsr.name,
-            note: dueCollections.note,
-            createdAt: dueCollections.createdAt,
-        })
-        .from(dueCollections)
-        .leftJoin(customer, eq(dueCollections.customerId, customer.id))
-        .leftJoin(wholesaleOrders, eq(dueCollections.orderId, wholesaleOrders.id))
-        .leftJoin(dsr, eq(dueCollections.collectedByDsrId, dsr.id))
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(desc(dueCollections.collectionDate), desc(dueCollections.createdAt));
+    // 2. DSR collections
+    if (fetchDsr) {
+        const dsrConditions = [];
+        if (query.startDate) dsrConditions.push(gte(dsrDueCollections.collectionDate, query.startDate));
+        if (query.endDate) dsrConditions.push(lte(dsrDueCollections.collectionDate, query.endDate));
 
-    return results.map(row => ({
-        id: row.id,
-        customerId: row.customerId,
-        customerName: row.customerName || "Unknown",
-        orderId: row.orderId,
-        orderNumber: row.orderNumber || null,
-        amount: row.amount,
-        collectionDate: row.collectionDate,
-        paymentMethod: row.paymentMethod,
-        collectedByDsrId: row.collectedByDsrId,
-        collectedByDsrName: row.collectedByDsrName || null,
-        note: row.note,
-        createdAt: row.createdAt,
-    }));
+        const dsrResults = await db
+            .select({
+                id: dsrDueCollections.id,
+                dsrId: dsrDueCollections.dsrId,
+                dsrName: dsr.name,
+                orderId: dsrDueCollections.orderId,
+                orderNumber: wholesaleOrders.orderNumber,
+                amount: dsrDueCollections.amount,
+                collectionDate: dsrDueCollections.collectionDate,
+                paymentMethod: dsrDueCollections.paymentMethod,
+                note: dsrDueCollections.note,
+                createdAt: dsrDueCollections.createdAt,
+            })
+            .from(dsrDueCollections)
+            .leftJoin(dsr, eq(dsrDueCollections.dsrId, dsr.id))
+            .leftJoin(wholesaleOrders, eq(dsrDueCollections.orderId, wholesaleOrders.id))
+            .where(dsrConditions.length > 0 ? and(...dsrConditions) : undefined)
+            .orderBy(desc(dsrDueCollections.collectionDate));
+
+        for (const row of dsrResults) {
+            allRecords.push({
+                id: row.id,
+                type: "dsr",
+                entityName: row.dsrName || "Unknown DSR",
+                entityId: row.dsrId,
+                orderId: row.orderId,
+                orderNumber: row.orderNumber || null,
+                amount: row.amount,
+                collectionDate: row.collectionDate,
+                paymentMethod: row.paymentMethod,
+                collectedByDsrId: null,
+                collectedByDsrName: null,
+                note: row.note,
+                createdAt: row.createdAt,
+            });
+        }
+    }
+
+    // 3. SR collections
+    if (fetchSr) {
+        const srConditions = [];
+        if (query.startDate) srConditions.push(gte(srDueCollections.collectionDate, query.startDate));
+        if (query.endDate) srConditions.push(lte(srDueCollections.collectionDate, query.endDate));
+
+        const srResults = await db
+            .select({
+                id: srDueCollections.id,
+                srId: srDueCollections.srId,
+                srName: sr.name,
+                orderId: srDueCollections.orderId,
+                orderNumber: wholesaleOrders.orderNumber,
+                amount: srDueCollections.amount,
+                collectionDate: srDueCollections.collectionDate,
+                paymentMethod: srDueCollections.paymentMethod,
+                note: srDueCollections.note,
+                createdAt: srDueCollections.createdAt,
+            })
+            .from(srDueCollections)
+            .leftJoin(sr, eq(srDueCollections.srId, sr.id))
+            .leftJoin(wholesaleOrders, eq(srDueCollections.orderId, wholesaleOrders.id))
+            .where(srConditions.length > 0 ? and(...srConditions) : undefined)
+            .orderBy(desc(srDueCollections.collectionDate));
+
+        for (const row of srResults) {
+            allRecords.push({
+                id: row.id,
+                type: "sr",
+                entityName: row.srName || "Unknown SR",
+                entityId: row.srId,
+                orderId: row.orderId,
+                orderNumber: row.orderNumber || null,
+                amount: row.amount,
+                collectionDate: row.collectionDate,
+                paymentMethod: row.paymentMethod,
+                collectedByDsrId: null,
+                collectedByDsrName: null,
+                note: row.note,
+                createdAt: row.createdAt,
+            });
+        }
+    }
+
+    // Sort all records by collection date descending, then createdAt descending
+    allRecords.sort((a, b) => {
+        const dateCompare = b.collectionDate.localeCompare(a.collectionDate);
+        if (dateCompare !== 0) return dateCompare;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+    return allRecords;
 };
 
 // ==================== DSR DUE TRACKING FUNCTIONS ====================

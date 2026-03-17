@@ -1,9 +1,10 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant } from "../../db/schema";
-import { eq, and, gte, lte, sql, ne, countDistinct, desc } from "drizzle-orm";
+import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant, sr } from "../../db/schema";
+import { eq, and, gte, lte, sql, ne, countDistinct, desc, inArray } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
 export interface DailySalesCollectionItem {
+    orderId: number;
     orderDate: string;
     dsrId: number;
     dsrName: string;
@@ -12,26 +13,53 @@ export interface DailySalesCollectionItem {
     sale: string;           // Original order total
     returnAmount: string;   // Sum of item returns
     discount: string;       // Order discount
-    grandTotal: string;     // sale - returns - discount
+    grandTotal: string;     // Net Sales = sale - returns - adjDiscount (NO expense deduction)
     expense: string;        // Sum of expenses
     received: string;       // Sum of payments
-    due: string;            // grandTotal - received
+    due: string;            // Customer + DSR + SR dues combined
 }
 
 export interface DailySalesCollectionSummary {
     totalSales: string;           // Sum of all order totals
-    totalReturns: string;         // Sum of return amounts ONLY (not adjustment discounts)
+    totalReturns: string;         // Sum of return amounts ONLY
     totalAdjustmentDiscount: string; // Sum of adjustment discounts
     totalDiscount: string;        // Sum of order-level discounts
-    totalGrandTotal: string;      // Net sales after returns and adjustments
+    totalGrandTotal: string;      // Net Sales = totalSales - totalReturns - adjDiscount
     totalExpenses: string;
     totalReceived: string;
-    totalDue: string;             // Sum of customer dues
+    totalDue: string;             // Combined customer + DSR + SR dues
+    totalDueCollected: string;    // Due collected on these dates
     orderCount: number;
+}
+
+export interface DailySalesCollectionDueCollectionItem {
+    collectionDate: string;
+    type: 'customer' | 'dsr' | 'sr';
+    entityName: string;
+    amount: string;
+    paymentMethod: string | null;
+}
+
+export interface ProductSoldItem {
+    productName: string;
+    brandName: string;
+    quantity: number;
+    freeQuantity: number;
+    totalAmount: string;
+}
+
+export interface ProductReturnedItem {
+    productName: string;
+    brandName: string;
+    returnQuantity: number;
+    returnAmount: string;
 }
 
 export interface DailySalesCollectionResponse {
     items: DailySalesCollectionItem[];
+    dueCollections: DailySalesCollectionDueCollectionItem[];
+    productsSold: ProductSoldItem[];
+    productsReturned: ProductReturnedItem[];
     summary: DailySalesCollectionSummary;
 }
 
@@ -124,6 +152,25 @@ export const getDailySalesCollection = async (
         duesByOrder.set(d.orderId, (duesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
     }
 
+    // Also fetch DSR dues and SR dues
+    const allDsrDues = orderIds.length > 0 ? await db.query.orderDsrDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
+    const allSrDues = orderIds.length > 0 ? await db.query.orderSrDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
+    const dsrDuesByOrder = new Map<number, number>();
+    for (const d of allDsrDues) {
+        dsrDuesByOrder.set(d.orderId, (dsrDuesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
+    }
+
+    const srDuesByOrder = new Map<number, number>();
+    for (const d of allSrDues) {
+        srDuesByOrder.set(d.orderId, (srDuesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
+    }
+
     // Transform data and calculate amounts
     let totalSales = 0;
     let totalReturns = 0;              // Only return amounts
@@ -138,20 +185,24 @@ export const getDailySalesCollection = async (
         const sale = parseFloat(order.total);
         const discount = parseFloat(order.discount);
         const returns = returnsByOrder.get(order.orderId) || { returnAmount: 0, adjustmentDiscount: 0 };
-        const returnAmount = returns.returnAmount;              // Only return amount
-        const adjustmentDiscount = returns.adjustmentDiscount;  // Separate adjustment discount
+        const returnAmount = returns.returnAmount;
+        const adjustmentDiscount = returns.adjustmentDiscount;
         const expense = expensesByOrder.get(order.orderId) || 0;
         const received = paymentsByOrder.get(order.orderId) || 0;
-        // Due = Customer Dues (what DSR needs to collect from customers)
-        const due = duesByOrder.get(order.orderId) || 0;
+        // Total Due = Customer Due + DSR Due + SR Due
+        const customerDue = duesByOrder.get(order.orderId) || 0;
+        const dsrDue = dsrDuesByOrder.get(order.orderId) || 0;
+        const srDue = srDuesByOrder.get(order.orderId) || 0;
+        const due = customerDue + dsrDue + srDue;
 
-        // Grand Total = Sale - Returns - Adjustment Discounts - Expenses
-        const grandTotal = sale - returnAmount - adjustmentDiscount - expense;
+        // Net Sales = Sale - Returns - Adjustment Discounts (NO expense deduction)
+        // Identity: Net Sales = Received + Due + Expense
+        const grandTotal = sale - returnAmount - adjustmentDiscount;
 
         // Aggregate totals
         totalSales += sale;
-        totalReturns += returnAmount;                    // Only return amount
-        totalAdjustmentDiscount += adjustmentDiscount;   // Separate adjustment discount
+        totalReturns += returnAmount;
+        totalAdjustmentDiscount += adjustmentDiscount;
         totalDiscount += discount;
         totalGrandTotal += grandTotal;
         totalExpenses += expense;
@@ -159,13 +210,14 @@ export const getDailySalesCollection = async (
         totalDue += due;
 
         return {
+            orderId: order.orderId,
             orderDate: order.orderDate,
             dsrId: order.dsrId,
             dsrName: order.dsrName,
             routeId: order.routeId,
             routeName: order.routeName,
             sale: sale.toFixed(2),
-            returnAmount: returnAmount.toFixed(2),       // Only return amount (not combined)
+            returnAmount: returnAmount.toFixed(2),
             discount: discount.toFixed(2),
             grandTotal: grandTotal.toFixed(2),
             expense: expense.toFixed(2),
@@ -174,8 +226,153 @@ export const getDailySalesCollection = async (
         };
     });
 
+    // Fetch due collections for the date range
+    const { dueCollections: dueCollectionsTable, dsrDueCollections, srDueCollections, customer } = await import("../../db/schema");
+
+    const collectionStartDate = (query.startDate || query.date || new Date().toISOString().split("T")[0])!;
+    const collectionEndDate = (query.endDate || query.date || new Date().toISOString().split("T")[0])!;
+
+    const customerCollections = await db
+        .select({
+            collectionDate: dueCollectionsTable.collectionDate,
+            amount: dueCollectionsTable.amount,
+            paymentMethod: dueCollectionsTable.paymentMethod,
+            customerName: customer.name,
+        })
+        .from(dueCollectionsTable)
+        .leftJoin(customer, eq(dueCollectionsTable.customerId, customer.id))
+        .where(and(
+            gte(dueCollectionsTable.collectionDate, collectionStartDate),
+            lte(dueCollectionsTable.collectionDate, collectionEndDate),
+        ));
+
+    const dsrCollections = await db
+        .select({
+            collectionDate: dsrDueCollections.collectionDate,
+            amount: dsrDueCollections.amount,
+            paymentMethod: dsrDueCollections.paymentMethod,
+            dsrName: dsr.name,
+        })
+        .from(dsrDueCollections)
+        .leftJoin(dsr, eq(dsrDueCollections.dsrId, dsr.id))
+        .where(and(
+            gte(dsrDueCollections.collectionDate, collectionStartDate),
+            lte(dsrDueCollections.collectionDate, collectionEndDate),
+        ));
+
+    const srCollections = await db
+        .select({
+            collectionDate: srDueCollections.collectionDate,
+            amount: srDueCollections.amount,
+            paymentMethod: srDueCollections.paymentMethod,
+            srName: sr.name,
+        })
+        .from(srDueCollections)
+        .leftJoin(sr, eq(srDueCollections.srId, sr.id))
+        .where(and(
+            gte(srDueCollections.collectionDate, collectionStartDate),
+            lte(srDueCollections.collectionDate, collectionEndDate),
+        ));
+
+    let totalDueCollected = 0;
+    const dueCollections: DailySalesCollectionDueCollectionItem[] = [
+        ...customerCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return { collectionDate: c.collectionDate, type: 'customer' as const, entityName: c.customerName || 'Unknown', amount: amt.toFixed(2), paymentMethod: c.paymentMethod };
+        }),
+        ...dsrCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return { collectionDate: c.collectionDate, type: 'dsr' as const, entityName: c.dsrName || 'Unknown', amount: amt.toFixed(2), paymentMethod: c.paymentMethod };
+        }),
+        ...srCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return { collectionDate: c.collectionDate, type: 'sr' as const, entityName: c.srName || 'Unknown', amount: amt.toFixed(2), paymentMethod: c.paymentMethod };
+        }),
+    ];
+
+    // Fetch products sold (order items) aggregated by product
+    const { wholesaleOrderItems, product, brand: brandTable } = await import("../../db/schema");
+
+    const allOrderItems = orderIds.length > 0 ? await db
+        .select({
+            productName: product.name,
+            brandName: brandTable.name,
+            quantity: wholesaleOrderItems.totalQuantity,
+            freeQuantity: wholesaleOrderItems.freeQuantity,
+            net: wholesaleOrderItems.net,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
+        .innerJoin(brandTable, eq(wholesaleOrderItems.brandId, brandTable.id))
+        .where(inArray(wholesaleOrderItems.orderId, orderIds))
+    : [];
+
+    // Aggregate by product name + brand
+    const soldMap = new Map<string, ProductSoldItem>();
+    for (const item of allOrderItems) {
+        const key = `${item.productName}|${item.brandName}`;
+        const existing = soldMap.get(key);
+        if (existing) {
+            existing.quantity += item.quantity;
+            existing.freeQuantity += item.freeQuantity;
+            existing.totalAmount = (parseFloat(existing.totalAmount) + parseFloat(item.net)).toFixed(2);
+        } else {
+            soldMap.set(key, {
+                productName: item.productName,
+                brandName: item.brandName,
+                quantity: item.quantity,
+                freeQuantity: item.freeQuantity,
+                totalAmount: parseFloat(item.net).toFixed(2),
+            });
+        }
+    }
+    const productsSold = Array.from(soldMap.values()).sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
+
+    // Fetch products returned aggregated by product
+    const { orderItemReturns } = await import("../../db/schema");
+
+    const allReturnItems = orderIds.length > 0 ? await db
+        .select({
+            productName: product.name,
+            brandName: brandTable.name,
+            returnQuantity: orderItemReturns.returnQuantity,
+            returnAmount: orderItemReturns.returnAmount,
+        })
+        .from(orderItemReturns)
+        .innerJoin(wholesaleOrderItems, eq(orderItemReturns.orderItemId, wholesaleOrderItems.id))
+        .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
+        .innerJoin(brandTable, eq(wholesaleOrderItems.brandId, brandTable.id))
+        .where(inArray(orderItemReturns.orderId, orderIds))
+    : [];
+
+    // Aggregate returns by product
+    const returnMap = new Map<string, ProductReturnedItem>();
+    for (const item of allReturnItems) {
+        if (item.returnQuantity === 0) continue;
+        const key = `${item.productName}|${item.brandName}`;
+        const existing = returnMap.get(key);
+        if (existing) {
+            existing.returnQuantity += item.returnQuantity;
+            existing.returnAmount = (parseFloat(existing.returnAmount) + parseFloat(item.returnAmount)).toFixed(2);
+        } else {
+            returnMap.set(key, {
+                productName: item.productName,
+                brandName: item.brandName,
+                returnQuantity: item.returnQuantity,
+                returnAmount: parseFloat(item.returnAmount).toFixed(2),
+            });
+        }
+    }
+    const productsReturned = Array.from(returnMap.values()).sort((a, b) => parseFloat(b.returnAmount) - parseFloat(a.returnAmount));
+
     return {
         items,
+        dueCollections,
+        productsSold,
+        productsReturned,
         summary: {
             totalSales: totalSales.toFixed(2),
             totalReturns: totalReturns.toFixed(2),
@@ -185,6 +382,7 @@ export const getDailySalesCollection = async (
             totalExpenses: totalExpenses.toFixed(2),
             totalReceived: totalReceived.toFixed(2),
             totalDue: totalDue.toFixed(2),
+            totalDueCollected: totalDueCollected.toFixed(2),
             orderCount: items.length,
         },
     };
@@ -1226,6 +1424,29 @@ export interface DsrDueItem {
     note: string | null;
 }
 
+export interface SrDueItem {
+    orderDate: string;
+    srId: number;
+    srName: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    amount: string;
+    collectedAmount: string;
+    remainingDue: string;
+    note: string | null;
+}
+
+export interface DueCollectionItem {
+    collectionDate: string;
+    type: 'customer' | 'dsr' | 'sr';
+    entityName: string;
+    amount: string;
+    paymentMethod: string | null;
+    note: string | null;
+}
+
 export interface DailySettlementSummary {
     netTotalSales: string;
     totalExpenses: string;
@@ -1234,7 +1455,9 @@ export interface DailySettlementSummary {
     cashBalance: string;
     totalDue: string;
     totalDsrDue: string;
+    totalSrDue: string;
     totalDamageReturn: string;
+    totalDueCollected: string;
 }
 
 export interface DailySettlementResponse {
@@ -1243,6 +1466,8 @@ export interface DailySettlementResponse {
     paymentsReceived: PaymentReceivedItem[];
     customerDues: CustomerDueItem[];
     dsrDues: DsrDueItem[];
+    srDues: SrDueItem[];
+    dueCollections: DueCollectionItem[];
     damageReturns: DamageReturnItem[];
     summary: DailySettlementSummary;
 }
@@ -1315,6 +1540,11 @@ export const getDailySettlement = async (
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
     }) : [];
 
+    const allSrDues = orderIds.length > 0 ? await db.query.orderSrDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+        with: { sr: true },
+    }) : [];
+
     const allDamageItems = orderIds.length > 0 ? await db.query.orderDamageItems.findMany({
         where: (d, { inArray, and: andOp, eq: eqOp }) => andOp(
             inArray(d.orderId, orderIds),
@@ -1358,6 +1588,12 @@ export const getDailySettlement = async (
         expensesByOrder.set(e.orderId, (expensesByOrder.get(e.orderId) || 0) + parseFloat(e.amount));
     }
 
+    // Group damage items by order (only non-other damage, matching adjustment page's settlementDamage)
+    const damageByOrder = new Map<number, number>();
+    for (const d of allDamageItems) {
+        damageByOrder.set(d.orderId, (damageByOrder.get(d.orderId) || 0) + parseFloat(d.total));
+    }
+
     const netSales: NetSalesItem[] = orders.map((order) => {
         const sale = parseFloat(order.total);
         const discount = parseFloat(order.discount);
@@ -1367,8 +1603,11 @@ export const getDailySettlement = async (
         const payments = paymentsByOrder.get(order.orderId) || { cash: 0, mobileBank: 0, bank: 0, total: 0 };
         const due = duesByOrder.get(order.orderId) || 0;
         const orderExpensesAmount = expensesByOrder.get(order.orderId) || 0;
+        const orderDamageAmount = damageByOrder.get(order.orderId) || 0;
 
-        const netSalesAmount = sale - returnAmount - adjustmentDiscount - orderExpensesAmount;
+        // Match adjustment page: netOwed = total - returns - adjDiscount - damage
+        // Then: netSales = netOwed - expense
+        const netSalesAmount = sale - returnAmount - adjustmentDiscount - orderDamageAmount - orderExpensesAmount;
 
         totalNetSales += netSalesAmount;
         totalReceived += payments.total;
@@ -1412,7 +1651,7 @@ export const getDailySettlement = async (
     const paymentsReceived: PaymentReceivedItem[] = allPayments.map((payment) => {
         const order = orderMap.get(payment.orderId);
         return {
-            paymentDate: payment.paymentDate,
+            paymentDate: order?.orderDate || payment.paymentDate,
             dsrId: order?.dsrId || 0,
             dsrName: order?.dsrName || "",
             routeId: order?.routeId || 0,
@@ -1461,7 +1700,30 @@ export const getDailySettlement = async (
         };
     });
 
-    // 6. Build Damage Return Items list
+    // 6. Build SR Dues list
+    let totalSrDue = 0;
+    const srDues: SrDueItem[] = allSrDues.map((due: any) => {
+        const order = orderMap.get(due.orderId);
+        const amount = parseFloat(due.amount);
+        const collected = parseFloat(due.collectedAmount);
+        const remaining = amount - collected;
+        totalSrDue += remaining;
+        return {
+            orderDate: order?.orderDate || "",
+            srId: due.srId,
+            srName: due.sr?.name || "",
+            dsrId: order?.dsrId || 0,
+            dsrName: order?.dsrName || "",
+            routeId: order?.routeId || 0,
+            routeName: order?.routeName || "",
+            amount: amount.toFixed(2),
+            collectedAmount: collected.toFixed(2),
+            remainingDue: remaining.toFixed(2),
+            note: due.note,
+        };
+    });
+
+    // 7. Build Damage Return Items list
     let totalDamageReturn = 0;
     const damageReturnsList: DamageReturnItem[] = allDamageItems.map((item) => {
         const order = orderMap.get(item.orderId);
@@ -1480,8 +1742,98 @@ export const getDailySettlement = async (
         };
     });
 
-    // 6. Get Cash Withdrawals for the date range
-    const { cashWithdrawals } = await import("../../db/schema");
+    // 8. Get Due Collections for the date range (from all 3 collection tables)
+    const { dueCollections, dsrDueCollections, srDueCollections, cashWithdrawals, customer } = await import("../../db/schema");
+
+    // Customer due collections
+    const customerCollections = await db
+        .select({
+            collectionDate: dueCollections.collectionDate,
+            amount: dueCollections.amount,
+            paymentMethod: dueCollections.paymentMethod,
+            note: dueCollections.note,
+            customerName: customer.name,
+        })
+        .from(dueCollections)
+        .leftJoin(customer, eq(dueCollections.customerId, customer.id))
+        .where(and(
+            gte(dueCollections.collectionDate, startDate!),
+            lte(dueCollections.collectionDate, endDate!),
+        ));
+
+    // DSR due collections
+    const dsrCollections = await db
+        .select({
+            collectionDate: dsrDueCollections.collectionDate,
+            amount: dsrDueCollections.amount,
+            paymentMethod: dsrDueCollections.paymentMethod,
+            note: dsrDueCollections.note,
+            dsrName: dsr.name,
+        })
+        .from(dsrDueCollections)
+        .leftJoin(dsr, eq(dsrDueCollections.dsrId, dsr.id))
+        .where(and(
+            gte(dsrDueCollections.collectionDate, startDate!),
+            lte(dsrDueCollections.collectionDate, endDate!),
+        ));
+
+    // SR due collections
+    const srCollections = await db
+        .select({
+            collectionDate: srDueCollections.collectionDate,
+            amount: srDueCollections.amount,
+            paymentMethod: srDueCollections.paymentMethod,
+            note: srDueCollections.note,
+            srName: sr.name,
+        })
+        .from(srDueCollections)
+        .leftJoin(sr, eq(srDueCollections.srId, sr.id))
+        .where(and(
+            gte(srDueCollections.collectionDate, startDate!),
+            lte(srDueCollections.collectionDate, endDate!),
+        ));
+
+    let totalDueCollected = 0;
+    const dueCollectionsList: DueCollectionItem[] = [
+        ...customerCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return {
+                collectionDate: c.collectionDate,
+                type: 'customer' as const,
+                entityName: c.customerName || 'Unknown Customer',
+                amount: amt.toFixed(2),
+                paymentMethod: c.paymentMethod,
+                note: c.note,
+            };
+        }),
+        ...dsrCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return {
+                collectionDate: c.collectionDate,
+                type: 'dsr' as const,
+                entityName: c.dsrName || 'Unknown DSR',
+                amount: amt.toFixed(2),
+                paymentMethod: c.paymentMethod,
+                note: c.note,
+            };
+        }),
+        ...srCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return {
+                collectionDate: c.collectionDate,
+                type: 'sr' as const,
+                entityName: c.srName || 'Unknown SR',
+                amount: amt.toFixed(2),
+                paymentMethod: c.paymentMethod,
+                note: c.note,
+            };
+        }),
+    ].sort((a, b) => a.collectionDate.localeCompare(b.collectionDate));
+
+    // 9. Get Cash Withdrawals for the date range
     const withdrawalConditions = [
         gte(cashWithdrawals.withdrawalDate, startDate!),
         lte(cashWithdrawals.withdrawalDate, endDate!),
@@ -1501,6 +1853,8 @@ export const getDailySettlement = async (
         paymentsReceived,
         customerDues,
         dsrDues,
+        srDues,
+        dueCollections: dueCollectionsList,
         damageReturns: damageReturnsList,
         summary: {
             netTotalSales: totalNetSales.toFixed(2),
@@ -1510,7 +1864,9 @@ export const getDailySettlement = async (
             cashBalance: cashBalance.toFixed(2),
             totalDue: totalDue.toFixed(2),
             totalDsrDue: totalDsrDue.toFixed(2),
+            totalSrDue: totalSrDue.toFixed(2),
             totalDamageReturn: totalDamageReturn.toFixed(2),
+            totalDueCollected: totalDueCollected.toFixed(2),
         },
     };
 };
@@ -1651,3 +2007,420 @@ export const getBrandWisePurchases = async (
 };
 
 
+// ==================== SR WISE SALES ====================
+
+import type { SrSalesQuery } from "./validation";
+import { isNull } from "drizzle-orm";
+
+export interface SrSalesProductItem {
+    productId: number;
+    productName: string;
+    brandId: number;
+    brandName: string;
+    unit: string;
+    totalQuantity: number;     // Net quantity after returns
+    freeQuantity: number;
+    returnQuantity: number;
+    dbPriceTotal: string;      // Total at supplier/DB price
+    salesPriceTotal: string;   // Total at sales price
+    orderCount: number;
+}
+
+export interface SrSalesItem {
+    srId: number | null;       // null = Distributor's Point
+    srName: string;
+    brandId: number | null;
+    brandName: string | null;
+    totalQuantity: number;
+    freeQuantity: number;
+    returnQuantity: number;
+    dbPriceTotal: string;      // Total at DB/supplier price
+    salesPriceTotal: string;   // Total at sales price
+    orderCount: number;
+    productCount: number;
+}
+
+export interface SrSalesSummary {
+    totalSRs: number;          // Including Distributor's Point
+    totalQuantitySold: number;
+    totalFreeQuantity: number;
+    grandDbPriceTotal: string;
+    grandSalesPriceTotal: string;
+}
+
+export interface SrSalesResponse {
+    items: SrSalesItem[];
+    summary: SrSalesSummary;
+}
+
+export interface SrSalesDetailResponse {
+    srId: number | null;
+    srName: string;
+    products: SrSalesProductItem[];
+    summary: SrSalesSummary;
+}
+
+/**
+ * Get SR-wise sales report (overview - all SRs)
+ * Groups by SR, null srId = "পরিবেশকের পয়েন্ট"
+ * Uses application-level return aggregation to avoid LEFT JOIN duplicate counting
+ */
+export const getSrWiseSales = async (
+    query: SrSalesQuery
+): Promise<SrSalesResponse> => {
+    const orderConditions = [
+        ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "return"),
+    ];
+
+    if (query.startDate) {
+        orderConditions.push(gte(wholesaleOrders.orderDate, query.startDate));
+    }
+    if (query.endDate) {
+        orderConditions.push(lte(wholesaleOrders.orderDate, query.endDate));
+    }
+    if (query.routeId) {
+        orderConditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    const itemConditions: any[] = [];
+    if (query.srId) {
+        itemConditions.push(eq(wholesaleOrderItems.srId, query.srId));
+    }
+
+    // Step 1: Fetch order items WITHOUT returns join
+    const items = await db
+        .select({
+            itemId: wholesaleOrderItems.id,
+            srId: wholesaleOrderItems.srId,
+            srName: sr.name,
+            srBrandId: sr.brandId,
+            srBrandName: brand.name,
+            orderId: wholesaleOrderItems.orderId,
+            productId: wholesaleOrderItems.productId,
+            deliveredQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})`,
+            deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
+            net: wholesaleOrderItems.net,
+            supplierPrice: stockBatch.supplierPrice,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+        .leftJoin(sr, eq(wholesaleOrderItems.srId, sr.id))
+        .leftJoin(brand, eq(sr.brandId, brand.id))
+        .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])));
+
+    if (items.length === 0) {
+        return {
+            items: [],
+            summary: { totalSRs: 0, totalQuantitySold: 0, totalFreeQuantity: 0, grandDbPriceTotal: "0.00", grandSalesPriceTotal: "0.00" },
+        };
+    }
+
+    // Step 2: Fetch returns for these items (pre-aggregated per item)
+    const itemIds = items.map(i => i.itemId);
+    const returnsData = await db
+        .select({
+            orderItemId: orderItemReturns.orderItemId,
+            totalReturnQty: sql<number>`SUM(${orderItemReturns.returnQuantity})`,
+            totalReturnFreeQty: sql<number>`SUM(${orderItemReturns.returnFreeQuantity})`,
+            totalReturnAmount: sql<string>`SUM(CAST(${orderItemReturns.returnAmount} AS DECIMAL))`,
+            totalAdjDiscount: sql<string>`SUM(CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL))`,
+        })
+        .from(orderItemReturns)
+        .where(sql`${orderItemReturns.orderItemId} IN (${sql.join(itemIds.map(id => sql`${id}`), sql`, `)})`)
+        .groupBy(orderItemReturns.orderItemId);
+
+    // Build returns lookup
+    const returnsMap = new Map<number, { returnQty: number; returnFreeQty: number; returnAmount: number; adjDiscount: number }>();
+    for (const r of returnsData) {
+        returnsMap.set(r.orderItemId, {
+            returnQty: Number(r.totalReturnQty) || 0,
+            returnFreeQty: Number(r.totalReturnFreeQty) || 0,
+            returnAmount: parseFloat(r.totalReturnAmount ?? "0") || 0,
+            adjDiscount: parseFloat(r.totalAdjDiscount ?? "0") || 0,
+        });
+    }
+
+    // Step 3: Aggregate by SR
+    const srMap = new Map<number | null, {
+        srName: string;
+        srBrandId: number | null;
+        srBrandName: string | null;
+        totalQty: number;
+        totalFreeQty: number;
+        totalReturnQty: number;
+        dbPriceTotal: number;
+        salesPriceTotal: number;
+        orderIds: Set<number>;
+        productIds: Set<number>;
+    }>();
+
+    for (const item of items) {
+        const key = item.srId;
+        const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
+
+        const netQty = Number(item.deliveredQty) - ret.returnQty;
+        const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
+        const netSales = parseFloat(item.net) - ret.returnAmount - ret.adjDiscount;
+        const dbPrice = netQty * parseFloat(item.supplierPrice);
+
+        const existing = srMap.get(key);
+        if (existing) {
+            existing.totalQty += netQty;
+            existing.totalFreeQty += netFreeQty;
+            existing.totalReturnQty += ret.returnQty;
+            existing.dbPriceTotal += dbPrice;
+            existing.salesPriceTotal += netSales;
+            existing.orderIds.add(item.orderId);
+            existing.productIds.add(item.productId);
+        } else {
+            srMap.set(key, {
+                srName: item.srId ? (item.srName ?? "Unknown SR") : "পরিবেশকের পয়েন্ট",
+                srBrandId: item.srBrandId,
+                srBrandName: item.srBrandName,
+                totalQty: netQty,
+                totalFreeQty: netFreeQty,
+                totalReturnQty: ret.returnQty,
+                dbPriceTotal: dbPrice,
+                salesPriceTotal: netSales,
+                orderIds: new Set([item.orderId]),
+                productIds: new Set([item.productId]),
+            });
+        }
+    }
+
+    // Step 4: Build response
+    let totalQuantitySold = 0;
+    let totalFreeQuantity = 0;
+    let grandDbPriceTotal = 0;
+    let grandSalesPriceTotal = 0;
+
+    const srItems: SrSalesItem[] = [];
+    for (const [srId, data] of srMap) {
+        totalQuantitySold += data.totalQty;
+        totalFreeQuantity += data.totalFreeQty;
+        grandDbPriceTotal += data.dbPriceTotal;
+        grandSalesPriceTotal += data.salesPriceTotal;
+
+        srItems.push({
+            srId,
+            srName: data.srName,
+            brandId: data.srBrandId,
+            brandName: data.srBrandName,
+            totalQuantity: data.totalQty,
+            freeQuantity: data.totalFreeQty,
+            returnQuantity: data.totalReturnQty,
+            dbPriceTotal: data.dbPriceTotal.toFixed(2),
+            salesPriceTotal: data.salesPriceTotal.toFixed(2),
+            orderCount: data.orderIds.size,
+            productCount: data.productIds.size,
+        });
+    }
+
+    // Sort by sales price descending
+    srItems.sort((a, b) => parseFloat(b.salesPriceTotal) - parseFloat(a.salesPriceTotal));
+
+    return {
+        items: srItems,
+        summary: {
+            totalSRs: srItems.length,
+            totalQuantitySold,
+            totalFreeQuantity,
+            grandDbPriceTotal: grandDbPriceTotal.toFixed(2),
+            grandSalesPriceTotal: grandSalesPriceTotal.toFixed(2),
+        },
+    };
+};
+
+/**
+ * Get SR sales details for a single SR (product-level breakdown)
+ * srId = 0 means "Distributor's Point" (null srId items)
+ * Uses application-level return aggregation to avoid LEFT JOIN duplicate counting
+ */
+export const getSrSalesDetails = async (
+    srId: number,
+    query: SrSalesQuery
+): Promise<SrSalesDetailResponse> => {
+    const isDistributor = srId === 0;
+
+    // Get SR info
+    let srName = "পরিবেশকের পয়েন্ট";
+    if (!isDistributor) {
+        const srInfo = await db.query.sr.findFirst({
+            where: (s, { eq }) => eq(s.id, srId),
+        });
+        if (!srInfo) {
+            throw new Error(`SR with ID ${srId} not found`);
+        }
+        srName = srInfo.name;
+    }
+
+    const orderConditions = [
+        ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "return"),
+    ];
+
+    if (query.startDate) {
+        orderConditions.push(gte(wholesaleOrders.orderDate, query.startDate));
+    }
+    if (query.endDate) {
+        orderConditions.push(lte(wholesaleOrders.orderDate, query.endDate));
+    }
+    if (query.routeId) {
+        orderConditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    // Filter by SR
+    const itemConditions: any[] = [];
+    if (isDistributor) {
+        itemConditions.push(isNull(wholesaleOrderItems.srId));
+    } else {
+        itemConditions.push(eq(wholesaleOrderItems.srId, srId));
+    }
+
+    // Step 1: Fetch items WITHOUT returns join
+    const items = await db
+        .select({
+            itemId: wholesaleOrderItems.id,
+            orderId: wholesaleOrderItems.orderId,
+            productId: wholesaleOrderItems.productId,
+            productName: product.name,
+            brandId: wholesaleOrderItems.brandId,
+            brandName: brand.name,
+            unit: wholesaleOrderItems.unit,
+            deliveredQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})`,
+            deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
+            net: wholesaleOrderItems.net,
+            supplierPrice: stockBatch.supplierPrice,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
+        .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+        .where(and(...orderConditions, ...itemConditions));
+
+    if (items.length === 0) {
+        return {
+            srId: isDistributor ? null : srId,
+            srName,
+            products: [],
+            summary: { totalSRs: 1, totalQuantitySold: 0, totalFreeQuantity: 0, grandDbPriceTotal: "0.00", grandSalesPriceTotal: "0.00" },
+        };
+    }
+
+    // Step 2: Fetch returns pre-aggregated
+    const itemIds = items.map(i => i.itemId);
+    const returnsData = await db
+        .select({
+            orderItemId: orderItemReturns.orderItemId,
+            totalReturnQty: sql<number>`SUM(${orderItemReturns.returnQuantity})`,
+            totalReturnFreeQty: sql<number>`SUM(${orderItemReturns.returnFreeQuantity})`,
+            totalReturnAmount: sql<string>`SUM(CAST(${orderItemReturns.returnAmount} AS DECIMAL))`,
+            totalAdjDiscount: sql<string>`SUM(CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL))`,
+        })
+        .from(orderItemReturns)
+        .where(sql`${orderItemReturns.orderItemId} IN (${sql.join(itemIds.map(id => sql`${id}`), sql`, `)})`)
+        .groupBy(orderItemReturns.orderItemId);
+
+    const returnsMap = new Map<number, { returnQty: number; returnFreeQty: number; returnAmount: number; adjDiscount: number }>();
+    for (const r of returnsData) {
+        returnsMap.set(r.orderItemId, {
+            returnQty: Number(r.totalReturnQty) || 0,
+            returnFreeQty: Number(r.totalReturnFreeQty) || 0,
+            returnAmount: parseFloat(r.totalReturnAmount ?? "0") || 0,
+            adjDiscount: parseFloat(r.totalAdjDiscount ?? "0") || 0,
+        });
+    }
+
+    // Step 3: Aggregate by product
+    const productMap = new Map<number, {
+        productName: string;
+        brandId: number;
+        brandName: string;
+        unit: string;
+        totalQty: number;
+        totalFreeQty: number;
+        totalReturnQty: number;
+        dbPriceTotal: number;
+        salesPriceTotal: number;
+        orderIds: Set<number>;
+    }>();
+
+    for (const item of items) {
+        const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
+
+        const netQty = Number(item.deliveredQty) - ret.returnQty;
+        const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
+        const netSales = parseFloat(item.net) - ret.returnAmount - ret.adjDiscount;
+        const dbPrice = netQty * parseFloat(item.supplierPrice);
+
+        const existing = productMap.get(item.productId);
+        if (existing) {
+            existing.totalQty += netQty;
+            existing.totalFreeQty += netFreeQty;
+            existing.totalReturnQty += ret.returnQty;
+            existing.dbPriceTotal += dbPrice;
+            existing.salesPriceTotal += netSales;
+            existing.orderIds.add(item.orderId);
+        } else {
+            productMap.set(item.productId, {
+                productName: item.productName,
+                brandId: item.brandId,
+                brandName: item.brandName,
+                unit: item.unit,
+                totalQty: netQty,
+                totalFreeQty: netFreeQty,
+                totalReturnQty: ret.returnQty,
+                dbPriceTotal: dbPrice,
+                salesPriceTotal: netSales,
+                orderIds: new Set([item.orderId]),
+            });
+        }
+    }
+
+    // Step 4: Build response
+    let totalQuantitySold = 0;
+    let totalFreeQuantity = 0;
+    let grandDbPriceTotal = 0;
+    let grandSalesPriceTotal = 0;
+
+    const products: SrSalesProductItem[] = [];
+    for (const [productId, data] of productMap) {
+        totalQuantitySold += data.totalQty;
+        totalFreeQuantity += data.totalFreeQty;
+        grandDbPriceTotal += data.dbPriceTotal;
+        grandSalesPriceTotal += data.salesPriceTotal;
+
+        products.push({
+            productId,
+            productName: data.productName,
+            brandId: data.brandId,
+            brandName: data.brandName,
+            unit: data.unit,
+            totalQuantity: data.totalQty,
+            freeQuantity: data.totalFreeQty,
+            returnQuantity: data.totalReturnQty,
+            dbPriceTotal: data.dbPriceTotal.toFixed(2),
+            salesPriceTotal: data.salesPriceTotal.toFixed(2),
+            orderCount: data.orderIds.size,
+        });
+    }
+
+    // Sort by sales price descending
+    products.sort((a, b) => parseFloat(b.salesPriceTotal) - parseFloat(a.salesPriceTotal));
+
+    return {
+        srId: isDistributor ? null : srId,
+        srName,
+        products,
+        summary: {
+            totalSRs: 1,
+            totalQuantitySold,
+            totalFreeQuantity,
+            grandDbPriceTotal: grandDbPriceTotal.toFixed(2),
+            grandSalesPriceTotal: grandSalesPriceTotal.toFixed(2),
+        },
+    };
+};

@@ -506,6 +506,39 @@ export const handleGetDsrTotalDue = async (c: AppContext): Promise<Response> => 
     }
 };
 
+// Handle getting total due for a specific SR
+export const handleGetSrTotalDue = async (c: AppContext): Promise<Response> => {
+    try {
+        const srId = Number(c.req.param("srId"));
+
+        if (isNaN(srId)) {
+            return c.json(
+                {
+                    success: false,
+                    message: "Invalid SR ID",
+                },
+                400
+            );
+        }
+
+        const result = await wholesaleService.getSrTotalDue(srId);
+
+        return c.json({
+            success: true,
+            data: result,
+        });
+    } catch (error) {
+        logError("Error fetching SR total due:", error);
+        return c.json(
+            {
+                success: false,
+                message: "Failed to fetch SR total due",
+            },
+            500
+        );
+    }
+};
+
 // Handle getting order adjustment data
 export const handleGetOrderAdjustment = async (c: AppContext): Promise<Response> => {
     try {

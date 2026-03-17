@@ -1,4 +1,4 @@
-import { pgTable, text, numeric, integer, serial, varchar, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, integer, serial, varchar, boolean, date, index, uniqueIndex, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { timestamps } from "../column.helpers";
 
@@ -126,3 +126,25 @@ export const stockAdjustmentsRelations = relations(stockAdjustments, ({ one }) =
   }),
 }));
 
+// ==================== INVENTORY SNAPSHOTS ====================
+
+export const inventorySnapshots = pgTable("inventory_snapshots", {
+  id: serial("id").primaryKey(),
+  snapshotDate: date("snapshot_date").notNull(),
+  batchId: integer("batch_id").notNull(),
+  variantId: integer("variant_id").notNull(),
+  productId: integer("product_id").notNull(),
+  brandId: integer("brand_id").notNull(),
+  productName: text("product_name").notNull(),
+  variantLabel: varchar("variant_label", { length: 100 }).notNull(),
+  brandName: varchar("brand_name", { length: 100 }).notNull(),
+  supplierPrice: numeric("supplier_price", { precision: 12, scale: 6 }).notNull(),
+  sellPrice: numeric("sell_price", { precision: 12, scale: 6 }).notNull(),
+  remainingQuantity: integer("remaining_quantity").notNull(),
+  remainingFreeQty: integer("remaining_free_qty").notNull().default(0),
+  unit: varchar("unit", { length: 20 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  dateIdx: index("idx_inventory_snapshots_date").on(table.snapshotDate),
+  dateBatchIdx: uniqueIndex("idx_inventory_snapshots_date_batch").on(table.snapshotDate, table.batchId),
+}));

@@ -743,6 +743,37 @@ export const getDsrTotalDue = async (dsrId: number) => {
     };
 };
 
+// Get total outstanding due for a specific SR (sum of SR dues across all orders)
+export const getSrTotalDue = async (srId: number) => {
+    // Get all SR dues for this SR
+    const srDuesResult = await db.query.orderSrDues.findMany({
+        where: (d, { eq }) => eq(d.srId, srId),
+    });
+
+    if (srDuesResult.length === 0) {
+        return {
+            srId,
+            totalDue: 0,
+            orderCount: 0,
+        };
+    }
+
+    // Calculate total due (amount - collectedAmount)
+    const totalDue = srDuesResult.reduce(
+        (sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)),
+        0
+    );
+
+    // Get unique order count
+    const uniqueOrderIds = new Set(srDuesResult.map(d => d.orderId));
+
+    return {
+        srId,
+        totalDue,
+        orderCount: uniqueOrderIds.size,
+    };
+};
+
 // ==================== ORDER ADJUSTMENTS ====================
 
 // Save order adjustment (payments, expenses, item returns)
