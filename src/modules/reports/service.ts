@@ -2012,6 +2012,18 @@ export const getBrandWisePurchases = async (
 import type { SrSalesQuery } from "./validation";
 import { isNull } from "drizzle-orm";
 
+export interface SrSalesBatchItem {
+    batchId: number;
+    batchDate: string;         // When the batch was created/added
+    supplierPrice: string;     // Buying price per unit from this batch
+    salePrice: string;         // Selling price per unit at order time
+    quantity: number;          // Net qty sold from this batch (after returns)
+    freeQuantity: number;
+    returnQuantity: number;
+    dbPriceTotal: string;      // qty * supplierPrice
+    salesPriceTotal: string;   // net sales amount for items from this batch
+}
+
 export interface SrSalesProductItem {
     productId: number;
     productName: string;
@@ -2024,6 +2036,8 @@ export interface SrSalesProductItem {
     dbPriceTotal: string;      // Total at supplier/DB price
     salesPriceTotal: string;   // Total at sales price
     orderCount: number;
+    batchCount: number;
+    batches: SrSalesBatchItem[];
 }
 
 export interface SrSalesItem {
@@ -2293,6 +2307,9 @@ export const getSrSalesDetails = async (
             deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
             net: wholesaleOrderItems.net,
             supplierPrice: stockBatch.supplierPrice,
+            batchId: wholesaleOrderItems.batchId,
+            salePrice: wholesaleOrderItems.salePrice,
+            batchCreatedAt: stockBatch.createdAt,
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
@@ -2334,7 +2351,7 @@ export const getSrSalesDetails = async (
         });
     }
 
-    // Step 3: Aggregate by product
+    // Step 3: Aggregate by product AND by batch within each product
     const productMap = new Map<number, {
         productName: string;
         brandId: number;
@@ -2346,6 +2363,16 @@ export const getSrSalesDetails = async (
         dbPriceTotal: number;
         salesPriceTotal: number;
         orderIds: Set<number>;
+        batchMap: Map<number, {
+            batchDate: string;
+            supplierPrice: string;
+            salePrice: string;
+            totalQty: number;
+            totalFreeQty: number;
+            totalReturnQty: number;
+            dbPriceTotal: number;
+            salesPriceTotal: number;
+        }>;
     }>();
 
     for (const item of items) {
@@ -2376,6 +2403,29 @@ export const getSrSalesDetails = async (
                 dbPriceTotal: dbPrice,
                 salesPriceTotal: netSales,
                 orderIds: new Set([item.orderId]),
+                batchMap: new Map(),
+            });
+        }
+
+        // Aggregate batch-level data within the product
+        const prodEntry = productMap.get(item.productId)!;
+        const batchExisting = prodEntry.batchMap.get(item.batchId);
+        if (batchExisting) {
+            batchExisting.totalQty += netQty;
+            batchExisting.totalFreeQty += netFreeQty;
+            batchExisting.totalReturnQty += ret.returnQty;
+            batchExisting.dbPriceTotal += dbPrice;
+            batchExisting.salesPriceTotal += netSales;
+        } else {
+            prodEntry.batchMap.set(item.batchId, {
+                batchDate: item.batchCreatedAt instanceof Date ? item.batchCreatedAt.toISOString().split('T')[0]! : String(item.batchCreatedAt),
+                supplierPrice: item.supplierPrice,
+                salePrice: item.salePrice,
+                totalQty: netQty,
+                totalFreeQty: netFreeQty,
+                totalReturnQty: ret.returnQty,
+                dbPriceTotal: dbPrice,
+                salesPriceTotal: netSales,
             });
         }
     }
@@ -2393,6 +2443,24 @@ export const getSrSalesDetails = async (
         grandDbPriceTotal += data.dbPriceTotal;
         grandSalesPriceTotal += data.salesPriceTotal;
 
+        // Build batch sub-items
+        const batches: SrSalesBatchItem[] = [];
+        for (const [batchId, batchData] of data.batchMap) {
+            batches.push({
+                batchId,
+                batchDate: batchData.batchDate,
+                supplierPrice: batchData.supplierPrice,
+                salePrice: batchData.salePrice,
+                quantity: batchData.totalQty,
+                freeQuantity: batchData.totalFreeQty,
+                returnQuantity: batchData.totalReturnQty,
+                dbPriceTotal: batchData.dbPriceTotal.toFixed(2),
+                salesPriceTotal: batchData.salesPriceTotal.toFixed(2),
+            });
+        }
+        // Sort batches by date descending
+        batches.sort((a, b) => b.batchDate.localeCompare(a.batchDate));
+
         products.push({
             productId,
             productName: data.productName,
@@ -2405,6 +2473,8 @@ export const getSrSalesDetails = async (
             dbPriceTotal: data.dbPriceTotal.toFixed(2),
             salesPriceTotal: data.salesPriceTotal.toFixed(2),
             orderCount: data.orderIds.size,
+            batchCount: batches.length,
+            batches,
         });
     }
 
