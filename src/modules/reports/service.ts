@@ -1226,6 +1226,29 @@ export interface DsrDueItem {
     note: string | null;
 }
 
+export interface SrDueItem {
+    orderDate: string;
+    srId: number;
+    srName: string;
+    dsrId: number;
+    dsrName: string;
+    routeId: number;
+    routeName: string;
+    amount: string;
+    collectedAmount: string;
+    remainingDue: string;
+    note: string | null;
+}
+
+export interface DueCollectionItem {
+    collectionDate: string;
+    type: 'customer' | 'dsr' | 'sr';
+    entityName: string;
+    amount: string;
+    paymentMethod: string | null;
+    note: string | null;
+}
+
 export interface DailySettlementSummary {
     netTotalSales: string;
     totalExpenses: string;
@@ -1234,7 +1257,9 @@ export interface DailySettlementSummary {
     cashBalance: string;
     totalDue: string;
     totalDsrDue: string;
+    totalSrDue: string;
     totalDamageReturn: string;
+    totalDueCollected: string;
 }
 
 export interface DailySettlementResponse {
@@ -1243,6 +1268,8 @@ export interface DailySettlementResponse {
     paymentsReceived: PaymentReceivedItem[];
     customerDues: CustomerDueItem[];
     dsrDues: DsrDueItem[];
+    srDues: SrDueItem[];
+    dueCollections: DueCollectionItem[];
     damageReturns: DamageReturnItem[];
     summary: DailySettlementSummary;
 }
@@ -1313,6 +1340,11 @@ export const getDailySettlement = async (
 
     const allDsrDues = orderIds.length > 0 ? await db.query.orderDsrDues.findMany({
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
+    const allSrDues = orderIds.length > 0 ? await db.query.orderSrDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+        with: { sr: true },
     }) : [];
 
     const allDamageItems = orderIds.length > 0 ? await db.query.orderDamageItems.findMany({
@@ -1461,7 +1493,30 @@ export const getDailySettlement = async (
         };
     });
 
-    // 6. Build Damage Return Items list
+    // 6. Build SR Dues list
+    let totalSrDue = 0;
+    const srDues: SrDueItem[] = allSrDues.map((due: any) => {
+        const order = orderMap.get(due.orderId);
+        const amount = parseFloat(due.amount);
+        const collected = parseFloat(due.collectedAmount);
+        const remaining = amount - collected;
+        totalSrDue += remaining;
+        return {
+            orderDate: order?.orderDate || "",
+            srId: due.srId,
+            srName: due.sr?.name || "",
+            dsrId: order?.dsrId || 0,
+            dsrName: order?.dsrName || "",
+            routeId: order?.routeId || 0,
+            routeName: order?.routeName || "",
+            amount: amount.toFixed(2),
+            collectedAmount: collected.toFixed(2),
+            remainingDue: remaining.toFixed(2),
+            note: due.note,
+        };
+    });
+
+    // 7. Build Damage Return Items list
     let totalDamageReturn = 0;
     const damageReturnsList: DamageReturnItem[] = allDamageItems.map((item) => {
         const order = orderMap.get(item.orderId);
@@ -1480,8 +1535,98 @@ export const getDailySettlement = async (
         };
     });
 
-    // 6. Get Cash Withdrawals for the date range
-    const { cashWithdrawals } = await import("../../db/schema");
+    // 8. Get Due Collections for the date range (from all 3 collection tables)
+    const { dueCollections, dsrDueCollections, srDueCollections, cashWithdrawals, customer } = await import("../../db/schema");
+
+    // Customer due collections
+    const customerCollections = await db
+        .select({
+            collectionDate: dueCollections.collectionDate,
+            amount: dueCollections.amount,
+            paymentMethod: dueCollections.paymentMethod,
+            note: dueCollections.note,
+            customerName: customer.name,
+        })
+        .from(dueCollections)
+        .leftJoin(customer, eq(dueCollections.customerId, customer.id))
+        .where(and(
+            gte(dueCollections.collectionDate, startDate!),
+            lte(dueCollections.collectionDate, endDate!),
+        ));
+
+    // DSR due collections
+    const dsrCollections = await db
+        .select({
+            collectionDate: dsrDueCollections.collectionDate,
+            amount: dsrDueCollections.amount,
+            paymentMethod: dsrDueCollections.paymentMethod,
+            note: dsrDueCollections.note,
+            dsrName: dsr.name,
+        })
+        .from(dsrDueCollections)
+        .leftJoin(dsr, eq(dsrDueCollections.dsrId, dsr.id))
+        .where(and(
+            gte(dsrDueCollections.collectionDate, startDate!),
+            lte(dsrDueCollections.collectionDate, endDate!),
+        ));
+
+    // SR due collections
+    const srCollections = await db
+        .select({
+            collectionDate: srDueCollections.collectionDate,
+            amount: srDueCollections.amount,
+            paymentMethod: srDueCollections.paymentMethod,
+            note: srDueCollections.note,
+            srName: sr.name,
+        })
+        .from(srDueCollections)
+        .leftJoin(sr, eq(srDueCollections.srId, sr.id))
+        .where(and(
+            gte(srDueCollections.collectionDate, startDate!),
+            lte(srDueCollections.collectionDate, endDate!),
+        ));
+
+    let totalDueCollected = 0;
+    const dueCollectionsList: DueCollectionItem[] = [
+        ...customerCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return {
+                collectionDate: c.collectionDate,
+                type: 'customer' as const,
+                entityName: c.customerName || 'Unknown Customer',
+                amount: amt.toFixed(2),
+                paymentMethod: c.paymentMethod,
+                note: c.note,
+            };
+        }),
+        ...dsrCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return {
+                collectionDate: c.collectionDate,
+                type: 'dsr' as const,
+                entityName: c.dsrName || 'Unknown DSR',
+                amount: amt.toFixed(2),
+                paymentMethod: c.paymentMethod,
+                note: c.note,
+            };
+        }),
+        ...srCollections.map(c => {
+            const amt = parseFloat(c.amount);
+            totalDueCollected += amt;
+            return {
+                collectionDate: c.collectionDate,
+                type: 'sr' as const,
+                entityName: c.srName || 'Unknown SR',
+                amount: amt.toFixed(2),
+                paymentMethod: c.paymentMethod,
+                note: c.note,
+            };
+        }),
+    ].sort((a, b) => a.collectionDate.localeCompare(b.collectionDate));
+
+    // 9. Get Cash Withdrawals for the date range
     const withdrawalConditions = [
         gte(cashWithdrawals.withdrawalDate, startDate!),
         lte(cashWithdrawals.withdrawalDate, endDate!),
@@ -1501,6 +1646,8 @@ export const getDailySettlement = async (
         paymentsReceived,
         customerDues,
         dsrDues,
+        srDues,
+        dueCollections: dueCollectionsList,
         damageReturns: damageReturnsList,
         summary: {
             netTotalSales: totalNetSales.toFixed(2),
@@ -1510,7 +1657,9 @@ export const getDailySettlement = async (
             cashBalance: cashBalance.toFixed(2),
             totalDue: totalDue.toFixed(2),
             totalDsrDue: totalDsrDue.toFixed(2),
+            totalSrDue: totalSrDue.toFixed(2),
             totalDamageReturn: totalDamageReturn.toFixed(2),
+            totalDueCollected: totalDueCollected.toFixed(2),
         },
     };
 };
