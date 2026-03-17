@@ -1,0 +1,1 @@
+ALTER TABLE "global_settings" ADD COLUMN "snapshot_time" varchar(5) DEFAULT '23:59' NOT NULL;
