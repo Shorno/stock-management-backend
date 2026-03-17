@@ -1,6 +1,10 @@
 import { db } from "../db/config";
 import { inventorySnapshots, stockBatch, productVariant, product, brand } from "../db/schema";
 import { eq } from "drizzle-orm";
+import cron from "node-cron";
+
+let currentTask: ReturnType<typeof cron.schedule> | null = null;
+let currentCronExpression: string | null = null;
 
 /**
  * Take a snapshot of the current inventory state for a given date.
@@ -72,25 +76,66 @@ export async function takeInventorySnapshot(snapshotDate?: string): Promise<numb
 }
 
 /**
- * Start the automatic daily snapshot scheduler.
- * Time is read from SNAPSHOT_TIME env var (HH:MM format, 24h), defaults to "23:59".
+ * Convert HH:MM to a cron expression: "MM HH * * *"
  */
-export function startSnapshotScheduler() {
-    const snapshotTime = process.env.SNAPSHOT_TIME || "23:59";
-    const [hours, minutes] = snapshotTime.split(":").map(Number);
+function timeToCron(time: string): string {
+    const [hours, minutes] = time.split(":");
+    return `${minutes} ${hours} * * *`;
+}
 
-    console.log(`[Snapshot] Scheduler started — will take daily snapshot at ${snapshotTime}`);
+/**
+ * Get the snapshot time from the database, falling back to "23:59"
+ */
+async function getSnapshotTimeFromDB(): Promise<string> {
+    try {
+        const settings = await db.query.globalSettings.findFirst();
+        return settings?.snapshotTime || "23:59";
+    } catch {
+        return "23:59";
+    }
+}
 
-    // Check every 60 seconds if it's time
-    setInterval(async () => {
-        const now = new Date();
-        if (now.getHours() === hours && now.getMinutes() === minutes) {
-            try {
-                const today = now.toISOString().split("T")[0];
-                await takeInventorySnapshot(today);
-            } catch (err) {
-                console.error("[Snapshot] Error taking scheduled snapshot:", err);
-            }
+/**
+ * Schedule or reschedule the daily snapshot cron job.
+ * Reads the time from the database (globalSettings.snapshotTime).
+ */
+export async function scheduleSnapshotCron() {
+    const time = await getSnapshotTimeFromDB();
+    const cronExpr = timeToCron(time);
+
+    // Skip if already scheduled with the same expression
+    if (currentCronExpression === cronExpr && currentTask) {
+        return;
+    }
+
+    // Stop previous task if exists
+    if (currentTask) {
+        currentTask.stop();
+        console.log(`[Snapshot] Stopped previous cron schedule.`);
+    }
+
+    currentTask = cron.schedule(cronExpr, async () => {
+        try {
+            const today = new Date().toISOString().split("T")[0]!;
+            console.log(`[Snapshot] Cron triggered at ${new Date().toISOString()}`);
+            await takeInventorySnapshot(today);
+        } catch (err) {
+            console.error("[Snapshot] Error taking scheduled snapshot:", err);
         }
-    }, 60_000); // Check every minute
+    });
+
+    currentCronExpression = cronExpr;
+    console.log(`[Snapshot] Cron scheduled: "${cronExpr}" (daily at ${time})`);
+}
+
+/**
+ * Get the currently scheduled time
+ */
+export function getCurrentSchedule(): { time: string; cronExpression: string | null } {
+    return {
+        time: currentCronExpression
+            ? currentCronExpression.split(" ").slice(0, 2).reverse().join(":")
+            : "23:59",
+        cronExpression: currentCronExpression,
+    };
 }

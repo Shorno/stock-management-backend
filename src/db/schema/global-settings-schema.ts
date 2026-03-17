@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, pgEnum, varchar } from "drizzle-orm/pg-core";
 import { timestamps } from "../column.helpers";
 
 /**
@@ -16,6 +16,8 @@ export const globalSettings = pgTable("global_settings", {
     orderEditPassword: text("order_edit_password"), // bcrypt hashed, null = no password set
     orderEditLockMode: orderEditLockModeEnum("order_edit_lock_mode").notNull().default("always"),
     orderEditLocked: boolean("order_edit_locked").notNull().default(false),
+    // Inventory snapshot schedule (HH:MM format, 24h)
+    snapshotTime: varchar("snapshot_time", { length: 5 }).notNull().default("23:59"),
     ...timestamps
 });
 

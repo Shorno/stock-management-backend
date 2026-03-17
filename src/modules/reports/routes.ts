@@ -717,4 +717,72 @@ app.get("/inventory-snapshot/dates", async (ctx) => {
     }
 });
 
+// Get/update snapshot schedule time
+import { globalSettings } from "../../db/schema";
+import { scheduleSnapshotCron, getCurrentSchedule } from "../../jobs/inventory-snapshot";
+
+app.get("/inventory-snapshot/schedule", async (ctx) => {
+    try {
+        const settings = await db.query.globalSettings.findFirst();
+        const schedule = getCurrentSchedule();
+        return ctx.json({
+            success: true,
+            data: {
+                time: settings?.snapshotTime || "23:59",
+                cronExpression: schedule.cronExpression,
+            },
+        });
+    } catch (error) {
+        logError("Error fetching snapshot schedule:", error);
+        return ctx.json(
+            { success: false, message: "Failed to fetch schedule" },
+            500
+        );
+    }
+});
+
+app.put("/inventory-snapshot/schedule", async (ctx) => {
+    try {
+        const body = await ctx.req.json();
+        const time = body?.time as string;
+
+        // Validate HH:MM format
+        if (!time || !/^\d{2}:\d{2}$/.test(time)) {
+            return ctx.json({ success: false, message: "Invalid time format. Use HH:MM (e.g. 23:59)" }, 400);
+        }
+
+        const parts = time.split(":").map(Number);
+        const hours = parts[0]!;
+        const minutes = parts[1]!;
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+            return ctx.json({ success: false, message: "Invalid time values" }, 400);
+        }
+
+        // Update in DB
+        const settings = await db.query.globalSettings.findFirst();
+        if (settings) {
+            await db.update(globalSettings)
+                .set({ snapshotTime: time })
+                .where(eq(globalSettings.id, settings.id));
+        } else {
+            await db.insert(globalSettings).values({ snapshotTime: time });
+        }
+
+        // Reschedule the cron job
+        await scheduleSnapshotCron();
+
+        return ctx.json({
+            success: true,
+            message: `Snapshot scheduled daily at ${time}`,
+            data: { time },
+        });
+    } catch (error) {
+        logError("Error updating snapshot schedule:", error);
+        return ctx.json(
+            { success: false, message: error instanceof Error ? error.message : "Failed to update schedule" },
+            500
+        );
+    }
+});
+
 export default app;
