@@ -554,7 +554,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             // === ITEMS TABLE ===
             const tableLeft = 40;
             const tableWidth = 515;
-            const colWidths = { sl: 20, product: 82, brand: 48, qty: 22, unit: 35, extra: 22, free: 22, price: 45, disc: 35, subtotal: 45, retQty: 25, netTotal: 45, profit: 45 };
+            const colWidths = { sl: 18, product: 78, brand: 45, qty: 20, unit: 32, extra: 20, free: 20, total: 25, price: 42, disc: 32, subtotal: 42, retQty: 22, netTotal: 42, profit: 42 };
 
             // Table header
             doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
@@ -575,6 +575,8 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             colX += colWidths.extra;
             doc.text("Free", colX, currentY + 7, { width: colWidths.free, align: "right" });
             colX += colWidths.free;
+            doc.text("Total", colX, currentY + 7, { width: colWidths.total, align: "right" });
+            colX += colWidths.total;
             doc.text("Price", colX, currentY + 7, { width: colWidths.price, align: "right" });
             colX += colWidths.price;
             doc.text("Disc", colX, currentY + 7, { width: colWidths.disc, align: "right" });
@@ -596,6 +598,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 quantity: item.quantity,
                 unit: item.unit,
                 extraPieces: item.extraPieces ?? 0,
+                totalQuantity: item.totalQuantity ?? item.quantity,
                 freeQuantity: item.freeQuantity,
                 salePrice: item.salePrice,
                 discount: item.discount,
@@ -629,6 +632,10 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 colX += colWidths.extra;
                 doc.text(`${item.freeQuantity}`, colX, currentY + 3, { width: colWidths.free, align: "right" });
                 colX += colWidths.free;
+                const totalQty = (item as any).totalQuantity || item.quantity;
+                doc.fillColor(darkGray).font("BanglaBold").text(`${totalQty}`, colX, currentY + 3, { width: colWidths.total, align: "right" });
+                doc.font("BanglaRegular");
+                colX += colWidths.total;
                 // Convert per-piece salePrice to per-unit price for display
                 const multiplier = getMultiplier(itemUnit);
                 const perUnitPrice = Math.round(parseFloat(String(item.salePrice)) * multiplier * 100) / 100;
