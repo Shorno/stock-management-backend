@@ -15,6 +15,9 @@ analyticsRoutes.get("/sales-by-dsr", controller.handleGetSalesByDSR);
 // GET /api/analytics/sales-by-route - Sales grouped by route
 analyticsRoutes.get("/sales-by-route", controller.handleGetSalesByRoute);
 
+// GET /api/analytics/sales-by-sr - Sales grouped by SR
+analyticsRoutes.get("/sales-by-sr", controller.handleGetSalesBySR);
+
 // GET /api/analytics/top-products - Top selling products
 analyticsRoutes.get("/top-products", controller.handleGetTopProducts);
 

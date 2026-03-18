@@ -433,6 +433,51 @@ export async function getSalesByRoute(dateRange?: DateRange): Promise<SalesByRou
     }));
 }
 
+export interface SalesBySRItem {
+    srId: number;
+    srName: string;
+    totalSales: number;
+    orderCount: number;
+}
+
+export async function getSalesBySR(dateRange?: DateRange): Promise<SalesBySRItem[]> {
+    const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
+    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+
+    const allFilters = dateFilters.length > 0
+        ? and(validOrderFilter, ...dateFilters)
+        : validOrderFilter;
+
+    // Get order items grouped by SR (only items with SR assigned)
+    const { sr } = await import("../../db/schema");
+
+    const result = await db
+        .select({
+            srId: sr.id,
+            srName: sr.name,
+            totalSales: sql<string>`SUM(
+                CAST(${wholesaleOrderItems.net} AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
+            )`,
+            orderCount: sql<number>`COUNT(DISTINCT ${wholesaleOrderItems.orderId})`,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(sr, eq(wholesaleOrderItems.srId, sr.id))
+        .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
+        .where(and(...(allFilters ? [allFilters] : []), sql`${wholesaleOrderItems.srId} IS NOT NULL`))
+        .groupBy(sr.id, sr.name)
+        .orderBy(desc(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL))`));
+
+    return result.map(r => ({
+        srId: r.srId,
+        srName: r.srName,
+        totalSales: Number(r.totalSales || 0),
+        orderCount: Number(r.orderCount || 0),
+    }));
+}
+
 export async function getTopProducts(limit: number = 10, dateRange?: DateRange): Promise<TopProductItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
     const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
