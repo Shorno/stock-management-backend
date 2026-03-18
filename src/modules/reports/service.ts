@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant, sr } from "../../db/schema";
+import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant, sr, unit } from "../../db/schema";
 import { eq, and, gte, lte, sql, ne, countDistinct, desc, inArray } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
@@ -1248,6 +1248,8 @@ export interface BrandWiseSalesItem {
     totalQuantity: number;
     freeQuantity: number;
     totalSales: string;
+    totalCOGS: string;
+    profitLoss: string;
     orderCount: number;
     productCount: number;
 }
@@ -1257,6 +1259,8 @@ export interface BrandWiseSalesSummary {
     totalQuantitySold: number;
     totalFreeQuantity: number;
     grandTotal: string;
+    grandCOGS: string;
+    grandProfit: string;
 }
 
 export interface BrandWiseSalesResponse {
@@ -1305,13 +1309,25 @@ export const getBrandWiseSales = async (
                 - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
                 - CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
             )`,
+            totalCOGS: sql<string>`SUM(
+                CAST(${stockBatch.supplierPrice} AS DECIMAL) * (
+                    ${wholesaleOrderItems.totalQuantity}
+                    - COALESCE(
+                        ${orderItemReturns.returnQuantity} * COALESCE(${unit.multiplier}, 1)
+                        + COALESCE(${orderItemReturns.returnExtraPieces}, 0),
+                        0
+                    )
+                )
+            )`,
             orderCount: countDistinct(wholesaleOrderItems.orderId),
             productCount: countDistinct(wholesaleOrderItems.productId),
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
         .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
         .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
+        .leftJoin(unit, sql`UPPER(${orderItemReturns.returnUnit}) = UPPER(${unit.abbreviation})`)
         .where(and(...orderConditions))
         .groupBy(wholesaleOrderItems.brandId, brand.name)
         .orderBy(desc(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL) - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL))`));
@@ -1320,15 +1336,19 @@ export const getBrandWiseSales = async (
     let totalQuantitySold = 0;
     let totalFreeQuantity = 0;
     let grandTotal = 0;
+    let grandCOGS = 0;
 
     const items: BrandWiseSalesItem[] = results.map((row) => {
         const quantity = Number(row.quantity) || 0;
         const freeQty = Number(row.freeQty) || 0;
         const net = parseFloat(row.totalNet ?? "0") || 0;
+        const cogs = parseFloat(row.totalCOGS ?? "0") || 0;
+        const profit = net - cogs;
 
         totalQuantitySold += quantity;
         totalFreeQuantity += freeQty;
         grandTotal += net;
+        grandCOGS += cogs;
 
         return {
             brandId: row.brandId,
@@ -1336,6 +1356,8 @@ export const getBrandWiseSales = async (
             totalQuantity: quantity,
             freeQuantity: freeQty,
             totalSales: net.toFixed(2),
+            totalCOGS: cogs.toFixed(2),
+            profitLoss: profit.toFixed(2),
             orderCount: row.orderCount,
             productCount: row.productCount,
         };
@@ -1348,6 +1370,8 @@ export const getBrandWiseSales = async (
             totalQuantitySold,
             totalFreeQuantity,
             grandTotal: grandTotal.toFixed(2),
+            grandCOGS: grandCOGS.toFixed(2),
+            grandProfit: (grandTotal - grandCOGS).toFixed(2),
         },
     };
 };
