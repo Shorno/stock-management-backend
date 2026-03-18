@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant, sr } from "../../db/schema";
+import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant, sr, unit } from "../../db/schema";
 import { eq, and, gte, lte, sql, ne, countDistinct, desc, inArray } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
 
@@ -1248,6 +1248,8 @@ export interface BrandWiseSalesItem {
     totalQuantity: number;
     freeQuantity: number;
     totalSales: string;
+    totalCOGS: string;
+    profitLoss: string;
     orderCount: number;
     productCount: number;
 }
@@ -1257,6 +1259,8 @@ export interface BrandWiseSalesSummary {
     totalQuantitySold: number;
     totalFreeQuantity: number;
     grandTotal: string;
+    grandCOGS: string;
+    grandProfit: string;
 }
 
 export interface BrandWiseSalesResponse {
@@ -1305,13 +1309,25 @@ export const getBrandWiseSales = async (
                 - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
                 - CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
             )`,
+            totalCOGS: sql<string>`SUM(
+                CAST(${stockBatch.supplierPrice} AS DECIMAL) * (
+                    ${wholesaleOrderItems.totalQuantity}
+                    - COALESCE(
+                        ${orderItemReturns.returnQuantity} * COALESCE(${unit.multiplier}, 1)
+                        + COALESCE(${orderItemReturns.returnExtraPieces}, 0),
+                        0
+                    )
+                )
+            )`,
             orderCount: countDistinct(wholesaleOrderItems.orderId),
             productCount: countDistinct(wholesaleOrderItems.productId),
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
         .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
+        .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
         .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
+        .leftJoin(unit, sql`UPPER(${orderItemReturns.returnUnit}) = UPPER(${unit.abbreviation})`)
         .where(and(...orderConditions))
         .groupBy(wholesaleOrderItems.brandId, brand.name)
         .orderBy(desc(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL) - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL))`));
@@ -1320,15 +1336,19 @@ export const getBrandWiseSales = async (
     let totalQuantitySold = 0;
     let totalFreeQuantity = 0;
     let grandTotal = 0;
+    let grandCOGS = 0;
 
     const items: BrandWiseSalesItem[] = results.map((row) => {
         const quantity = Number(row.quantity) || 0;
         const freeQty = Number(row.freeQty) || 0;
         const net = parseFloat(row.totalNet ?? "0") || 0;
+        const cogs = parseFloat(row.totalCOGS ?? "0") || 0;
+        const profit = net - cogs;
 
         totalQuantitySold += quantity;
         totalFreeQuantity += freeQty;
         grandTotal += net;
+        grandCOGS += cogs;
 
         return {
             brandId: row.brandId,
@@ -1336,6 +1356,8 @@ export const getBrandWiseSales = async (
             totalQuantity: quantity,
             freeQuantity: freeQty,
             totalSales: net.toFixed(2),
+            totalCOGS: cogs.toFixed(2),
+            profitLoss: profit.toFixed(2),
             orderCount: row.orderCount,
             productCount: row.productCount,
         };
@@ -1348,6 +1370,8 @@ export const getBrandWiseSales = async (
             totalQuantitySold,
             totalFreeQuantity,
             grandTotal: grandTotal.toFixed(2),
+            grandCOGS: grandCOGS.toFixed(2),
+            grandProfit: (grandTotal - grandCOGS).toFixed(2),
         },
     };
 };
@@ -2012,6 +2036,18 @@ export const getBrandWisePurchases = async (
 import type { SrSalesQuery } from "./validation";
 import { isNull } from "drizzle-orm";
 
+export interface SrSalesBatchItem {
+    batchId: number;
+    batchDate: string;         // When the batch was created/added
+    supplierPrice: string;     // Buying price per unit from this batch
+    salePrice: string;         // Selling price per unit at order time
+    quantity: number;          // Net qty sold from this batch (after returns)
+    freeQuantity: number;
+    returnQuantity: number;
+    dbPriceTotal: string;      // qty * supplierPrice
+    salesPriceTotal: string;   // net sales amount for items from this batch
+}
+
 export interface SrSalesProductItem {
     productId: number;
     productName: string;
@@ -2024,6 +2060,8 @@ export interface SrSalesProductItem {
     dbPriceTotal: string;      // Total at supplier/DB price
     salesPriceTotal: string;   // Total at sales price
     orderCount: number;
+    batchCount: number;
+    batches: SrSalesBatchItem[];
 }
 
 export interface SrSalesItem {
@@ -2102,6 +2140,7 @@ export const getSrWiseSales = async (
             deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
             net: wholesaleOrderItems.net,
             supplierPrice: stockBatch.supplierPrice,
+            salePrice: wholesaleOrderItems.salePrice,
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
@@ -2162,8 +2201,8 @@ export const getSrWiseSales = async (
 
         const netQty = Number(item.deliveredQty) - ret.returnQty;
         const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
-        const netSales = parseFloat(item.net) - ret.returnAmount - ret.adjDiscount;
         const dbPrice = netQty * parseFloat(item.supplierPrice);
+        const salesPrice = netQty * parseFloat(item.salePrice);
 
         const existing = srMap.get(key);
         if (existing) {
@@ -2171,7 +2210,7 @@ export const getSrWiseSales = async (
             existing.totalFreeQty += netFreeQty;
             existing.totalReturnQty += ret.returnQty;
             existing.dbPriceTotal += dbPrice;
-            existing.salesPriceTotal += netSales;
+            existing.salesPriceTotal += salesPrice;
             existing.orderIds.add(item.orderId);
             existing.productIds.add(item.productId);
         } else {
@@ -2183,7 +2222,7 @@ export const getSrWiseSales = async (
                 totalFreeQty: netFreeQty,
                 totalReturnQty: ret.returnQty,
                 dbPriceTotal: dbPrice,
-                salesPriceTotal: netSales,
+                salesPriceTotal: salesPrice,
                 orderIds: new Set([item.orderId]),
                 productIds: new Set([item.productId]),
             });
@@ -2293,6 +2332,9 @@ export const getSrSalesDetails = async (
             deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
             net: wholesaleOrderItems.net,
             supplierPrice: stockBatch.supplierPrice,
+            batchId: wholesaleOrderItems.batchId,
+            salePrice: wholesaleOrderItems.salePrice,
+            batchCreatedAt: stockBatch.createdAt,
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
@@ -2334,7 +2376,7 @@ export const getSrSalesDetails = async (
         });
     }
 
-    // Step 3: Aggregate by product
+    // Step 3: Aggregate by product AND by batch within each product
     const productMap = new Map<number, {
         productName: string;
         brandId: number;
@@ -2346,6 +2388,16 @@ export const getSrSalesDetails = async (
         dbPriceTotal: number;
         salesPriceTotal: number;
         orderIds: Set<number>;
+        batchMap: Map<number, {
+            batchDate: string;
+            supplierPrice: string;
+            salePrice: string;
+            totalQty: number;
+            totalFreeQty: number;
+            totalReturnQty: number;
+            dbPriceTotal: number;
+            salesPriceTotal: number;
+        }>;
     }>();
 
     for (const item of items) {
@@ -2353,8 +2405,8 @@ export const getSrSalesDetails = async (
 
         const netQty = Number(item.deliveredQty) - ret.returnQty;
         const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
-        const netSales = parseFloat(item.net) - ret.returnAmount - ret.adjDiscount;
         const dbPrice = netQty * parseFloat(item.supplierPrice);
+        const salesPrice = netQty * parseFloat(item.salePrice);
 
         const existing = productMap.get(item.productId);
         if (existing) {
@@ -2362,7 +2414,7 @@ export const getSrSalesDetails = async (
             existing.totalFreeQty += netFreeQty;
             existing.totalReturnQty += ret.returnQty;
             existing.dbPriceTotal += dbPrice;
-            existing.salesPriceTotal += netSales;
+            existing.salesPriceTotal += salesPrice;
             existing.orderIds.add(item.orderId);
         } else {
             productMap.set(item.productId, {
@@ -2374,8 +2426,31 @@ export const getSrSalesDetails = async (
                 totalFreeQty: netFreeQty,
                 totalReturnQty: ret.returnQty,
                 dbPriceTotal: dbPrice,
-                salesPriceTotal: netSales,
+                salesPriceTotal: salesPrice,
                 orderIds: new Set([item.orderId]),
+                batchMap: new Map(),
+            });
+        }
+
+        // Aggregate batch-level data within the product
+        const prodEntry = productMap.get(item.productId)!;
+        const batchExisting = prodEntry.batchMap.get(item.batchId);
+        if (batchExisting) {
+            batchExisting.totalQty += netQty;
+            batchExisting.totalFreeQty += netFreeQty;
+            batchExisting.totalReturnQty += ret.returnQty;
+            batchExisting.dbPriceTotal += dbPrice;
+            batchExisting.salesPriceTotal += salesPrice;
+        } else {
+            prodEntry.batchMap.set(item.batchId, {
+                batchDate: item.batchCreatedAt instanceof Date ? item.batchCreatedAt.toISOString().split('T')[0]! : String(item.batchCreatedAt),
+                supplierPrice: item.supplierPrice,
+                salePrice: item.salePrice,
+                totalQty: netQty,
+                totalFreeQty: netFreeQty,
+                totalReturnQty: ret.returnQty,
+                dbPriceTotal: dbPrice,
+                salesPriceTotal: salesPrice,
             });
         }
     }
@@ -2393,6 +2468,24 @@ export const getSrSalesDetails = async (
         grandDbPriceTotal += data.dbPriceTotal;
         grandSalesPriceTotal += data.salesPriceTotal;
 
+        // Build batch sub-items
+        const batches: SrSalesBatchItem[] = [];
+        for (const [batchId, batchData] of data.batchMap) {
+            batches.push({
+                batchId,
+                batchDate: batchData.batchDate,
+                supplierPrice: batchData.supplierPrice,
+                salePrice: batchData.salePrice,
+                quantity: batchData.totalQty,
+                freeQuantity: batchData.totalFreeQty,
+                returnQuantity: batchData.totalReturnQty,
+                dbPriceTotal: batchData.dbPriceTotal.toFixed(2),
+                salesPriceTotal: batchData.salesPriceTotal.toFixed(2),
+            });
+        }
+        // Sort batches by date descending
+        batches.sort((a, b) => b.batchDate.localeCompare(a.batchDate));
+
         products.push({
             productId,
             productName: data.productName,
@@ -2405,6 +2498,8 @@ export const getSrSalesDetails = async (
             dbPriceTotal: data.dbPriceTotal.toFixed(2),
             salesPriceTotal: data.salesPriceTotal.toFixed(2),
             orderCount: data.orderIds.size,
+            batchCount: batches.length,
+            batches,
         });
     }
 

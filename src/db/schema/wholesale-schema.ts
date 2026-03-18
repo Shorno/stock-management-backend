@@ -677,3 +677,27 @@ export const cashWithdrawals = pgTable("cash_withdrawals", {
 }, (table) => ({
     dateIdx: index("idx_cash_withdrawals_date").on(table.withdrawalDate),
 }));
+
+// ==================== SR COMMISSIONS ====================
+
+export const srCommissions = pgTable("sr_commissions", {
+    id: serial("id").primaryKey(),
+    srId: integer("sr_id")
+        .notNull()
+        .references(() => sr.id, { onDelete: "cascade" }),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    commissionDate: date("commission_date").notNull(),
+    note: text("note"),
+    ...timestamps
+}, (table) => ({
+    srIdx: index("idx_sr_commissions_sr").on(table.srId),
+    dateIdx: index("idx_sr_commissions_date").on(table.commissionDate),
+}));
+
+// SR commissions relations
+export const srCommissionsRelations = relations(srCommissions, ({ one }) => ({
+    sr: one(sr, {
+        fields: [srCommissions.srId],
+        references: [sr.id],
+    }),
+}));

@@ -80,6 +80,29 @@ export const handleGetSalesByDSR = async (c: AppContext): Promise<Response> => {
     }
 };
 
+export const handleGetSalesBySR = async (c: AppContext): Promise<Response> => {
+    try {
+        const startDate = c.req.query("startDate");
+        const endDate = c.req.query("endDate");
+
+        const result = await analyticsService.getSalesBySR({ startDate, endDate });
+
+        return c.json({
+            success: true,
+            data: result,
+        });
+    } catch (error) {
+        logError("Error fetching sales by SR:", error);
+        return c.json(
+            {
+                success: false,
+                message: "Failed to fetch sales by SR",
+            },
+            500
+        );
+    }
+};
+
 export const handleGetSalesByRoute = async (c: AppContext): Promise<Response> => {
     try {
         const startDate = c.req.query("startDate");
