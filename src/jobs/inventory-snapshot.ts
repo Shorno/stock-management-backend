@@ -122,6 +122,8 @@ export async function scheduleSnapshotCron() {
         } catch (err) {
             console.error("[Snapshot] Error taking scheduled snapshot:", err);
         }
+    }, {
+        timezone: "Asia/Dhaka"
     });
 
     currentCronExpression = cronExpr;
