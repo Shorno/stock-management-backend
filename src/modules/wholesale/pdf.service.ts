@@ -1,6 +1,8 @@
 import PDFDocument from "pdfkit";
 import path from "path";
 import type { OrderWithItems } from "./types";
+import { db } from "../../db/config";
+import { unit as unitTable } from "../../db/schema/unit-schema";
 
 // Font paths for Bangla support
 const FONTS_DIR = path.join(process.cwd(), "src/assets/fonts");
@@ -473,6 +475,14 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
  * Generate a detailed Main Invoice PDF (with discounts, subtotals, and adjustments)
  */
 export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?: AdjustmentData | null): Promise<Buffer> {
+    // Fetch unit multipliers from database for price conversion (before Promise to allow await)
+    const allUnits = await db.select().from(unitTable);
+    const unitMultiplierMap: Record<string, number> = {};
+    for (const u of allUnits) {
+        unitMultiplierMap[u.abbreviation] = u.multiplier;
+    }
+    const getMultiplier = (abbr: string) => unitMultiplierMap[abbr] ?? 1;
+
     return new Promise((resolve, reject) => {
         try {
             const doc = new PDFDocument({
@@ -544,7 +554,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             // === ITEMS TABLE ===
             const tableLeft = 40;
             const tableWidth = 515;
-            const colWidths = { sl: 20, product: 90, brand: 55, qty: 28, free: 28, price: 45, disc: 40, subtotal: 50, retQty: 28, netTotal: 48, profit: 48 };
+            const colWidths = { sl: 20, product: 82, brand: 48, qty: 22, unit: 35, extra: 22, free: 22, price: 45, disc: 35, subtotal: 45, retQty: 25, netTotal: 45, profit: 45 };
 
             // Table header
             doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
@@ -559,6 +569,10 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             colX += colWidths.brand;
             doc.text("Qty", colX, currentY + 7, { width: colWidths.qty, align: "right" });
             colX += colWidths.qty;
+            doc.text("Unit", colX, currentY + 7, { width: colWidths.unit, align: "center" });
+            colX += colWidths.unit;
+            doc.text("Extra", colX, currentY + 7, { width: colWidths.extra, align: "right" });
+            colX += colWidths.extra;
             doc.text("Free", colX, currentY + 7, { width: colWidths.free, align: "right" });
             colX += colWidths.free;
             doc.text("Price", colX, currentY + 7, { width: colWidths.price, align: "right" });
@@ -581,6 +595,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 brandName: item.brand?.name || "-",
                 quantity: item.quantity,
                 unit: item.unit,
+                extraPieces: item.extraPieces ?? 0,
                 freeQuantity: item.freeQuantity,
                 salePrice: item.salePrice,
                 discount: item.discount,
@@ -606,9 +621,18 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 colX += colWidths.brand;
                 doc.fillColor(darkGray).text(`${item.quantity}`, colX, currentY + 3, { width: colWidths.qty, align: "right" });
                 colX += colWidths.qty;
+                const itemUnit = item.unit || "PCS";
+                doc.fillColor(mediumGray).text(itemUnit, colX, currentY + 3, { width: colWidths.unit, align: "center" });
+                colX += colWidths.unit;
+                const extraPcs = (item as any).extraPieces || 0;
+                doc.text(extraPcs > 0 ? extraPcs.toString() : "-", colX, currentY + 3, { width: colWidths.extra, align: "right" });
+                colX += colWidths.extra;
                 doc.text(`${item.freeQuantity}`, colX, currentY + 3, { width: colWidths.free, align: "right" });
                 colX += colWidths.free;
-                doc.text(formatCurrencyShort(item.salePrice), colX, currentY + 3, { width: colWidths.price, align: "right" });
+                // Convert per-piece salePrice to per-unit price for display
+                const multiplier = getMultiplier(itemUnit);
+                const perUnitPrice = Math.round(parseFloat(String(item.salePrice)) * multiplier * 100) / 100;
+                doc.text(formatCurrencyShort(perUnitPrice), colX, currentY + 3, { width: colWidths.price, align: "right" });
                 colX += colWidths.price;
                 doc.fillColor(mediumGray).text(formatCurrencyShort(item.discount), colX, currentY + 3, { width: colWidths.disc, align: "right" });
                 colX += colWidths.disc;
