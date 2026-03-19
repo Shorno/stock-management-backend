@@ -85,7 +85,7 @@ function getPreviousPeriodDates(startDate?: string, endDate?: string): { prevSta
 
 async function calculateSalesMetrics(dateFilters: ReturnType<typeof getDateFilter>) {
     // Get all non-cancelled orders sales (adjustment-based pattern)
-    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    const validOrderFilter = and(ne(wholesaleOrders.status, 'cancelled'), ne(wholesaleOrders.status, 'pending'));
     const allFilters = dateFilters.length > 0
         ? and(validOrderFilter, ...dateFilters)
         : validOrderFilter;
@@ -165,7 +165,7 @@ export async function getSalesByPeriod(
     dateRange?: DateRange
 ): Promise<SalesByPeriodItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
-    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    const validOrderFilter = and(ne(wholesaleOrders.status, 'cancelled'), ne(wholesaleOrders.status, 'pending'));
     const allFilters = dateFilters.length > 0
         ? and(validOrderFilter, ...dateFilters)
         : validOrderFilter;
@@ -293,7 +293,7 @@ function fillMissingDates(
 
 export async function getSalesByDSR(dateRange?: DateRange): Promise<SalesByDSRItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
-    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    const validOrderFilter = and(ne(wholesaleOrders.status, 'cancelled'), ne(wholesaleOrders.status, 'pending'));
 
     const allFilters = dateFilters.length > 0
         ? and(validOrderFilter, ...dateFilters)
@@ -364,7 +364,7 @@ export async function getSalesByDSR(dateRange?: DateRange): Promise<SalesByDSRIt
 
 export async function getSalesByRoute(dateRange?: DateRange): Promise<SalesByRouteItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
-    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    const validOrderFilter = and(ne(wholesaleOrders.status, 'cancelled'), ne(wholesaleOrders.status, 'pending'));
 
     const allFilters = dateFilters.length > 0
         ? and(validOrderFilter, ...dateFilters)
@@ -442,7 +442,7 @@ export interface SalesBySRItem {
 
 export async function getSalesBySR(dateRange?: DateRange): Promise<SalesBySRItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
-    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    const validOrderFilter = and(ne(wholesaleOrders.status, 'cancelled'), ne(wholesaleOrders.status, 'pending'));
 
     const allFilters = dateFilters.length > 0
         ? and(validOrderFilter, ...dateFilters)
@@ -480,7 +480,7 @@ export async function getSalesBySR(dateRange?: DateRange): Promise<SalesBySRItem
 
 export async function getTopProducts(limit: number = 10, dateRange?: DateRange): Promise<TopProductItem[]> {
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
-    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    const validOrderFilter = and(ne(wholesaleOrders.status, 'cancelled'), ne(wholesaleOrders.status, 'pending'));
 
     const allFilters = dateFilters.length > 0
         ? and(validOrderFilter, ...dateFilters)
@@ -543,6 +543,8 @@ export interface DashboardStats {
     cashBalance: number;
     supplierDue: number;
     damageReturnsValue: number;
+    pendingOrdersValue: number;
+    pendingSalesTotal: number;
     netAssets: number;
 }
 
@@ -554,9 +556,9 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
 
     // ----- NET SALES -----
-    // Total sales from all orders (excluding cancelled) minus returns from adjustments
-    // Following the same pattern as getDailySalesCollection in reports service
-    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    // Total sales from adjusted/settled orders only (excluding cancelled and pending)
+    // Pending orders have stock deducted but no settlement — their value is tracked via pendingOrdersValue in net assets
+    const validOrderFilter = and(ne(wholesaleOrders.status, 'cancelled'), ne(wholesaleOrders.status, 'pending'));
     const salesFilters = dateFilters.length > 0
         ? and(validOrderFilter, ...dateFilters)
         : validOrderFilter;
@@ -948,12 +950,42 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // Only unclaimed damage value counts as an asset (claimed amounts are already reflected in supplierDue)
     const damageReturnsValue = Math.max(0, totalDamageAtCost - totalClaimed);
 
+    // ----- PENDING ORDERS VALUE (at cost) -----
+    // Orders with status 'pending' have already deducted stock but have no payment/due recorded yet.
+    // We add back the COST of those items (not selling price) to neutralize the stock deduction.
+    // This ensures pending orders have zero effect on net assets (conservative — no unrealized profit).
+    const pendingOrderIds = await db
+        .select({ id: wholesaleOrders.id })
+        .from(wholesaleOrders)
+        .where(eq(wholesaleOrders.status, 'pending'));
+
+    let pendingOrdersValue = 0;
+    let pendingSalesTotal = 0;
+    if (pendingOrderIds.length > 0) {
+        // Cost-based value (for net assets neutralization)
+        const pendingItemsResult = await db
+            .select({
+                totalCost: sql<string>`COALESCE(SUM(CAST(${stockBatch.supplierPrice} AS DECIMAL) * ${wholesaleOrderItems.totalQuantity}), 0)`,
+            })
+            .from(wholesaleOrderItems)
+            .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+            .where(sql`${wholesaleOrderItems.orderId} IN (${sql.join(pendingOrderIds.map(o => sql`${o.id}`), sql`, `)})`);
+        pendingOrdersValue = Number(pendingItemsResult[0]?.totalCost || 0);
+
+        // Selling price total (for display — shows pending sales awaiting adjustment)
+        const pendingSalesResult = await db
+            .select({ total: sum(wholesaleOrders.total) })
+            .from(wholesaleOrders)
+            .where(eq(wholesaleOrders.status, 'pending'));
+        pendingSalesTotal = Number(pendingSalesResult[0]?.total || 0);
+    }
+
     // ----- NET ASSETS -----
     // Total business value = Assets - Liabilities
-    // Assets: Current Stock + Cash Balance + Receivables (DSR Sales Due + DSR Own Due + SR Own Due) + Damage Returns (at cost)
+    // Assets: Current Stock + Cash Balance + Receivables (DSR Sales Due + DSR Own Due + SR Own Due + Pending Orders) + Damage Returns (at cost)
     // Liabilities: Supplier Due (if negative, we owe them)
     // Supplier Balance: positive = they owe us (add), negative = we owe them (subtract)
-    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + srOwnDue + supplierDue + damageReturnsValue;
+    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + srOwnDue + supplierDue + damageReturnsValue + pendingOrdersValue;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
@@ -967,6 +999,8 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         supplierDue: Math.round(supplierDue * 100) / 100,
         netAssets: Math.round(netAssets * 100) / 100,
         damageReturnsValue: Math.round(damageReturnsValue * 100) / 100,
+        pendingOrdersValue: Math.round(pendingOrdersValue * 100) / 100,
+        pendingSalesTotal: Math.round(pendingSalesTotal * 100) / 100,
     };
 }
 
@@ -1189,7 +1223,7 @@ export async function getMoneyFlowDetails(): Promise<MoneyFlowDetails> {
     const expectedRevenue = batches.reduce((sum, b) => sum + b.soldAtSell, 0);
 
     // ----- SALES BREAKDOWN -----
-    const validOrderFilter = ne(wholesaleOrders.status, 'cancelled');
+    const validOrderFilter = and(ne(wholesaleOrders.status, 'cancelled'), ne(wholesaleOrders.status, 'pending'));
 
     const salesResult = await db
         .select({ totalSales: sum(wholesaleOrders.total), totalOrders: count() })
