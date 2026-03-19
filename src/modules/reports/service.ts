@@ -13,7 +13,8 @@ export interface DailySalesCollectionItem {
     sale: string;           // Original order total
     returnAmount: string;   // Sum of item returns
     discount: string;       // Order discount
-    grandTotal: string;     // Net Sales = sale - returns - adjDiscount (NO expense deduction)
+    damage: string;         // Settlement damage returns
+    grandTotal: string;     // Net Sales = sale - returns - adjDiscount - damage - expense
     expense: string;        // Sum of expenses
     received: string;       // Sum of payments
     due: string;            // Customer + DSR + SR dues combined
@@ -24,7 +25,8 @@ export interface DailySalesCollectionSummary {
     totalReturns: string;         // Sum of return amounts ONLY
     totalAdjustmentDiscount: string; // Sum of adjustment discounts
     totalDiscount: string;        // Sum of order-level discounts
-    totalGrandTotal: string;      // Net Sales = totalSales - totalReturns - adjDiscount
+    totalDamage: string;          // Sum of settlement damages
+    totalGrandTotal: string;      // Net Sales = totalSales - totalReturns - adjDiscount - damage - expense
     totalExpenses: string;
     totalReceived: string;
     totalDue: string;             // Combined customer + DSR + SR dues
@@ -80,6 +82,7 @@ export const getDailySalesCollection = async (
         gte(wholesaleOrders.orderDate, startDate!),
         lte(wholesaleOrders.orderDate, endDate!),
         ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "pending"),
     ];
 
     if (query.dsrId) {
@@ -171,11 +174,26 @@ export const getDailySalesCollection = async (
         srDuesByOrder.set(d.orderId, (srDuesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
     }
 
+    // Also fetch settlement damage items (isOther = false means it's part of settlement)
+    const { orderDamageItems } = await import("../../db/schema");
+    const allDamageItems = orderIds.length > 0 ? await db
+        .select({ orderId: orderDamageItems.orderId, total: orderDamageItems.total, isOther: orderDamageItems.isOther })
+        .from(orderDamageItems)
+        .where(inArray(orderDamageItems.orderId, orderIds))
+    : [];
+
+    const damagesByOrder = new Map<number, number>();
+    for (const d of allDamageItems) {
+        if (d.isOther) continue; // Skip non-settlement damages
+        damagesByOrder.set(d.orderId, (damagesByOrder.get(d.orderId) || 0) + parseFloat(d.total));
+    }
+
     // Transform data and calculate amounts
     let totalSales = 0;
     let totalReturns = 0;              // Only return amounts
     let totalAdjustmentDiscount = 0;   // Only adjustment discounts
     let totalDiscount = 0;
+    let totalDamage = 0;               // Settlement damages
     let totalGrandTotal = 0;
     let totalExpenses = 0;
     let totalReceived = 0;
@@ -188,6 +206,7 @@ export const getDailySalesCollection = async (
         const returnAmount = returns.returnAmount;
         const adjustmentDiscount = returns.adjustmentDiscount;
         const expense = expensesByOrder.get(order.orderId) || 0;
+        const damage = damagesByOrder.get(order.orderId) || 0;
         const received = paymentsByOrder.get(order.orderId) || 0;
         // Total Due = Customer Due + DSR Due + SR Due
         const customerDue = duesByOrder.get(order.orderId) || 0;
@@ -195,15 +214,17 @@ export const getDailySalesCollection = async (
         const srDue = srDuesByOrder.get(order.orderId) || 0;
         const due = customerDue + dsrDue + srDue;
 
-        // Net Sales = Sale - Returns - Adjustment Discounts (NO expense deduction)
-        // Identity: Net Sales = Received + Due + Expense
-        const grandTotal = sale - returnAmount - adjustmentDiscount;
+        // Net Sales = Sale - Returns - Adjustment Discounts - Settlement Damages - Expenses
+        // Matches order adjustment page's Net Amount Owed formula
+        // Identity: Net Sales = Received + Due
+        const grandTotal = sale - returnAmount - adjustmentDiscount - damage - expense;
 
         // Aggregate totals
         totalSales += sale;
         totalReturns += returnAmount;
         totalAdjustmentDiscount += adjustmentDiscount;
         totalDiscount += discount;
+        totalDamage += damage;
         totalGrandTotal += grandTotal;
         totalExpenses += expense;
         totalReceived += received;
@@ -219,6 +240,7 @@ export const getDailySalesCollection = async (
             sale: sale.toFixed(2),
             returnAmount: returnAmount.toFixed(2),
             discount: discount.toFixed(2),
+            damage: damage.toFixed(2),
             grandTotal: grandTotal.toFixed(2),
             expense: expense.toFixed(2),
             received: received.toFixed(2),
@@ -378,6 +400,7 @@ export const getDailySalesCollection = async (
             totalReturns: totalReturns.toFixed(2),
             totalAdjustmentDiscount: totalAdjustmentDiscount.toFixed(2),
             totalDiscount: totalDiscount.toFixed(2),
+            totalDamage: totalDamage.toFixed(2),
             totalGrandTotal: totalGrandTotal.toFixed(2),
             totalExpenses: totalExpenses.toFixed(2),
             totalReceived: totalReceived.toFixed(2),
@@ -450,6 +473,7 @@ export const getDsrLedger = async (
             gte(wholesaleOrders.orderDate, startDate),
             lte(wholesaleOrders.orderDate, endDate),
             ne(wholesaleOrders.status, "cancelled"),
+            ne(wholesaleOrders.status, "pending"),
             ne(wholesaleOrders.status, "return")
         ));
 
@@ -639,6 +663,7 @@ export const getAllDsrLedgerSummaries = async (
                 gte(wholesaleOrders.orderDate, startDate),
                 lte(wholesaleOrders.orderDate, endDate),
                 ne(wholesaleOrders.status, "cancelled"),
+                ne(wholesaleOrders.status, "pending"),
                 ne(wholesaleOrders.status, "return")
             ));
 
@@ -753,6 +778,7 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
         .innerJoin(dsr, eq(wholesaleOrders.dsrId, dsr.id))
         .where(and(
             ne(wholesaleOrders.status, "cancelled"),
+            ne(wholesaleOrders.status, "pending"),
             ne(wholesaleOrders.status, "return")
         ))
         .orderBy(dsr.name, wholesaleOrders.orderDate);
@@ -915,6 +941,7 @@ export const getProductWiseSales = async (
         gte(wholesaleOrders.orderDate, query.startDate),
         lte(wholesaleOrders.orderDate, query.endDate),
         ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "pending"),
         ne(wholesaleOrders.status, "return"),
     ];
 
@@ -1080,6 +1107,7 @@ export const getProductWiseSalesWithVariants = async (
         gte(wholesaleOrders.orderDate, query.startDate),
         lte(wholesaleOrders.orderDate, query.endDate),
         ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "pending"),
         ne(wholesaleOrders.status, "return"),
     ];
 
@@ -1278,6 +1306,7 @@ export const getBrandWiseSales = async (
     // Build conditions for orders
     const orderConditions = [
         ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "pending"),
         ne(wholesaleOrders.status, "return"),
     ];
 
@@ -1513,6 +1542,7 @@ export const getDailySettlement = async (
         gte(wholesaleOrders.orderDate, startDate!),
         lte(wholesaleOrders.orderDate, endDate!),
         ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "pending"),
     ];
 
     if (query.dsrId) {
@@ -2108,6 +2138,7 @@ export const getSrWiseSales = async (
 ): Promise<SrSalesResponse> => {
     const orderConditions = [
         ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "pending"),
         ne(wholesaleOrders.status, "return"),
     ];
 
@@ -2297,6 +2328,7 @@ export const getSrSalesDetails = async (
 
     const orderConditions = [
         ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "pending"),
         ne(wholesaleOrders.status, "return"),
     ];
 
