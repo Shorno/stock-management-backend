@@ -2084,6 +2084,7 @@ export interface SrSalesProductItem {
     brandId: number;
     brandName: string;
     unit: string;
+    unitMultiplier: number;    // Multiplier for Xk(multiplier)+Y PCS format
     totalQuantity: number;     // Net quantity after returns
     freeQuantity: number;
     returnQuantity: number;
@@ -2167,7 +2168,8 @@ export const getSrWiseSales = async (
             srBrandName: brand.name,
             orderId: wholesaleOrderItems.orderId,
             productId: wholesaleOrderItems.productId,
-            deliveredQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})`,
+            totalQuantity: wholesaleOrderItems.totalQuantity,
+            freeQuantity: wholesaleOrderItems.freeQuantity,
             deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
             net: wholesaleOrderItems.net,
             supplierPrice: stockBatch.supplierPrice,
@@ -2230,10 +2232,12 @@ export const getSrWiseSales = async (
         const key = item.srId;
         const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
 
-        const netQty = Number(item.deliveredQty) - ret.returnQty;
-        const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
+        // Match order adjustment logic: paidQty = totalQuantity - freeQuantity
+        const paidQty = Number(item.totalQuantity) - Number(item.freeQuantity);
+        const netQty = Math.max(0, paidQty - ret.returnQty);
+        const netFreeQty = Math.max(0, Number(item.deliveredFreeQty) - ret.returnFreeQty);
         const dbPrice = netQty * parseFloat(item.supplierPrice);
-        const salesPrice = netQty * parseFloat(item.salePrice);
+        const salesPrice = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
 
         const existing = srMap.get(key);
         if (existing) {
@@ -2360,19 +2364,22 @@ export const getSrSalesDetails = async (
             brandId: wholesaleOrderItems.brandId,
             brandName: brand.name,
             unit: wholesaleOrderItems.unit,
-            deliveredQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})`,
+            totalQuantity: wholesaleOrderItems.totalQuantity,
+            freeQuantity: wholesaleOrderItems.freeQuantity,
             deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
             net: wholesaleOrderItems.net,
             supplierPrice: stockBatch.supplierPrice,
             batchId: wholesaleOrderItems.batchId,
             salePrice: wholesaleOrderItems.salePrice,
             batchCreatedAt: stockBatch.createdAt,
+            unitMultiplier: unit.multiplier,
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
         .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
         .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
         .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+        .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
         .where(and(...orderConditions, ...itemConditions));
 
     if (items.length === 0) {
@@ -2414,6 +2421,7 @@ export const getSrSalesDetails = async (
         brandId: number;
         brandName: string;
         unit: string;
+        unitMultiplier: number;
         totalQty: number;
         totalFreeQty: number;
         totalReturnQty: number;
@@ -2435,10 +2443,12 @@ export const getSrSalesDetails = async (
     for (const item of items) {
         const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
 
-        const netQty = Number(item.deliveredQty) - ret.returnQty;
-        const netFreeQty = Number(item.deliveredFreeQty) - ret.returnFreeQty;
+        // Match order adjustment logic: paidQty = totalQuantity - freeQuantity
+        const paidQty = Number(item.totalQuantity) - Number(item.freeQuantity);
+        const netQty = Math.max(0, paidQty - ret.returnQty);
+        const netFreeQty = Math.max(0, Number(item.deliveredFreeQty) - ret.returnFreeQty);
         const dbPrice = netQty * parseFloat(item.supplierPrice);
-        const salesPrice = netQty * parseFloat(item.salePrice);
+        const salesPrice = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
 
         const existing = productMap.get(item.productId);
         if (existing) {
@@ -2454,6 +2464,7 @@ export const getSrSalesDetails = async (
                 brandId: item.brandId,
                 brandName: item.brandName,
                 unit: item.unit,
+                unitMultiplier: Number(item.unitMultiplier) || 1,
                 totalQty: netQty,
                 totalFreeQty: netFreeQty,
                 totalReturnQty: ret.returnQty,
@@ -2524,6 +2535,7 @@ export const getSrSalesDetails = async (
             brandId: data.brandId,
             brandName: data.brandName,
             unit: data.unit,
+            unitMultiplier: data.unitMultiplier,
             totalQuantity: data.totalQty,
             freeQuantity: data.totalFreeQty,
             returnQuantity: data.totalReturnQty,
