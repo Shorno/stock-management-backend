@@ -970,6 +970,7 @@ export const getProductWiseSales = async (
 
     // Query order items grouped by product
     // Join with returns to subtract returned quantities
+    // All quantities are in PCS (lowest unit)
     const results = await db
         .select({
             productId: wholesaleOrderItems.productId,
@@ -978,17 +979,27 @@ export const getProductWiseSales = async (
             categoryName: category.name,
             brandId: wholesaleOrderItems.brandId,
             brandName: brand.name,
-            unit: wholesaleOrderItems.unit,
-            // Sum delivered (or original) quantity minus returned quantity
+            // Total paid pieces (totalQuantity is already in PCS, minus freeQuantity)
             quantity: sql<number>`SUM(
-                COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})
-                - COALESCE(${orderItemReturns.returnQuantity}, 0)
+                ${wholesaleOrderItems.totalQuantity}
+                - ${wholesaleOrderItems.freeQuantity}
+                - COALESCE(
+                    ${orderItemReturns.returnQuantity} * COALESCE(${unit.multiplier}, 1)
+                    + COALESCE(${orderItemReturns.returnExtraPieces}, 0),
+                    0
+                )
             )`,
             freeQty: sql<number>`SUM(
                 COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})
                 - COALESCE(${orderItemReturns.returnFreeQuantity}, 0)
             )`,
-            returnQty: sql<number>`SUM(COALESCE(${orderItemReturns.returnQuantity}, 0))`,
+            returnQty: sql<number>`SUM(
+                COALESCE(
+                    ${orderItemReturns.returnQuantity} * COALESCE(${unit.multiplier}, 1)
+                    + COALESCE(${orderItemReturns.returnExtraPieces}, 0),
+                    0
+                )
+            )`,
             returnFreeQty: sql<number>`SUM(COALESCE(${orderItemReturns.returnFreeQuantity}, 0))`,
             totalNet: sql<string>`SUM(
                 CAST(${wholesaleOrderItems.net} AS DECIMAL)
@@ -1003,6 +1014,7 @@ export const getProductWiseSales = async (
         .leftJoin(category, eq(product.categoryId, category.id))
         .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
         .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
+        .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
         .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])))
         .groupBy(
             wholesaleOrderItems.productId,
@@ -1010,8 +1022,7 @@ export const getProductWiseSales = async (
             product.categoryId,
             category.name,
             wholesaleOrderItems.brandId,
-            brand.name,
-            wholesaleOrderItems.unit
+            brand.name
         )
         .orderBy(desc(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL) - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL))`));
 
@@ -1038,7 +1049,7 @@ export const getProductWiseSales = async (
             categoryName: row.categoryName,
             brandId: row.brandId,
             brandName: row.brandName,
-            unit: row.unit,
+            unit: "PCS",
             totalQuantity: quantity,
             freeQuantity: freeQty,
             returnQuantity: returnQty,
@@ -1062,6 +1073,18 @@ export const getProductWiseSales = async (
 
 // ==================== PRODUCT WISE SALES WITH VARIANTS ====================
 
+export interface BatchSalesItem {
+    batchId: number;
+    unit: string;
+    unitMultiplier: number;
+    totalQuantity: number;
+    freeQuantity: number;
+    returnQuantity: number;
+    totalDiscount: string;
+    totalSales: string;
+    orderCount: number;
+}
+
 export interface VariantSalesItem {
     variantId: number;
     variantLabel: string;
@@ -1071,6 +1094,7 @@ export interface VariantSalesItem {
     totalDiscount: string;
     totalSales: string;
     orderCount: number;
+    batches: BatchSalesItem[];
 }
 
 export interface ProductWithVariantsSalesItem {
@@ -1081,6 +1105,7 @@ export interface ProductWithVariantsSalesItem {
     brandId: number;
     brandName: string;
     unit: string;
+    unitMultiplier: number;
     totalQuantity: number;
     freeQuantity: number;
     returnQuantity: number;
@@ -1098,6 +1123,7 @@ export interface ProductWiseSalesWithVariantsResponse {
 
 /**
  * Get product-wise sales report with variant breakdown
+ * If brandId is provided, filters for that brand only
  */
 export const getProductWiseSalesWithVariants = async (
     query: ProductWiseSalesQuery
@@ -1134,7 +1160,7 @@ export const getProductWiseSalesWithVariants = async (
         itemConditions.push(eq(wholesaleOrderItems.productId, query.productId));
     }
 
-    // Query order items grouped by product AND variant (via batch)
+    // Query order items grouped by product, variant, AND batch
     const results = await db
         .select({
             productId: wholesaleOrderItems.productId,
@@ -1143,18 +1169,31 @@ export const getProductWiseSalesWithVariants = async (
             categoryName: category.name,
             brandId: wholesaleOrderItems.brandId,
             brandName: brand.name,
-            unit: wholesaleOrderItems.unit,
+            itemUnit: wholesaleOrderItems.unit,
             variantId: productVariant.id,
             variantLabel: productVariant.label,
+            batchId: stockBatch.id,
+            unitMult: sql<number>`COALESCE(${unit.multiplier}, 1)`,
             quantity: sql<number>`SUM(
-                COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})
-                - COALESCE(${orderItemReturns.returnQuantity}, 0)
+                ${wholesaleOrderItems.totalQuantity}
+                - ${wholesaleOrderItems.freeQuantity}
+                - COALESCE(
+                    ${orderItemReturns.returnQuantity} * COALESCE(${unit.multiplier}, 1)
+                    + COALESCE(${orderItemReturns.returnExtraPieces}, 0),
+                    0
+                )
             )`,
             freeQty: sql<number>`SUM(
                 COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})
                 - COALESCE(${orderItemReturns.returnFreeQuantity}, 0)
             )`,
-            returnQty: sql<number>`SUM(COALESCE(${orderItemReturns.returnQuantity}, 0))`,
+            returnQty: sql<number>`SUM(
+                COALESCE(
+                    ${orderItemReturns.returnQuantity} * COALESCE(${unit.multiplier}, 1)
+                    + COALESCE(${orderItemReturns.returnExtraPieces}, 0),
+                    0
+                )
+            )`,
             totalDiscount: sql<string>`SUM(
                 CAST(${wholesaleOrderItems.discount} AS DECIMAL)
                 + CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
@@ -1174,6 +1213,7 @@ export const getProductWiseSalesWithVariants = async (
         .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
         .innerJoin(productVariant, eq(stockBatch.variantId, productVariant.id))
         .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
+        .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
         .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])))
         .groupBy(
             wholesaleOrderItems.productId,
@@ -1184,11 +1224,13 @@ export const getProductWiseSalesWithVariants = async (
             brand.name,
             wholesaleOrderItems.unit,
             productVariant.id,
-            productVariant.label
+            productVariant.label,
+            stockBatch.id,
+            unit.multiplier
         )
         .orderBy(desc(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL) - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL))`));
 
-    // Group results by product and aggregate variants
+    // Build 3-level hierarchy: Product → Variant → Batch
     const productMap = new Map<number, ProductWithVariantsSalesItem>();
 
     let totalQuantitySold = 0;
@@ -1202,15 +1244,17 @@ export const getProductWiseSalesWithVariants = async (
         const returnQty = Number(row.returnQty) || 0;
         const discount = parseFloat(row.totalDiscount ?? "0") || 0;
         const net = parseFloat(row.totalNet ?? "0") || 0;
+        const unitMult = Number(row.unitMult) || 1;
 
         totalQuantitySold += quantity;
         totalFreeQuantity += freeQty;
         totalDiscountSum += discount;
         grandTotal += net;
 
-        const variantItem: VariantSalesItem = {
-            variantId: row.variantId,
-            variantLabel: row.variantLabel,
+        const batchItem: BatchSalesItem = {
+            batchId: row.batchId,
+            unit: row.itemUnit,
+            unitMultiplier: unitMult,
             totalQuantity: quantity,
             freeQuantity: freeQty,
             returnQuantity: returnQty,
@@ -1219,16 +1263,39 @@ export const getProductWiseSalesWithVariants = async (
             orderCount: row.orderCount,
         };
 
-        const existing = productMap.get(row.productId);
-        if (existing) {
-            existing.totalQuantity += quantity;
-            existing.freeQuantity += freeQty;
-            existing.returnQuantity += returnQty;
-            existing.totalDiscount = (parseFloat(existing.totalDiscount) + discount).toFixed(2);
-            existing.totalSales = (parseFloat(existing.totalSales) + net).toFixed(2);
-            existing.orderCount = Math.max(existing.orderCount, row.orderCount);
-            existing.variantCount++;
-            existing.variants.push(variantItem);
+        const existingProduct = productMap.get(row.productId);
+        if (existingProduct) {
+            existingProduct.totalQuantity += quantity;
+            existingProduct.freeQuantity += freeQty;
+            existingProduct.returnQuantity += returnQty;
+            existingProduct.totalDiscount = (parseFloat(existingProduct.totalDiscount) + discount).toFixed(2);
+            existingProduct.totalSales = (parseFloat(existingProduct.totalSales) + net).toFixed(2);
+            existingProduct.orderCount = Math.max(existingProduct.orderCount, row.orderCount);
+
+            // Find or create variant
+            let variant = existingProduct.variants.find(v => v.variantId === row.variantId);
+            if (variant) {
+                variant.totalQuantity += quantity;
+                variant.freeQuantity += freeQty;
+                variant.returnQuantity += returnQty;
+                variant.totalDiscount = (parseFloat(variant.totalDiscount) + discount).toFixed(2);
+                variant.totalSales = (parseFloat(variant.totalSales) + net).toFixed(2);
+                variant.orderCount = Math.max(variant.orderCount, row.orderCount);
+                variant.batches.push(batchItem);
+            } else {
+                existingProduct.variantCount++;
+                existingProduct.variants.push({
+                    variantId: row.variantId,
+                    variantLabel: row.variantLabel,
+                    totalQuantity: quantity,
+                    freeQuantity: freeQty,
+                    returnQuantity: returnQty,
+                    totalDiscount: discount.toFixed(2),
+                    totalSales: net.toFixed(2),
+                    orderCount: row.orderCount,
+                    batches: [batchItem],
+                });
+            }
         } else {
             productMap.set(row.productId, {
                 productId: row.productId,
@@ -1237,7 +1304,8 @@ export const getProductWiseSalesWithVariants = async (
                 categoryName: row.categoryName,
                 brandId: row.brandId,
                 brandName: row.brandName,
-                unit: row.unit,
+                unit: row.itemUnit,
+                unitMultiplier: unitMult,
                 totalQuantity: quantity,
                 freeQuantity: freeQty,
                 returnQuantity: returnQty,
@@ -1245,7 +1313,17 @@ export const getProductWiseSalesWithVariants = async (
                 totalSales: net.toFixed(2),
                 orderCount: row.orderCount,
                 variantCount: 1,
-                variants: [variantItem],
+                variants: [{
+                    variantId: row.variantId,
+                    variantLabel: row.variantLabel,
+                    totalQuantity: quantity,
+                    freeQuantity: freeQty,
+                    returnQuantity: returnQty,
+                    totalDiscount: discount.toFixed(2),
+                    totalSales: net.toFixed(2),
+                    orderCount: row.orderCount,
+                    batches: [batchItem],
+                }],
             });
         }
     }
@@ -1273,8 +1351,11 @@ import type { BrandWiseSalesQuery } from "./validation";
 export interface BrandWiseSalesItem {
     brandId: number;
     brandName: string;
+    unit: string;
+    unitMultiplier: number;
     totalQuantity: number;
     freeQuantity: number;
+    returnQuantity: number;
     totalSales: string;
     totalCOGS: string;
     profitLoss: string;
@@ -1286,6 +1367,7 @@ export interface BrandWiseSalesSummary {
     totalBrands: number;
     totalQuantitySold: number;
     totalFreeQuantity: number;
+    totalReturnQuantity: number;
     grandTotal: string;
     grandCOGS: string;
     grandProfit: string;
@@ -1318,16 +1400,29 @@ export const getBrandWiseSales = async (
         orderConditions.push(lte(wholesaleOrders.orderDate, query.endDate));
     }
 
+    // Build item conditions
+    const itemConditions: any[] = [];
+    if (query.brandId) {
+        itemConditions.push(eq(wholesaleOrderItems.brandId, query.brandId));
+    }
+
     // Query order items grouped by brand
     // Join with returns to subtract returned quantities
     const results = await db
         .select({
             brandId: wholesaleOrderItems.brandId,
             brandName: brand.name,
-            // Sum delivered (or original) quantity minus returned quantity
+            unitAbbr: sql<string>`MIN(${wholesaleOrderItems.unit})`,
+            unitMult: sql<number>`MIN(COALESCE(${unit.multiplier}, 1))`,
+            // Total paid pieces (totalQuantity already in pieces, minus freeQuantity)
             quantity: sql<number>`SUM(
-                COALESCE(${wholesaleOrderItems.deliveredQuantity}, ${wholesaleOrderItems.quantity})
-                - COALESCE(${orderItemReturns.returnQuantity}, 0)
+                ${wholesaleOrderItems.totalQuantity}
+                - ${wholesaleOrderItems.freeQuantity}
+                - COALESCE(
+                    ${orderItemReturns.returnQuantity} * COALESCE(${unit.multiplier}, 1)
+                    + COALESCE(${orderItemReturns.returnExtraPieces}, 0),
+                    0
+                )
             )`,
             freeQty: sql<number>`SUM(
                 COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})
@@ -1350,20 +1445,28 @@ export const getBrandWiseSales = async (
             )`,
             orderCount: countDistinct(wholesaleOrderItems.orderId),
             productCount: countDistinct(wholesaleOrderItems.productId),
+            returnQty: sql<number>`SUM(
+                COALESCE(
+                    ${orderItemReturns.returnQuantity} * COALESCE(${unit.multiplier}, 1)
+                    + COALESCE(${orderItemReturns.returnExtraPieces}, 0),
+                    0
+                )
+            )`,
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
         .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
         .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
         .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
-        .leftJoin(unit, sql`UPPER(${orderItemReturns.returnUnit}) = UPPER(${unit.abbreviation})`)
-        .where(and(...orderConditions))
+        .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
+        .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])))
         .groupBy(wholesaleOrderItems.brandId, brand.name)
         .orderBy(desc(sql`SUM(CAST(${wholesaleOrderItems.net} AS DECIMAL) - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL))`));
 
     // Transform and calculate
     let totalQuantitySold = 0;
     let totalFreeQuantity = 0;
+    let totalReturnQuantity = 0;
     let grandTotal = 0;
     let grandCOGS = 0;
 
@@ -1372,18 +1475,23 @@ export const getBrandWiseSales = async (
         const freeQty = Number(row.freeQty) || 0;
         const net = parseFloat(row.totalNet ?? "0") || 0;
         const cogs = parseFloat(row.totalCOGS ?? "0") || 0;
+        const returnQty = Number(row.returnQty) || 0;
         const profit = net - cogs;
 
         totalQuantitySold += quantity;
         totalFreeQuantity += freeQty;
+        totalReturnQuantity += returnQty;
         grandTotal += net;
         grandCOGS += cogs;
 
         return {
             brandId: row.brandId,
             brandName: row.brandName,
+            unit: row.unitAbbr || "PCS",
+            unitMultiplier: Number(row.unitMult) || 1,
             totalQuantity: quantity,
             freeQuantity: freeQty,
+            returnQuantity: returnQty,
             totalSales: net.toFixed(2),
             totalCOGS: cogs.toFixed(2),
             profitLoss: profit.toFixed(2),
@@ -1398,6 +1506,7 @@ export const getBrandWiseSales = async (
             totalBrands: items.length,
             totalQuantitySold,
             totalFreeQuantity,
+            totalReturnQuantity,
             grandTotal: grandTotal.toFixed(2),
             grandCOGS: grandCOGS.toFixed(2),
             grandProfit: (grandTotal - grandCOGS).toFixed(2),
@@ -1485,6 +1594,7 @@ export interface SrDueItem {
     dsrName: string;
     routeId: number;
     routeName: string;
+    customerName: string | null;
     amount: string;
     collectedAmount: string;
     remainingDue: string;
@@ -1607,7 +1717,7 @@ export const getDailySettlement = async (
 
     const allSrDues = orderIds.length > 0 ? await db.query.orderSrDues.findMany({
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
-        with: { sr: true },
+        with: { sr: true, customer: true },
     }) : [];
 
     const allDamageItems = orderIds.length > 0 ? await db.query.orderDamageItems.findMany({
@@ -1786,6 +1896,7 @@ export const getDailySettlement = async (
             dsrName: order?.dsrName || "",
             routeId: order?.routeId || 0,
             routeName: order?.routeName || "",
+            customerName: due.customer?.name || null,
             amount: amount.toFixed(2),
             collectedAmount: collected.toFixed(2),
             remainingDue: remaining.toFixed(2),
@@ -2234,12 +2345,14 @@ export const getSrWiseSales = async (
             net: wholesaleOrderItems.net,
             supplierPrice: stockBatch.supplierPrice,
             salePrice: wholesaleOrderItems.salePrice,
+            unitMultiplier: unit.multiplier,
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
         .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
         .leftJoin(sr, eq(wholesaleOrderItems.srId, sr.id))
         .leftJoin(brand, eq(sr.brandId, brand.id))
+        .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
         .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])));
 
     if (items.length === 0) {
@@ -2255,6 +2368,7 @@ export const getSrWiseSales = async (
         .select({
             orderItemId: orderItemReturns.orderItemId,
             totalReturnQty: sql<number>`SUM(${orderItemReturns.returnQuantity})`,
+            totalReturnExtraPcs: sql<number>`SUM(${orderItemReturns.returnExtraPieces})`,
             totalReturnFreeQty: sql<number>`SUM(${orderItemReturns.returnFreeQuantity})`,
             totalReturnAmount: sql<string>`SUM(CAST(${orderItemReturns.returnAmount} AS DECIMAL))`,
             totalAdjDiscount: sql<string>`SUM(CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL))`,
@@ -2264,10 +2378,11 @@ export const getSrWiseSales = async (
         .groupBy(orderItemReturns.orderItemId);
 
     // Build returns lookup
-    const returnsMap = new Map<number, { returnQty: number; returnFreeQty: number; returnAmount: number; adjDiscount: number }>();
+    const returnsMap = new Map<number, { returnQty: number; returnExtraPcs: number; returnFreeQty: number; returnAmount: number; adjDiscount: number }>();
     for (const r of returnsData) {
         returnsMap.set(r.orderItemId, {
             returnQty: Number(r.totalReturnQty) || 0,
+            returnExtraPcs: Number(r.totalReturnExtraPcs) || 0,
             returnFreeQty: Number(r.totalReturnFreeQty) || 0,
             returnAmount: parseFloat(r.totalReturnAmount ?? "0") || 0,
             adjDiscount: parseFloat(r.totalAdjDiscount ?? "0") || 0,
@@ -2290,11 +2405,14 @@ export const getSrWiseSales = async (
 
     for (const item of items) {
         const key = item.srId;
-        const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
+        const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnExtraPcs: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
 
         // Match order adjustment logic: paidQty = totalQuantity - freeQuantity
         const paidQty = Number(item.totalQuantity) - Number(item.freeQuantity);
-        const netQty = Math.max(0, paidQty - ret.returnQty);
+        // Total return in pieces = returnQty * unitMultiplier + returnExtraPcs
+        const unitMult = Number(item.unitMultiplier) || 1;
+        const totalReturnPcs = ret.returnQty * unitMult + ret.returnExtraPcs;
+        const netQty = Math.max(0, paidQty - totalReturnPcs);
         const netFreeQty = Math.max(0, Number(item.deliveredFreeQty) - ret.returnFreeQty);
         const dbPrice = netQty * parseFloat(item.supplierPrice);
         const salesPrice = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
@@ -2303,7 +2421,7 @@ export const getSrWiseSales = async (
         if (existing) {
             existing.totalQty += netQty;
             existing.totalFreeQty += netFreeQty;
-            existing.totalReturnQty += ret.returnQty;
+            existing.totalReturnQty += totalReturnPcs;
             existing.dbPriceTotal += dbPrice;
             existing.salesPriceTotal += salesPrice;
             existing.orderIds.add(item.orderId);
@@ -2315,7 +2433,7 @@ export const getSrWiseSales = async (
                 srBrandName: item.srBrandName,
                 totalQty: netQty,
                 totalFreeQty: netFreeQty,
-                totalReturnQty: ret.returnQty,
+                totalReturnQty: totalReturnPcs,
                 dbPriceTotal: dbPrice,
                 salesPriceTotal: salesPrice,
                 orderIds: new Set([item.orderId]),
@@ -2457,6 +2575,7 @@ export const getSrSalesDetails = async (
         .select({
             orderItemId: orderItemReturns.orderItemId,
             totalReturnQty: sql<number>`SUM(${orderItemReturns.returnQuantity})`,
+            totalReturnExtraPcs: sql<number>`SUM(${orderItemReturns.returnExtraPieces})`,
             totalReturnFreeQty: sql<number>`SUM(${orderItemReturns.returnFreeQuantity})`,
             totalReturnAmount: sql<string>`SUM(CAST(${orderItemReturns.returnAmount} AS DECIMAL))`,
             totalAdjDiscount: sql<string>`SUM(CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL))`,
@@ -2465,10 +2584,11 @@ export const getSrSalesDetails = async (
         .where(sql`${orderItemReturns.orderItemId} IN (${sql.join(itemIds.map(id => sql`${id}`), sql`, `)})`)
         .groupBy(orderItemReturns.orderItemId);
 
-    const returnsMap = new Map<number, { returnQty: number; returnFreeQty: number; returnAmount: number; adjDiscount: number }>();
+    const returnsMap = new Map<number, { returnQty: number; returnExtraPcs: number; returnFreeQty: number; returnAmount: number; adjDiscount: number }>();
     for (const r of returnsData) {
         returnsMap.set(r.orderItemId, {
             returnQty: Number(r.totalReturnQty) || 0,
+            returnExtraPcs: Number(r.totalReturnExtraPcs) || 0,
             returnFreeQty: Number(r.totalReturnFreeQty) || 0,
             returnAmount: parseFloat(r.totalReturnAmount ?? "0") || 0,
             adjDiscount: parseFloat(r.totalAdjDiscount ?? "0") || 0,
@@ -2501,11 +2621,14 @@ export const getSrSalesDetails = async (
     }>();
 
     for (const item of items) {
-        const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
+        const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnExtraPcs: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
 
         // Match order adjustment logic: paidQty = totalQuantity - freeQuantity
         const paidQty = Number(item.totalQuantity) - Number(item.freeQuantity);
-        const netQty = Math.max(0, paidQty - ret.returnQty);
+        // Total return in pieces = returnQty * unitMultiplier + returnExtraPcs
+        const unitMult = Number(item.unitMultiplier) || 1;
+        const totalReturnPcs = ret.returnQty * unitMult + ret.returnExtraPcs;
+        const netQty = Math.max(0, paidQty - totalReturnPcs);
         const netFreeQty = Math.max(0, Number(item.deliveredFreeQty) - ret.returnFreeQty);
         const dbPrice = netQty * parseFloat(item.supplierPrice);
         const salesPrice = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
@@ -2514,7 +2637,7 @@ export const getSrSalesDetails = async (
         if (existing) {
             existing.totalQty += netQty;
             existing.totalFreeQty += netFreeQty;
-            existing.totalReturnQty += ret.returnQty;
+            existing.totalReturnQty += totalReturnPcs;
             existing.dbPriceTotal += dbPrice;
             existing.salesPriceTotal += salesPrice;
             existing.orderIds.add(item.orderId);
@@ -2527,7 +2650,7 @@ export const getSrSalesDetails = async (
                 unitMultiplier: Number(item.unitMultiplier) || 1,
                 totalQty: netQty,
                 totalFreeQty: netFreeQty,
-                totalReturnQty: ret.returnQty,
+                totalReturnQty: totalReturnPcs,
                 dbPriceTotal: dbPrice,
                 salesPriceTotal: salesPrice,
                 orderIds: new Set([item.orderId]),
@@ -2541,7 +2664,7 @@ export const getSrSalesDetails = async (
         if (batchExisting) {
             batchExisting.totalQty += netQty;
             batchExisting.totalFreeQty += netFreeQty;
-            batchExisting.totalReturnQty += ret.returnQty;
+            batchExisting.totalReturnQty += totalReturnPcs;
             batchExisting.dbPriceTotal += dbPrice;
             batchExisting.salesPriceTotal += salesPrice;
         } else {
@@ -2551,7 +2674,7 @@ export const getSrSalesDetails = async (
                 salePrice: item.salePrice,
                 totalQty: netQty,
                 totalFreeQty: netFreeQty,
-                totalReturnQty: ret.returnQty,
+                totalReturnQty: totalReturnPcs,
                 dbPriceTotal: dbPrice,
                 salesPriceTotal: salesPrice,
             });

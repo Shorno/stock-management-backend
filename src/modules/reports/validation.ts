@@ -49,6 +49,7 @@ export type ProductWiseSalesQuery = z.infer<typeof productWiseSalesQuerySchema>;
 export const brandWiseSalesQuerySchema = z.object({
     startDate: z.string().optional(), // YYYY-MM-DD format, optional (defaults to all time)
     endDate: z.string().optional(),   // YYYY-MM-DD format, optional
+    brandId: z.coerce.number().int().positive().optional(),
 });
 
 export type BrandWiseSalesQuery = z.infer<typeof brandWiseSalesQuerySchema>;
