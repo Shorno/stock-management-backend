@@ -364,30 +364,37 @@ export const getDailySalesCollection = async (
             productName: product.name,
             brandName: brandTable.name,
             returnQuantity: orderItemReturns.returnQuantity,
+            returnExtraPieces: orderItemReturns.returnExtraPieces,
             returnAmount: orderItemReturns.returnAmount,
+            unitMultiplier: unit.multiplier,
         })
         .from(orderItemReturns)
         .innerJoin(wholesaleOrderItems, eq(orderItemReturns.orderItemId, wholesaleOrderItems.id))
         .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
         .innerJoin(brandTable, eq(wholesaleOrderItems.brandId, brandTable.id))
+        .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
         .where(inArray(orderItemReturns.orderId, orderIds))
     : [];
 
     // Aggregate returns by product
     const returnMap = new Map<string, ProductReturnedItem>();
     for (const item of allReturnItems) {
-        if (item.returnQuantity === 0) continue;
+        // Convert return quantity to base pieces: returnQuantity * multiplier + extraPieces
+        const multiplier = Number(item.unitMultiplier) || 1;
+        const returnPieces = (item.returnQuantity * multiplier) + (item.returnExtraPieces || 0);
+        const returnAmt = parseFloat(item.returnAmount);
+        if (returnPieces === 0 && returnAmt === 0) continue;
         const key = `${item.productName}|${item.brandName}`;
         const existing = returnMap.get(key);
         if (existing) {
-            existing.returnQuantity += item.returnQuantity;
-            existing.returnAmount = (parseFloat(existing.returnAmount) + parseFloat(item.returnAmount)).toFixed(2);
+            existing.returnQuantity += returnPieces;
+            existing.returnAmount = (parseFloat(existing.returnAmount) + returnAmt).toFixed(2);
         } else {
             returnMap.set(key, {
                 productName: item.productName,
                 brandName: item.brandName,
-                returnQuantity: item.returnQuantity,
-                returnAmount: parseFloat(item.returnAmount).toFixed(2),
+                returnQuantity: returnPieces,
+                returnAmount: returnAmt.toFixed(2),
             });
         }
     }
@@ -395,12 +402,15 @@ export const getDailySalesCollection = async (
 
     // Merge return data into soldMap so Products Sold table shows returns per product
     for (const item of allReturnItems) {
-        if (item.returnQuantity === 0) continue;
+        const multiplier = Number(item.unitMultiplier) || 1;
+        const returnPieces = (item.returnQuantity * multiplier) + (item.returnExtraPieces || 0);
+        const returnAmt = parseFloat(item.returnAmount);
+        if (returnPieces === 0 && returnAmt === 0) continue;
         const key = `${item.productName}|${item.brandName}`;
         const existing = soldMap.get(key);
         if (existing) {
-            existing.returnQuantity += item.returnQuantity;
-            existing.returnAmount = (parseFloat(existing.returnAmount) + parseFloat(item.returnAmount)).toFixed(2);
+            existing.returnQuantity += returnPieces;
+            existing.returnAmount = (parseFloat(existing.returnAmount) + returnAmt).toFixed(2);
         }
     }
     const productsSold = Array.from(soldMap.values()).sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
@@ -2174,7 +2184,7 @@ export const getBrandWisePurchases = async (
             productName: product.name,
             totalQuantity: sql<number>`SUM(${stockBatch.initialQuantity})::int`,
             totalFreeQty: sql<number>`SUM(${stockBatch.initialFreeQty})::int`,
-            totalCost: sql<string>`SUM(CAST(${stockBatch.supplierPrice} AS DECIMAL(12,2)) * ${stockBatch.initialQuantity})`,
+            totalCost: sql<string>`SUM(CAST(${stockBatch.supplierPrice} AS DECIMAL(12,6)) * ${stockBatch.initialQuantity})`,
             batchCount: sql<number>`COUNT(*)::int`,
         })
         .from(stockBatch)

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
+import { requireRole } from "../../lib/auth-middleware";
 import {
     createStockBatchSchema,
     updateStockBatchSchema,
@@ -75,4 +76,4 @@ stockBatchRoutes.patch(
     stockBatchController.handleUpdateStockBatch
 );
 
-stockBatchRoutes.delete("/:id", stockBatchController.handleDeleteStockBatch);
+stockBatchRoutes.delete("/:id", requireRole(["super_admin"]), stockBatchController.handleDeleteStockBatch);
