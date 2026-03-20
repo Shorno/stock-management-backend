@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
 import { stockBatch, supplierPurchases } from "../../db/schema";
-import { eq, count } from "drizzle-orm";
+import { eq, count, and, sql } from "drizzle-orm";
 import type { CreateStockBatchInput, UpdateStockBatchInput, GetStockBatchesQuery } from "./validation";
 import type { StockBatch, NewStockBatch } from "./types";
 import { format } from "date-fns";
@@ -120,8 +120,52 @@ export const updateStockBatch = async (
 };
 
 export const deleteStockBatch = async (id: number): Promise<boolean> => {
+    // Fetch the batch before deleting so we can reverse the supplier purchase
+    const batch = await db.query.stockBatch.findFirst({
+        where: (b, { eq }) => eq(b.id, id),
+        with: {
+            variant: {
+                with: {
+                    product: {
+                        with: {
+                            brand: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+
+    if (!batch) return false;
+
     const result = await db.delete(stockBatch).where(eq(stockBatch.id, id)).returning();
-    return result.length > 0;
+    if (result.length === 0) return false;
+
+    // Reverse the auto-created supplier purchase
+    if (batch.variant?.product?.brand?.id) {
+        const purchaseAmount = (Number(batch.supplierPrice) * batch.initialQuantity).toFixed(2);
+        const brandId = batch.variant.product.brand.id;
+
+        // Find and delete the matching supplier purchase entry
+        // Match by brandId and amount, with description pattern from batch creation
+        const matchingPurchases = await db
+            .select({ id: supplierPurchases.id })
+            .from(supplierPurchases)
+            .where(
+                and(
+                    eq(supplierPurchases.brandId, brandId),
+                    eq(supplierPurchases.amount, purchaseAmount),
+                    sql`${supplierPurchases.description} LIKE ${'Stock batch:%'}`
+                )
+            )
+            .limit(1);
+
+        if (matchingPurchases.length > 0) {
+            await db.delete(supplierPurchases).where(eq(supplierPurchases.id, matchingPurchases[0]!.id));
+        }
+    }
+
+    return true;
 };
 
 // Computed totals for a variant
