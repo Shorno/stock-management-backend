@@ -37,6 +37,7 @@ export interface CustomerWithDue {
     totalDue: string;
     dueCount: number;
     oldestDueDate: string;
+    dsrNames: string | null;
 }
 
 export interface CustomerDueDetail {
@@ -181,11 +182,13 @@ export const getCustomersWithDues = async (
             totalDue: sql<string>`SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL))`,
             dueCount: sql<number>`COUNT(*)`,
             oldestDueDate: sql<string>`MIN(${wholesaleOrders.orderDate})`,
+            dsrNames: sql<string>`STRING_AGG(DISTINCT ${dsr.name}, ', ')`,
         })
         .from(orderCustomerDues)
         .leftJoin(customer, eq(orderCustomerDues.customerId, customer.id))
         .leftJoin(route, eq(customer.routeId, route.id))
         .leftJoin(wholesaleOrders, eq(orderCustomerDues.orderId, wholesaleOrders.id))
+        .leftJoin(dsr, eq(wholesaleOrders.dsrId, dsr.id))
         .where(
             gt(
                 sql`CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL)`,
@@ -220,6 +223,7 @@ export const getCustomersWithDues = async (
         totalDue: parseFloat(row.totalDue || "0").toFixed(2),
         dueCount: Number(row.dueCount) || 0,
         oldestDueDate: row.oldestDueDate || "",
+        dsrNames: row.dsrNames || null,
     }));
 };
 
