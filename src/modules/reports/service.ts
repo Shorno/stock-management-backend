@@ -1500,7 +1500,16 @@ export interface DueCollectionItem {
     note: string | null;
 }
 
+export interface BillItem {
+    billDate: string;
+    title: string;
+    amount: string;
+    note: string | null;
+}
+
 export interface DailySettlementSummary {
+    totalOrderAmount: string;
+    totalReturns: string;
     netTotalSales: string;
     totalExpenses: string;
     totalPaymentReceived: string;
@@ -1511,6 +1520,7 @@ export interface DailySettlementSummary {
     totalSrDue: string;
     totalDamageReturn: string;
     totalDueCollected: string;
+    totalBills: string;
 }
 
 export interface DailySettlementResponse {
@@ -1522,6 +1532,7 @@ export interface DailySettlementResponse {
     srDues: SrDueItem[];
     dueCollections: DueCollectionItem[];
     damageReturns: DamageReturnItem[];
+    bills: BillItem[];
     summary: DailySettlementSummary;
 }
 
@@ -1629,13 +1640,16 @@ export const getDailySettlement = async (
 
     const duesByOrder = new Map<number, number>();
     for (const d of allCustomerDues) {
-        duesByOrder.set(d.orderId, (duesByOrder.get(d.orderId) || 0) + parseFloat(d.amount));
+        const remaining = parseFloat(d.amount) - parseFloat(d.collectedAmount);
+        duesByOrder.set(d.orderId, (duesByOrder.get(d.orderId) || 0) + remaining);
     }
 
     // Build Net Sales items
     let totalNetSales = 0;
     let totalReceived = 0;
     let totalDue = 0;
+    let totalOrderAmount = 0;
+    let totalReturnAmount = 0;
 
     const expensesByOrder = new Map<number, number>();
     for (const e of allExpenses) {
@@ -1666,6 +1680,8 @@ export const getDailySettlement = async (
         totalNetSales += netSalesAmount;
         totalReceived += payments.total;
         totalDue += due;
+        totalOrderAmount += sale;
+        totalReturnAmount += returnAmount + adjustmentDiscount;
 
         return {
             orderDate: order.orderDate,
@@ -1797,7 +1813,8 @@ export const getDailySettlement = async (
     });
 
     // 8. Get Due Collections for the date range (from all 3 collection tables)
-    const { dueCollections, dsrDueCollections, srDueCollections, cashWithdrawals, customer } = await import("../../db/schema");
+    const { dueCollections, dsrDueCollections, srDueCollections, cashWithdrawals, customer, bills } = await import("../../db/schema");
+    const { supplierPayments } = await import("../../db/schema/supplier-schema");
 
     // Customer due collections
     const customerCollections = await db
@@ -1899,7 +1916,46 @@ export const getDailySettlement = async (
         .where(and(...withdrawalConditions));
 
     const totalWithdrawals = withdrawals.reduce((sum, w) => sum + parseFloat(w.amount), 0);
-    const cashBalance = totalReceived - totalExpenses - totalWithdrawals;
+
+    // 10. Get Bills for the date range
+    const billsResult = await db
+        .select({
+            billDate: bills.billDate,
+            title: bills.title,
+            amount: bills.amount,
+            note: bills.note,
+        })
+        .from(bills)
+        .where(and(
+            gte(bills.billDate, startDate!),
+            lte(bills.billDate, endDate!),
+        ));
+
+    const totalBills = billsResult.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+
+    // 11. Get Supplier Payments from cash balance for the date range
+    const supplierPaymentsResult = await db
+        .select({ amount: supplierPayments.amount })
+        .from(supplierPayments)
+        .where(and(
+            eq(supplierPayments.fromCashBalance, true),
+            gte(supplierPayments.paymentDate, startDate!),
+            lte(supplierPayments.paymentDate, endDate!),
+        ));
+
+    const totalSupplierPaymentsFromCash = supplierPaymentsResult.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+
+    // Cash Balance = Payments Received + Due Collections - Supplier Payments (from cash) - Withdrawals - Bills
+    // Note: DSR expenses are NOT deducted because DSR gives net payment (already deducted their expenses)
+    const cashBalance = totalReceived + totalDueCollected - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
+
+    // Build bills list for display
+    const billsList: BillItem[] = billsResult.map(b => ({
+        billDate: b.billDate,
+        title: b.title,
+        amount: parseFloat(b.amount).toFixed(2),
+        note: b.note,
+    }));
 
     return {
         netSales,
@@ -1910,7 +1966,10 @@ export const getDailySettlement = async (
         srDues,
         dueCollections: dueCollectionsList,
         damageReturns: damageReturnsList,
+        bills: billsList,
         summary: {
+            totalOrderAmount: totalOrderAmount.toFixed(2),
+            totalReturns: totalReturnAmount.toFixed(2),
             netTotalSales: totalNetSales.toFixed(2),
             totalExpenses: totalExpenses.toFixed(2),
             totalPaymentReceived: totalReceived.toFixed(2),
@@ -1921,6 +1980,7 @@ export const getDailySettlement = async (
             totalSrDue: totalSrDue.toFixed(2),
             totalDamageReturn: totalDamageReturn.toFixed(2),
             totalDueCollected: totalDueCollected.toFixed(2),
+            totalBills: totalBills.toFixed(2),
         },
     };
 };
