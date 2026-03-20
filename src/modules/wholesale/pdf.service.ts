@@ -265,12 +265,14 @@ interface AdjustmentItemWithCalculations {
     brandName: string;
     quantity: number;
     unit: string;
+    extraPieces?: number;
     freeQuantity: number;
     salePrice: string;
     discount: string;
     net: string;
     returnQuantity: number;
     returnUnit: string;
+    returnExtraPieces?: number;
     returnFreeQuantity: number;
     returnAmount: number;
     adjustmentDiscount: number;  // Per-item adjustment discount
@@ -645,8 +647,13 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 colX += colWidths.disc;
                 doc.fillColor(darkGray).text(formatCurrencyShort(item.net), colX, currentY + 3, { width: colWidths.subtotal, align: "right" });
                 colX += colWidths.subtotal;
-                const retQty = "returnQuantity" in item ? item.returnQuantity : 0;
-                doc.fillColor(retQty > 0 ? "#dc3545" : mediumGray).text(retQty.toString(), colX, currentY + 3, { width: colWidths.retQty, align: "right" });
+                // Calculate total return in PCS: (returnQuantity × unitMultiplier) + returnExtraPieces
+                const retQtyRaw = "returnQuantity" in item ? item.returnQuantity : 0;
+                const retExtraPcs = (item as any).returnExtraPieces || 0;
+                const retUnit = (item as any).returnUnit || itemUnit;
+                const retMultiplier = getMultiplier(retUnit);
+                const totalReturnPcs = (retQtyRaw * retMultiplier) + retExtraPcs;
+                doc.fillColor(totalReturnPcs > 0 ? "#dc3545" : mediumGray).text(totalReturnPcs > 0 ? totalReturnPcs.toString() : "-", colX, currentY + 3, { width: colWidths.retQty, align: "right" });
                 colX += colWidths.retQty;
                 doc.fillColor(black).font("BanglaBold").text(formatCurrencyShort(item.netTotal), colX, currentY + 3, { width: colWidths.netTotal, align: "right" });
                 colX += colWidths.netTotal;

@@ -48,6 +48,8 @@ export interface ProductSoldItem {
     quantity: number;
     freeQuantity: number;
     totalAmount: string;
+    returnQuantity: number;
+    returnAmount: string;
 }
 
 export interface ProductReturnedItem {
@@ -348,10 +350,11 @@ export const getDailySalesCollection = async (
                 quantity: item.quantity,
                 freeQuantity: item.freeQuantity,
                 totalAmount: parseFloat(item.net).toFixed(2),
+                returnQuantity: 0,
+                returnAmount: "0.00",
             });
         }
     }
-    const productsSold = Array.from(soldMap.values()).sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
 
     // Fetch products returned aggregated by product
     const { orderItemReturns } = await import("../../db/schema");
@@ -389,6 +392,18 @@ export const getDailySalesCollection = async (
         }
     }
     const productsReturned = Array.from(returnMap.values()).sort((a, b) => parseFloat(b.returnAmount) - parseFloat(a.returnAmount));
+
+    // Merge return data into soldMap so Products Sold table shows returns per product
+    for (const item of allReturnItems) {
+        if (item.returnQuantity === 0) continue;
+        const key = `${item.productName}|${item.brandName}`;
+        const existing = soldMap.get(key);
+        if (existing) {
+            existing.returnQuantity += item.returnQuantity;
+            existing.returnAmount = (parseFloat(existing.returnAmount) + parseFloat(item.returnAmount)).toFixed(2);
+        }
+    }
+    const productsSold = Array.from(soldMap.values()).sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
 
     return {
         items,
@@ -2551,12 +2566,15 @@ export const getSrSalesDetails = async (
             salePrice: wholesaleOrderItems.salePrice,
             batchCreatedAt: stockBatch.createdAt,
             unitMultiplier: unit.multiplier,
+            variantId: productVariant.id,
+            variantLabel: productVariant.label,
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
         .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
         .innerJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
         .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+        .innerJoin(productVariant, eq(stockBatch.variantId, productVariant.id))
         .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
         .where(and(...orderConditions, ...itemConditions));
 
@@ -2595,7 +2613,7 @@ export const getSrSalesDetails = async (
         });
     }
 
-    // Step 3: Aggregate by product AND by batch within each product
+    // Step 3: Aggregate by product → variant → batch
     const productMap = new Map<number, {
         productName: string;
         brandId: number;
@@ -2608,24 +2626,32 @@ export const getSrSalesDetails = async (
         dbPriceTotal: number;
         salesPriceTotal: number;
         orderIds: Set<number>;
-        batchMap: Map<number, {
-            batchDate: string;
-            supplierPrice: string;
-            salePrice: string;
+        variantMap: Map<number, {
+            variantLabel: string;
             totalQty: number;
             totalFreeQty: number;
             totalReturnQty: number;
             dbPriceTotal: number;
             salesPriceTotal: number;
+            batchMap: Map<number, {
+                batchDate: string;
+                supplierPrice: string;
+                salePrice: string;
+                unit: string;
+                unitMultiplier: number;
+                totalQty: number;
+                totalFreeQty: number;
+                totalReturnQty: number;
+                dbPriceTotal: number;
+                salesPriceTotal: number;
+            }>;
         }>;
     }>();
 
     for (const item of items) {
         const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnExtraPcs: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
 
-        // Match order adjustment logic: paidQty = totalQuantity - freeQuantity
         const paidQty = Number(item.totalQuantity) - Number(item.freeQuantity);
-        // Total return in pieces = returnQty * unitMultiplier + returnExtraPcs
         const unitMult = Number(item.unitMultiplier) || 1;
         const totalReturnPcs = ret.returnQty * unitMult + ret.returnExtraPcs;
         const netQty = Math.max(0, paidQty - totalReturnPcs);
@@ -2633,6 +2659,7 @@ export const getSrSalesDetails = async (
         const dbPrice = netQty * parseFloat(item.supplierPrice);
         const salesPrice = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
 
+        // Product level
         const existing = productMap.get(item.productId);
         if (existing) {
             existing.totalQty += netQty;
@@ -2647,20 +2674,42 @@ export const getSrSalesDetails = async (
                 brandId: item.brandId,
                 brandName: item.brandName,
                 unit: item.unit,
-                unitMultiplier: Number(item.unitMultiplier) || 1,
+                unitMultiplier: unitMult,
                 totalQty: netQty,
                 totalFreeQty: netFreeQty,
                 totalReturnQty: totalReturnPcs,
                 dbPriceTotal: dbPrice,
                 salesPriceTotal: salesPrice,
                 orderIds: new Set([item.orderId]),
+                variantMap: new Map(),
+            });
+        }
+
+        // Variant level
+        const prodEntry = productMap.get(item.productId)!;
+        const varId = item.variantId;
+        const variantExisting = prodEntry.variantMap.get(varId);
+        if (variantExisting) {
+            variantExisting.totalQty += netQty;
+            variantExisting.totalFreeQty += netFreeQty;
+            variantExisting.totalReturnQty += totalReturnPcs;
+            variantExisting.dbPriceTotal += dbPrice;
+            variantExisting.salesPriceTotal += salesPrice;
+        } else {
+            prodEntry.variantMap.set(varId, {
+                variantLabel: item.variantLabel,
+                totalQty: netQty,
+                totalFreeQty: netFreeQty,
+                totalReturnQty: totalReturnPcs,
+                dbPriceTotal: dbPrice,
+                salesPriceTotal: salesPrice,
                 batchMap: new Map(),
             });
         }
 
-        // Aggregate batch-level data within the product
-        const prodEntry = productMap.get(item.productId)!;
-        const batchExisting = prodEntry.batchMap.get(item.batchId);
+        // Batch level within variant
+        const varEntry = prodEntry.variantMap.get(varId)!;
+        const batchExisting = varEntry.batchMap.get(item.batchId);
         if (batchExisting) {
             batchExisting.totalQty += netQty;
             batchExisting.totalFreeQty += netFreeQty;
@@ -2668,10 +2717,12 @@ export const getSrSalesDetails = async (
             batchExisting.dbPriceTotal += dbPrice;
             batchExisting.salesPriceTotal += salesPrice;
         } else {
-            prodEntry.batchMap.set(item.batchId, {
+            varEntry.batchMap.set(item.batchId, {
                 batchDate: item.batchCreatedAt instanceof Date ? item.batchCreatedAt.toISOString().split('T')[0]! : String(item.batchCreatedAt),
                 supplierPrice: item.supplierPrice,
                 salePrice: item.salePrice,
+                unit: item.unit,
+                unitMultiplier: unitMult,
                 totalQty: netQty,
                 totalFreeQty: netFreeQty,
                 totalReturnQty: totalReturnPcs,
@@ -2687,30 +2738,45 @@ export const getSrSalesDetails = async (
     let grandDbPriceTotal = 0;
     let grandSalesPriceTotal = 0;
 
-    const products: SrSalesProductItem[] = [];
+    const products: any[] = [];
     for (const [productId, data] of productMap) {
         totalQuantitySold += data.totalQty;
         totalFreeQuantity += data.totalFreeQty;
         grandDbPriceTotal += data.dbPriceTotal;
         grandSalesPriceTotal += data.salesPriceTotal;
 
-        // Build batch sub-items
-        const batches: SrSalesBatchItem[] = [];
-        for (const [batchId, batchData] of data.batchMap) {
-            batches.push({
-                batchId,
-                batchDate: batchData.batchDate,
-                supplierPrice: batchData.supplierPrice,
-                salePrice: batchData.salePrice,
-                quantity: batchData.totalQty,
-                freeQuantity: batchData.totalFreeQty,
-                returnQuantity: batchData.totalReturnQty,
-                dbPriceTotal: batchData.dbPriceTotal.toFixed(2),
-                salesPriceTotal: batchData.salesPriceTotal.toFixed(2),
+        // Build variant sub-items, each with batch sub-items
+        const variants: any[] = [];
+        for (const [variantId, variantData] of data.variantMap) {
+            const batches: any[] = [];
+            for (const [batchId, batchData] of variantData.batchMap) {
+                batches.push({
+                    batchId,
+                    batchDate: batchData.batchDate,
+                    supplierPrice: batchData.supplierPrice,
+                    salePrice: batchData.salePrice,
+                    unit: batchData.unit,
+                    unitMultiplier: batchData.unitMultiplier,
+                    quantity: batchData.totalQty,
+                    freeQuantity: batchData.totalFreeQty,
+                    returnQuantity: batchData.totalReturnQty,
+                    dbPriceTotal: batchData.dbPriceTotal.toFixed(2),
+                    salesPriceTotal: batchData.salesPriceTotal.toFixed(2),
+                });
+            }
+            batches.sort((a: any, b: any) => b.batchDate.localeCompare(a.batchDate));
+
+            variants.push({
+                variantId,
+                variantLabel: variantData.variantLabel,
+                totalQuantity: variantData.totalQty,
+                freeQuantity: variantData.totalFreeQty,
+                returnQuantity: variantData.totalReturnQty,
+                dbPriceTotal: variantData.dbPriceTotal.toFixed(2),
+                salesPriceTotal: variantData.salesPriceTotal.toFixed(2),
+                batches,
             });
         }
-        // Sort batches by date descending
-        batches.sort((a, b) => b.batchDate.localeCompare(a.batchDate));
 
         products.push({
             productId,
@@ -2725,8 +2791,8 @@ export const getSrSalesDetails = async (
             dbPriceTotal: data.dbPriceTotal.toFixed(2),
             salesPriceTotal: data.salesPriceTotal.toFixed(2),
             orderCount: data.orderIds.size,
-            batchCount: batches.length,
-            batches,
+            variantCount: variants.length,
+            variants,
         });
     }
 
