@@ -411,6 +411,7 @@ export const getDailySalesCollection = async (
         if (existing) {
             existing.returnQuantity += returnPieces;
             existing.returnAmount = (parseFloat(existing.returnAmount) + returnAmt).toFixed(2);
+            existing.totalAmount = (parseFloat(existing.totalAmount) - returnAmt).toFixed(2);
         }
     }
     const productsSold = Array.from(soldMap.values()).sort((a, b) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
@@ -510,6 +511,11 @@ export const getDsrLedger = async (
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
     }) : [];
 
+    // Fetch DSR own dues for these orders
+    const dsrDuesData = orderIds.length > 0 ? await db.query.orderDsrDues.findMany({
+        where: (d, { inArray }) => inArray(d.orderId, orderIds),
+    }) : [];
+
     // Fetch expenses for these orders
     const expensesData = orderIds.length > 0 ? await db.query.orderExpenses.findMany({
         where: (e, { inArray }) => inArray(e.orderId, orderIds),
@@ -555,6 +561,15 @@ export const getDsrLedger = async (
         customerDuesByOrderId.set(due.orderId, existing);
     }
 
+    // Group DSR own dues by order ID
+    const dsrDuesByOrderId = new Map<number, { amount: number; collected: number }>();
+    for (const due of dsrDuesData) {
+        const existing = dsrDuesByOrderId.get(due.orderId) || { amount: 0, collected: 0 };
+        existing.amount += parseFloat(due.amount);
+        existing.collected += parseFloat(due.collectedAmount);
+        dsrDuesByOrderId.set(due.orderId, existing);
+    }
+
     // Group collections by order ID
     const collectionsByOrderId = new Map<number, { date: string; amount: string; method: string | null; collectedBy: string | null }[]>();
     for (const col of dueCollectionsData) {
@@ -593,12 +608,14 @@ export const getDsrLedger = async (
         const orderCollections = collectionsByOrderId.get(sale.orderId) || [];
         const orderReturns = returnsByOrderId.get(sale.orderId) || 0;
         const orderAdjDiscounts = adjDiscountsByOrderId.get(sale.orderId) || 0;
+        const orderDsrDue = dsrDuesByOrderId.get(sale.orderId) || { amount: 0, collected: 0 };
 
         const totalPayments = orderPaymentsList.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const totalExpenses = orderExpensesList.reduce((sum, e) => sum + parseFloat(e.amount), 0);
         const totalCustomerDue = orderCustomerDues.reduce((sum, d) => sum + parseFloat(d.amount), 0);
         const totalCollectedFromDues = orderCustomerDues.reduce((sum, d) => sum + parseFloat(d.collectedAmount), 0);
         const remainingCustomerDue = totalCustomerDue - totalCollectedFromDues;
+        const remainingDsrOwnDue = orderDsrDue.amount - orderDsrDue.collected;
         const orderTotal = parseFloat(sale.total);
         const netOrderTotal = orderTotal - orderReturns - orderAdjDiscounts - totalExpenses;
 
@@ -619,7 +636,9 @@ export const getDsrLedger = async (
             totalCustomerDue: totalCustomerDue.toFixed(2),
             totalCollectedFromDues: totalCollectedFromDues.toFixed(2),
             remainingCustomerDue: remainingCustomerDue.toFixed(2),
-            orderDue: remainingCustomerDue.toFixed(2), // Now shows remaining due, not original
+            orderDue: remainingCustomerDue.toFixed(2),
+            totalDsrOwnDue: orderDsrDue.amount.toFixed(2),
+            remainingDsrOwnDue: remainingDsrOwnDue.toFixed(2),
         };
     });
 
@@ -640,6 +659,7 @@ export interface DsrLedgerOverviewItem {
     totalCollected: string;
     totalExpenses: string;
     totalDue: string; // Customer dues
+    dsrOwnDue: string; // DSR own dues
 }
 
 export interface DsrLedgerOverviewResponse {
@@ -650,6 +670,7 @@ export interface DsrLedgerOverviewResponse {
         totalCollected: string;
         totalExpenses: string;
         totalDue: string;
+        totalDsrOwnDue: string;
     };
 }
 
@@ -677,6 +698,7 @@ export const getAllDsrLedgerSummaries = async (
     let grandTotalCollected = 0;
     let grandTotalExpenses = 0;
     let grandTotalDue = 0;
+    let grandTotalDsrOwnDue = 0;
 
     for (const dsrInfo of allDsrs) {
         // Get orders in date range for this DSR
@@ -720,16 +742,25 @@ export const getAllDsrLedgerSummaries = async (
             where: (d, { inArray }) => inArray(d.orderId, orderIds),
         });
 
+        // Fetch DSR own dues for these orders
+        const dsrDuesData = await db.query.orderDsrDues.findMany({
+            where: (d, { inArray }) => inArray(d.orderId, orderIds),
+        });
+
         // Calculate totals
         const grossSales = orders.reduce((sum, o) => sum + parseFloat(o.total), 0);
         const totalReturns = returnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount) + parseFloat(r.adjustmentDiscount || "0"), 0);
         const totalCollected = paymentsData.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const totalExpenses = expensesData.reduce((sum, e) => sum + parseFloat(e.amount), 0);
         const totalNetSales = grossSales - totalReturns - totalExpenses;
-        // Calculate remaining due (original - collected)
+        // Calculate remaining customer due (original - collected)
         const totalOriginalDue = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
         const totalCollectedFromDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.collectedAmount), 0);
         const totalDue = totalOriginalDue - totalCollectedFromDues;
+        // Calculate remaining DSR own due
+        const totalDsrOwnDueOriginal = dsrDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+        const totalDsrOwnDueCollected = dsrDuesData.reduce((sum, d) => sum + parseFloat(d.collectedAmount), 0);
+        const dsrOwnDue = totalDsrOwnDueOriginal - totalDsrOwnDueCollected;
 
         items.push({
             dsrId: dsrInfo.id,
@@ -739,6 +770,7 @@ export const getAllDsrLedgerSummaries = async (
             totalCollected: totalCollected.toFixed(2),
             totalExpenses: totalExpenses.toFixed(2),
             totalDue: totalDue.toFixed(2),
+            dsrOwnDue: dsrOwnDue.toFixed(2),
         });
 
         grandTotalOrders += orderCount;
@@ -746,6 +778,7 @@ export const getAllDsrLedgerSummaries = async (
         grandTotalCollected += totalCollected;
         grandTotalExpenses += totalExpenses;
         grandTotalDue += totalDue;
+        grandTotalDsrOwnDue += dsrOwnDue;
     }
 
     return {
@@ -756,6 +789,7 @@ export const getAllDsrLedgerSummaries = async (
             totalCollected: grandTotalCollected.toFixed(2),
             totalExpenses: grandTotalExpenses.toFixed(2),
             totalDue: grandTotalDue.toFixed(2),
+            totalDsrOwnDue: grandTotalDsrOwnDue.toFixed(2),
         },
     };
 };
@@ -993,6 +1027,10 @@ export const getProductWiseSales = async (
         itemConditions.push(eq(wholesaleOrderItems.productId, query.productId));
     }
 
+    if (query.srId) {
+        itemConditions.push(eq(wholesaleOrderItems.srId, query.srId));
+    }
+
     // Query order items grouped by product
     // Join with returns to subtract returned quantities
     // All quantities are in PCS (lowest unit)
@@ -1183,6 +1221,10 @@ export const getProductWiseSalesWithVariants = async (
 
     if (query.productId) {
         itemConditions.push(eq(wholesaleOrderItems.productId, query.productId));
+    }
+
+    if (query.srId) {
+        itemConditions.push(eq(wholesaleOrderItems.srId, query.srId));
     }
 
     // Query order items grouped by product, variant, AND batch

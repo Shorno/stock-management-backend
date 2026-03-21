@@ -38,6 +38,7 @@ export const productWiseSalesQuerySchema = z.object({
     endDate: z.string(),   // YYYY-MM-DD format, required
     dsrId: z.coerce.number().int().positive().optional(),
     routeId: z.coerce.number().int().positive().optional(),
+    srId: z.coerce.number().int().positive().optional(),
     categoryId: z.coerce.number().int().positive().optional(),
     brandId: z.coerce.number().int().positive().optional(),
     productId: z.coerce.number().int().positive().optional(),
