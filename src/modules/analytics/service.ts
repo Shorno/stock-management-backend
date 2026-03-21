@@ -1014,9 +1014,9 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // ----- NET ASSETS -----
     // Total business value = Assets - Liabilities
     // Assets: Current Stock + Cash Balance + Receivables (DSR Sales Due + DSR Own Due + SR Own Due + Pending Orders) + Damage Returns (at cost)
-    // Liabilities: Supplier Due (if negative, we owe them)
+    // Liabilities: Supplier Due (if negative, we owe them) + Damage Profit Margin (unrecoverable loss — supplier credits at cost, not selling price)
     // Supplier Balance: positive = they owe us (add), negative = we owe them (subtract)
-    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + srOwnDue + supplierDue + damageReturnsValue + pendingOrdersValue;
+    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + srOwnDue + supplierDue + damageReturnsValue + pendingOrdersValue - totalDamageProfit - totalOrderDamageMargin;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
