@@ -577,6 +577,16 @@ export interface DashboardStats {
     pendingOrdersValue: number;
     pendingSalesTotal: number;
     netAssets: number;
+    openingBalances: {
+        cash: number;
+        customerDue: number;
+        dsrDue: number;
+        srDue: number;
+        supplierBalance: number;
+        profitLoss: number;
+        investment: number;
+        dsrLoan: number;
+    };
 }
 
 /**
@@ -1011,27 +1021,57 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         pendingSalesTotal = Number(pendingSalesResult[0]?.total || 0);
     }
 
+    // ----- OPENING BALANCES -----
+    const { getOpeningBalanceTotals } = await import("../opening-balance/service");
+    const openingMap = await getOpeningBalanceTotals();
+    const openingCash = openingMap.get('cash') || 0;
+    const openingCustomerDue = openingMap.get('customer_due') || 0;
+    const openingDsrDue = openingMap.get('dsr_due') || 0;
+    const openingSrDue = openingMap.get('sr_due') || 0;
+    const openingSupplierBalance = openingMap.get('supplier_balance') || 0;
+    const openingPL = openingMap.get('profit_loss') || 0;
+    const openingInvestment = openingMap.get('investment') || 0;
+    const openingDsrLoan = openingMap.get('dsr_loan') || 0;
+
+    // ----- APPLY OPENING BALANCES -----
+    const adjustedCashBalance = cashBalance + openingCash;
+    const adjustedCustomerDues = dsrSalesDue + openingCustomerDue;
+    const adjustedDsrDue = dsrOwnDue + openingDsrDue;
+    const adjustedSrDue = srOwnDue + openingSrDue;
+    const adjustedSupplierDue = supplierDue + openingSupplierBalance;
+    const adjustedPL = profitLoss + openingPL;
+
     // ----- NET ASSETS -----
     // Total business value = Assets - Liabilities
-    // Assets: Current Stock + Cash Balance + Receivables (DSR Sales Due + DSR Own Due + SR Own Due + Pending Orders) + Damage Returns (at cost)
-    // Liabilities: Supplier Due (if negative, we owe them) + Damage Profit Margin (unrecoverable loss — supplier credits at cost, not selling price)
-    // Supplier Balance: positive = they owe us (add), negative = we owe them (subtract)
-    const netAssets = currentStock + cashBalance + dsrSalesDue + dsrOwnDue + srOwnDue + supplierDue + damageReturnsValue + pendingOrdersValue - totalDamageProfit - totalOrderDamageMargin;
+    // Assets: Current Stock + Cash Balance + Receivables (Customer Due + DSR Own Due + SR Own Due + Pending Orders) + Damage Returns (at cost)
+    // Liabilities: Supplier Due (if negative, we owe them) + Damage Profit Margin (unrecoverable loss)
+    // All values include opening balances
+    const netAssets = currentStock + adjustedCashBalance + adjustedCustomerDues + adjustedDsrDue + adjustedSrDue + adjustedSupplierDue + damageReturnsValue + pendingOrdersValue - totalDamageProfit - totalOrderDamageMargin;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
         netPurchase: Math.round(netPurchase * 100) / 100,
         currentStock: Math.round(currentStock * 100) / 100,
-        profitLoss: Math.round(profitLoss * 100) / 100,
-        dsrSalesDue: Math.round(dsrSalesDue * 100) / 100,
-        dsrOwnDue: Math.round(dsrOwnDue * 100) / 100,
-        srOwnDue: Math.round(srOwnDue * 100) / 100,
-        cashBalance: Math.round(cashBalance * 100) / 100,
-        supplierDue: Math.round(supplierDue * 100) / 100,
+        profitLoss: Math.round(adjustedPL * 100) / 100,
+        dsrSalesDue: Math.round(adjustedCustomerDues * 100) / 100,
+        dsrOwnDue: Math.round(adjustedDsrDue * 100) / 100,
+        srOwnDue: Math.round(adjustedSrDue * 100) / 100,
+        cashBalance: Math.round(adjustedCashBalance * 100) / 100,
+        supplierDue: Math.round(adjustedSupplierDue * 100) / 100,
         netAssets: Math.round(netAssets * 100) / 100,
         damageReturnsValue: Math.round(damageReturnsValue * 100) / 100,
         pendingOrdersValue: Math.round(pendingOrdersValue * 100) / 100,
         pendingSalesTotal: Math.round(pendingSalesTotal * 100) / 100,
+        openingBalances: {
+            cash: Math.round(openingCash * 100) / 100,
+            customerDue: Math.round(openingCustomerDue * 100) / 100,
+            dsrDue: Math.round(openingDsrDue * 100) / 100,
+            srDue: Math.round(openingSrDue * 100) / 100,
+            supplierBalance: Math.round(openingSupplierBalance * 100) / 100,
+            profitLoss: Math.round(openingPL * 100) / 100,
+            investment: Math.round(openingInvestment * 100) / 100,
+            dsrLoan: Math.round(openingDsrLoan * 100) / 100,
+        },
     };
 }
 
@@ -1097,7 +1137,13 @@ export async function getCurrentCashBalance(): Promise<number> {
 
     // Cash Balance = Payments Received + Due Collections + DSR Due Collections + SR Due Collections - Supplier Payments (from cash only) - Cash Withdrawals - Bills
     // Note: DSR expenses are NOT deducted here because DSR gives net payment (already deducted their expenses before paying)
-    const cashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections + totalSrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
+    const baseCashBalance = paymentsReceived + totalDueCollections + totalDsrDueCollections + totalSrDueCollections - totalSupplierPaymentsFromCash - totalWithdrawals - totalBills;
+
+    // Add opening cash balance
+    const { getOpeningBalanceTotals } = await import("../opening-balance/service");
+    const openingMap = await getOpeningBalanceTotals();
+    const openingCash = openingMap.get('cash') || 0;
+    const cashBalance = baseCashBalance + openingCash;
 
     return Math.round(cashBalance * 100) / 100;
 }

@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { dsr, dsrLoanTransactions } from "../../db/schema";
+import { dsr, dsrLoanTransactions, openingBalances } from "../../db/schema";
 import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
 import { logError } from "../../lib/error-handler";
 import type {
@@ -46,12 +46,23 @@ export async function getDSRLoanSummary(
         const loans = parseFloat(total?.totalLoans || "0");
         const repayments = parseFloat(total?.totalRepayments || "0");
 
+        // Get opening loan balance for this DSR
+        const openingResult = await db
+            .select({ amount: openingBalances.amount })
+            .from(openingBalances)
+            .where(and(
+                eq(openingBalances.type, 'dsr_loan'),
+                eq(openingBalances.entityId, dsrRecord.id)
+            ))
+            .limit(1);
+        const openingLoanBalance = parseFloat(openingResult[0]?.amount || "0");
+
         summaries.push({
             dsrId: dsrRecord.id,
             dsrName: dsrRecord.name,
             totalLoans: loans.toFixed(2),
             totalRepayments: repayments.toFixed(2),
-            currentBalance: (loans - repayments).toFixed(2),
+            currentBalance: (loans - repayments + openingLoanBalance).toFixed(2),
             transactionCount: total?.transactionCount || 0,
             lastTransactionDate: total?.lastTransactionDate || null,
         });
@@ -91,6 +102,17 @@ export async function getDSRLoanDetails(dsrId: number): Promise<DSRLoanDetails |
     const loans = parseFloat(total?.totalLoans || "0");
     const repayments = parseFloat(total?.totalRepayments || "0");
 
+    // Get opening loan balance for this DSR
+    const openingResult = await db
+        .select({ amount: openingBalances.amount })
+        .from(openingBalances)
+        .where(and(
+            eq(openingBalances.type, 'dsr_loan'),
+            eq(openingBalances.entityId, dsrId)
+        ))
+        .limit(1);
+    const openingLoanBalance = parseFloat(openingResult[0]?.amount || "0");
+
     // Get all transactions
     const transactions = await db
         .select({
@@ -116,7 +138,7 @@ export async function getDSRLoanDetails(dsrId: number): Promise<DSRLoanDetails |
         summary: {
             totalLoans: loans.toFixed(2),
             totalRepayments: repayments.toFixed(2),
-            currentBalance: (loans - repayments).toFixed(2),
+            currentBalance: (loans - repayments + openingLoanBalance).toFixed(2),
         },
         transactions: transactions.map(t => ({
             id: t.id,
