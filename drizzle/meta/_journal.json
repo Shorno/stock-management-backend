@@ -113,6 +113,13 @@
       "when": 1774124440931,
       "tag": "0015_jazzy_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1774127734667,
+      "tag": "0016_furry_dust",
+      "breakpoints": true
     }
   ]
 }

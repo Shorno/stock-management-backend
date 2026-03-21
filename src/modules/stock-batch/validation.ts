@@ -6,6 +6,7 @@ export const createStockBatchSchema = z.object({
     quantity: z.coerce.number().int("Quantity must be an integer").positive("Quantity must be positive"),
     freeQuantity: z.coerce.number().int("Free quantity must be an integer").nonnegative("Free quantity cannot be negative").default(0),
     unit: z.string().max(20).default("PCS"),
+    isOpeningStock: z.coerce.boolean().default(false),
 });
 
 export const updateStockBatchSchema = z.object({

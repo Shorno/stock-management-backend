@@ -1,0 +1,1 @@
+ALTER TABLE "stock_batch" ADD COLUMN "is_opening_stock" boolean DEFAULT false NOT NULL;

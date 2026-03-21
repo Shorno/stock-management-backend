@@ -58,6 +58,7 @@ export const stockBatch = pgTable("stock_batch", {
   initialFreeQty: integer("initial_free_qty").notNull().default(0),
   remainingFreeQty: integer("remaining_free_qty").notNull().default(0),
   unit: varchar("unit", { length: 20 }).default("PCS"),
+  isOpeningStock: boolean("is_opening_stock").notNull().default(false),
   ...timestamps
 });
 

@@ -18,6 +18,7 @@ export const createStockBatch = async (
         initialFreeQty: data.freeQuantity,
         remainingFreeQty: data.freeQuantity,
         unit: data.unit,
+        isOpeningStock: data.isOpeningStock || false,
     };
 
     const [createdBatch] = await db.insert(stockBatch).values(newBatch).returning();
@@ -25,31 +26,33 @@ export const createStockBatch = async (
         throw new Error("Failed to create stock batch");
     }
 
-    // Auto-create supplier purchase for the brand
-    // Get variant → product → brand chain
-    const variant = await db.query.productVariant.findFirst({
-        where: (v, { eq }) => eq(v.id, variantId),
-        with: {
-            product: {
-                with: {
-                    brand: true,
+    // Auto-create supplier purchase for the brand (skip for opening stock)
+    if (!data.isOpeningStock) {
+        // Get variant → product → brand chain
+        const variant = await db.query.productVariant.findFirst({
+            where: (v, { eq }) => eq(v.id, variantId),
+            with: {
+                product: {
+                    with: {
+                        brand: true,
+                    },
                 },
             },
-        },
-    });
-
-    if (variant?.product?.brand?.id) {
-        const purchaseAmount = data.supplierPrice * data.quantity;
-        const productName = variant.product.name;
-        const variantLabel = variant.label;
-
-        // Create supplier purchase entry
-        await db.insert(supplierPurchases).values({
-            brandId: variant.product.brand.id,
-            amount: purchaseAmount.toString(),
-            purchaseDate: format(new Date(), "yyyy-MM-dd"),
-            description: `Stock batch: ${productName} (${variantLabel}) - ${data.quantity} units @ ৳${data.supplierPrice}`,
         });
+
+        if (variant?.product?.brand?.id) {
+            const purchaseAmount = data.supplierPrice * data.quantity;
+            const productName = variant.product.name;
+            const variantLabel = variant.label;
+
+            // Create supplier purchase entry
+            await db.insert(supplierPurchases).values({
+                brandId: variant.product.brand.id,
+                amount: purchaseAmount.toString(),
+                purchaseDate: format(new Date(), "yyyy-MM-dd"),
+                description: `Stock batch: ${productName} (${variantLabel}) - ${data.quantity} units @ ৳${data.supplierPrice}`,
+            });
+        }
     }
 
     return createdBatch;
@@ -141,8 +144,8 @@ export const deleteStockBatch = async (id: number): Promise<boolean> => {
     const result = await db.delete(stockBatch).where(eq(stockBatch.id, id)).returning();
     if (result.length === 0) return false;
 
-    // Reverse the auto-created supplier purchase
-    if (batch.variant?.product?.brand?.id) {
+    // Reverse the auto-created supplier purchase (skip for opening stock batches)
+    if (!batch.isOpeningStock && batch.variant?.product?.brand?.id) {
         const purchaseAmount = (Number(batch.supplierPrice) * batch.initialQuantity).toFixed(2);
         const brandId = batch.variant.product.brand.id;
 

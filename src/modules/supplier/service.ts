@@ -1,7 +1,7 @@
 import { db } from "../../db/config";
 import { brand } from "../../db/schema/product-schema";
-import { supplierPurchases, supplierPayments } from "../../db/schema";
-import { eq, desc, sum } from "drizzle-orm";
+import { supplierPurchases, supplierPayments, openingBalances } from "../../db/schema";
+import { eq, and, desc, sum } from "drizzle-orm";
 
 // ==================== TYPES ====================
 
@@ -160,12 +160,22 @@ export async function getSupplierBalance(brandId: number) {
         .from(supplierPayments)
         .where(eq(supplierPayments.brandId, brandId));
 
+    // Include opening balance for this supplier
+    const openingResult = await db
+        .select({ amount: openingBalances.amount })
+        .from(openingBalances)
+        .where(and(
+            eq(openingBalances.type, 'supplier_balance'),
+            eq(openingBalances.entityId, brandId)
+        ));
+    const openingBalance = Number(openingResult[0]?.amount || 0);
+
     const totalPurchases = Number(purchasesResult[0]?.total || 0);
     const totalPayments = Number(paymentsResult[0]?.total || 0);
-    // Balance = Payments - Purchases
+    // Balance = Payments - Purchases + Opening Balance
     // Positive = Supplier owes us (we've overpaid)
     // Negative = We owe supplier (need to pay more)
-    const balance = totalPayments - totalPurchases;
+    const balance = (totalPayments - totalPurchases) + openingBalance;
 
     return { totalPurchases, totalPayments, balance };
 }
@@ -181,9 +191,16 @@ export async function getTotalSupplierDue(): Promise<number> {
         .select({ total: sum(supplierPayments.amount) })
         .from(supplierPayments);
 
+    // Sum all supplier_balance opening balances
+    const openingResult = await db
+        .select({ total: sum(openingBalances.amount) })
+        .from(openingBalances)
+        .where(eq(openingBalances.type, 'supplier_balance'));
+    const totalOpeningBalance = Number(openingResult[0]?.total || 0);
+
     const totalPurchases = Number(purchasesResult[0]?.total || 0);
     const totalPayments = Number(paymentsResult[0]?.total || 0);
 
     // Positive = Suppliers owe us, Negative = We owe suppliers
-    return totalPayments - totalPurchases;
+    return (totalPayments - totalPurchases) + totalOpeningBalance;
 }
