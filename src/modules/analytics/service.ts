@@ -173,12 +173,32 @@ export async function getSalesByPeriod(
     // Get all orders within the date range
     const orders = await db
         .select({
+            orderId: wholesaleOrders.id,
             orderDate: wholesaleOrders.orderDate,
             total: wholesaleOrders.total,
         })
         .from(wholesaleOrders)
         .where(allFilters)
         .orderBy(wholesaleOrders.orderDate);
+
+    // Fetch returns for these orders to calculate net sales
+    const orderIds = orders.map(o => o.orderId);
+    const returnsByOrder = new Map<number, number>();
+    if (orderIds.length > 0) {
+        const returnsData = await db
+            .select({
+                orderId: orderItemReturns.orderId,
+                totalReturns: sum(orderItemReturns.returnAmount),
+                totalAdjDiscount: sum(orderItemReturns.adjustmentDiscount),
+            })
+            .from(orderItemReturns)
+            .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`)
+            .groupBy(orderItemReturns.orderId);
+
+        for (const ret of returnsData) {
+            returnsByOrder.set(ret.orderId, Number(ret.totalReturns || 0) + Number(ret.totalAdjDiscount || 0));
+        }
+    }
 
     // Group by period in JavaScript
     const groupedData = new Map<string, { sales: number; orders: number }>();
@@ -205,8 +225,10 @@ export async function getSalesByPeriod(
         }
 
         const existing = groupedData.get(key) || { sales: 0, orders: 0 };
+        const orderTotal = Number(order.total || 0);
+        const orderReturns = returnsByOrder.get(order.orderId) || 0;
         groupedData.set(key, {
-            sales: existing.sales + Number(order.total || 0),
+            sales: existing.sales + (orderTotal - orderReturns),
             orders: existing.orders + 1,
         });
     }
@@ -491,14 +513,23 @@ export async function getTopProducts(limit: number = 10, dateRange?: DateRange):
             productId: product.id,
             productName: product.name,
             quantitySold: sum(wholesaleOrderItems.totalQuantity),
-            revenue: sum(wholesaleOrderItems.net),
+            revenue: sql<string>`SUM(
+                CAST(${wholesaleOrderItems.net} AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
+            )`,
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
         .innerJoin(product, eq(wholesaleOrderItems.productId, product.id))
+        .leftJoin(orderItemReturns, eq(wholesaleOrderItems.id, orderItemReturns.orderItemId))
         .where(allFilters)
         .groupBy(product.id, product.name)
-        .orderBy(desc(sum(wholesaleOrderItems.net)))
+        .orderBy(desc(sql`SUM(
+                CAST(${wholesaleOrderItems.net} AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.returnAmount}, '0') AS DECIMAL)
+                - CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL)
+            )`))
         .limit(limit);
 
     return result.map(r => ({
