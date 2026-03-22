@@ -177,9 +177,15 @@ export const getDailySalesCollection = async (
     }
 
     // Also fetch settlement damage items (isOther = false means it's part of settlement)
+    // Use selling price × quantity for damage deduction (consistent with settlement page and analytics net sales)
     const { orderDamageItems } = await import("../../db/schema");
     const allDamageItems = orderIds.length > 0 ? await db
-        .select({ orderId: orderDamageItems.orderId, total: orderDamageItems.total, isOther: orderDamageItems.isOther })
+        .select({
+            orderId: orderDamageItems.orderId,
+            sellingPrice: orderDamageItems.sellingPrice,
+            quantity: orderDamageItems.quantity,
+            isOther: orderDamageItems.isOther,
+        })
         .from(orderDamageItems)
         .where(inArray(orderDamageItems.orderId, orderIds))
     : [];
@@ -187,7 +193,8 @@ export const getDailySalesCollection = async (
     const damagesByOrder = new Map<number, number>();
     for (const d of allDamageItems) {
         if (d.isOther) continue; // Skip non-settlement damages
-        damagesByOrder.set(d.orderId, (damagesByOrder.get(d.orderId) || 0) + parseFloat(d.total));
+        const damageAtSelling = parseFloat(d.sellingPrice) * d.quantity;
+        damagesByOrder.set(d.orderId, (damagesByOrder.get(d.orderId) || 0) + damageAtSelling);
     }
 
     // Transform data and calculate amounts

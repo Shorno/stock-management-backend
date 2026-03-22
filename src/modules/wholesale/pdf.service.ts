@@ -824,7 +824,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             const adjDiscount = summaryData.totalAdjustmentDiscount || 0;
             const damageSettlement = adjustment?.damageReturns
                 ?.filter(d => !(d as any).isOther)
-                ?.reduce((sum, d) => sum + (d.quantity * d.unitPrice), 0) || 0;
+                ?.reduce((sum, d) => sum + (d.quantity * (d.sellingPrice || d.unitPrice)), 0) || 0;
             const payments = summaryData.totalPayments;
             const expenses = summaryData.totalExpenses;
             const netTotal = total - returns - adjDiscount - damageSettlement - expenses;
