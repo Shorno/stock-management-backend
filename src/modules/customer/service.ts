@@ -91,13 +91,32 @@ export const getCustomers = async (
         .where(sql`${orderCustomerDues.customerId} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`)
         .groupBy(orderCustomerDues.customerId) : [];
 
-    // Create a map of customer dues
-    const duesMap = new Map(duesResult.map(d => [d.customerId, d.totalDue]));
+    // Also fetch opening balances for customer_due type
+    const { openingBalances } = await import("../../db/schema");
+    const openingDuesResult = customerIds.length > 0 ? await db
+        .select({
+            entityId: openingBalances.entityId,
+            amount: openingBalances.amount,
+        })
+        .from(openingBalances)
+        .where(and(
+            eq(openingBalances.type, 'customer_due'),
+            sql`${openingBalances.entityId} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`
+        )) : [];
+
+    // Create a map of customer dues (order-based + opening)
+    const duesMap = new Map(duesResult.map(d => [d.customerId, Number(d.totalDue || 0)]));
+    for (const ob of openingDuesResult) {
+        if (ob.entityId) {
+            const existing = duesMap.get(ob.entityId) || 0;
+            duesMap.set(ob.entityId, existing + Number(ob.amount || 0));
+        }
+    }
 
     // Merge dues with customers
     const customers = customersResult.map(c => ({
         ...c,
-        totalDue: duesMap.get(c.id) || "0",
+        totalDue: (duesMap.get(c.id) || 0).toFixed(2),
     }));
 
     return {
