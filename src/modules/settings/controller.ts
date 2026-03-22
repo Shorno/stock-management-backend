@@ -135,7 +135,7 @@ export const handleVerifyOrderEditPassword = async (c: Context): Promise<Respons
 export const handleSetOrderEditPassword = async (c: AppContext): Promise<Response> => {
     try {
         const user = c.get("user");
-        if (!user || user.role !== "admin") {
+        if (!user || user.role !== "super_admin") {
             return c.json({ success: false, message: "Admin access required" }, 403);
         }
 
@@ -159,7 +159,7 @@ export const handleSetOrderEditPassword = async (c: AppContext): Promise<Respons
 export const handleRemoveOrderEditPassword = async (c: AppContext): Promise<Response> => {
     try {
         const user = c.get("user");
-        if (!user || user.role !== "admin") {
+        if (!user || user.role !== "super_admin") {
             return c.json({ success: false, message: "Admin access required" }, 403);
         }
 
@@ -177,7 +177,7 @@ export const handleRemoveOrderEditPassword = async (c: AppContext): Promise<Resp
 export const handleSetOrderEditLock = async (c: AppContext): Promise<Response> => {
     try {
         const user = c.get("user");
-        if (!user || user.role !== "admin") {
+        if (!user || user.role !== "super_admin") {
             return c.json({ success: false, message: "Admin access required" }, 403);
         }
 
@@ -201,7 +201,7 @@ export const handleSetOrderEditLock = async (c: AppContext): Promise<Response> =
 export const handleSetOrderEditLockMode = async (c: AppContext): Promise<Response> => {
     try {
         const user = c.get("user");
-        if (!user || user.role !== "admin") {
+        if (!user || user.role !== "super_admin") {
             return c.json({ success: false, message: "Admin access required" }, 403);
         }
 
