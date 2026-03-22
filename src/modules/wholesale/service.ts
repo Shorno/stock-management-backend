@@ -954,7 +954,11 @@ export const saveOrderAdjustment = async (
         // Insert new damage items
         for (const damageItem of data.damageReturns || []) {
             if (damageItem.quantity > 0) {
-                const total = damageItem.quantity * damageItem.unitPrice;
+                // Round unit prices first, then compute total for consistency
+                // Without this, unitPrice 3.774 would store as "3.77" but total as "37.74" (10 * 3.774)
+                const roundedUnitPrice = Math.round(damageItem.unitPrice * 100) / 100;
+                const roundedSellingPrice = Math.round(damageItem.sellingPrice * 100) / 100;
+                const total = damageItem.quantity * roundedUnitPrice;
                 await tx.insert(orderDamageItems).values({
                     orderId,
                     orderItemId: damageItem.orderItemId || null,
