@@ -622,7 +622,7 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
         const totalDsrDues = validatedData.dsrDues.reduce((s, d) => s + d.amount, 0);
         const totalItemReturns = validatedData.itemReturns.reduce((s, r) => s + (r.returnAmount || 0), 0);
 
-        const totalDamageReturns = validatedData.damageReturns.reduce((s, d) => s + (d.quantity * d.unitPrice), 0);
+        const totalDamageReturns = validatedData.damageReturns.reduce((s, d) => s + (d.quantity * d.sellingPrice), 0);
 
         const affectedMetrics: FinancialImpact["affectedMetrics"] = [];
         if (totalPayments > 0) affectedMetrics.push({ metric: "cashBalance", label: "Cash Balance", direction: "increase", amount: totalPayments });

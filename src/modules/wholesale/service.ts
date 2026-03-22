@@ -343,11 +343,11 @@ export const getOrders = async (
 
         const orderTotal = parseFloat(order.total || "0");
 
-        // Calculate total damage cost (at buying price) from damage items
+        // Calculate total damage cost (at selling price) from damage items — consistent with settlement page
         let totalDamageCost = 0;
         if (order.damageItems && order.damageItems.length > 0) {
             for (const damageItem of order.damageItems) {
-                totalDamageCost += parseFloat(damageItem.total || "0");
+                totalDamageCost += parseFloat(damageItem.sellingPrice || "0") * damageItem.quantity;
             }
         }
 
@@ -954,7 +954,11 @@ export const saveOrderAdjustment = async (
         // Insert new damage items
         for (const damageItem of data.damageReturns || []) {
             if (damageItem.quantity > 0) {
-                const total = damageItem.quantity * damageItem.unitPrice;
+                // Round unit prices first, then compute total for consistency
+                // Without this, unitPrice 3.774 would store as "3.77" but total as "37.74" (10 * 3.774)
+                const roundedUnitPrice = Math.round(damageItem.unitPrice * 100) / 100;
+                const roundedSellingPrice = Math.round(damageItem.sellingPrice * 100) / 100;
+                const total = damageItem.quantity * roundedUnitPrice;
                 await tx.insert(orderDamageItems).values({
                     orderId,
                     orderItemId: damageItem.orderItemId || null,
@@ -966,8 +970,8 @@ export const saveOrderAdjustment = async (
                     variantName: damageItem.variantName || null,
                     brandName: damageItem.brandName,
                     quantity: damageItem.quantity,
-                    unitPrice: damageItem.unitPrice.toFixed(2),
-                    sellingPrice: damageItem.sellingPrice.toFixed(2),
+                    unitPrice: roundedUnitPrice.toFixed(2),
+                    sellingPrice: roundedSellingPrice.toFixed(2),
                     total: total.toFixed(2),
                     isOther: damageItem.isOther || false,
                 });
@@ -1129,10 +1133,10 @@ export const getOrderAdjustment = async (orderId: number) => {
     const orderTotal = parseFloat(order.total);
     const netTotalAfterReturns = itemsWithCalculations.reduce((sum, item) => sum + item.netTotal, 0);
 
-    // Calculate settlement damage (only non-"other" damages that should be deducted)
+    // Calculate settlement damage using selling price (consistent with settlement page)
     const settlementDamage = damageItemsData
         .filter(d => !d.isOther)
-        .reduce((sum, d) => sum + parseFloat(d.total), 0);
+        .reduce((sum, d) => sum + (parseFloat(d.sellingPrice) * d.quantity), 0);
 
     // Net Total = After Returns - Settlement Damages - Expenses
     const netTotalAfterDamage = netTotalAfterReturns - settlementDamage - totalExpenses;

@@ -656,20 +656,20 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalDamageProfit = Number(damageReturnsResult[0]?.totalProfit || 0);
 
-    // Get order damage items — both margin (for P&L) and buying price (for Net Sales display)
+    // Get order damage items — both margin (for P&L) and selling price (for Net Sales display)
     let totalOrderDamageMargin = 0;
-    let totalOrderDamageCost = 0;
+    let totalOrderDamageSelling = 0;
     if (orderIds.length > 0) {
         const orderDamageResult = await db
             .select({
                 lostMargin: sql<number>`sum((${orderDamageItems.sellingPrice} - ${orderDamageItems.unitPrice}) * ${orderDamageItems.quantity})`,
-                totalCost: sql<number>`sum(CAST(${orderDamageItems.unitPrice} AS DECIMAL) * ${orderDamageItems.quantity})`,
+                totalSelling: sql<number>`sum(CAST(${orderDamageItems.sellingPrice} AS DECIMAL) * ${orderDamageItems.quantity})`,
             })
             .from(orderDamageItems)
             .where(sql`${orderDamageItems.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
 
         totalOrderDamageMargin = Number(orderDamageResult[0]?.lostMargin || 0);
-        totalOrderDamageCost = Number(orderDamageResult[0]?.totalCost || 0);
+        totalOrderDamageSelling = Number(orderDamageResult[0]?.totalSelling || 0);
     }
 
     // ----- DSR EXPENSES -----
@@ -691,8 +691,8 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalExpenses = Number(expensesResult[0]?.total || 0);
 
-    // Net Sales (display): deducts damage at buying price and expenses — reflects actual revenue collected
-    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageCost - totalExpenses;
+    // Net Sales (display): deducts damage at selling price — reflects actual revenue lost from damaged items
+    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageSelling - totalExpenses;
 
     // Net Sales for P&L: deducts only the lost margin and expenses — keeps profit calculation accurate
     const netSalesForPL = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageMargin - totalExpenses;
