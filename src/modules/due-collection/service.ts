@@ -10,7 +10,8 @@ import {
     wholesaleOrders,
     route,
     dsr,
-    sr
+    sr,
+    openingBalances
 } from "../../db/schema";
 import { eq, and, gte, lte, sql, desc, gt } from "drizzle-orm";
 import type {
@@ -38,6 +39,7 @@ export interface CustomerWithDue {
     dueCount: number;
     oldestDueDate: string;
     dsrNames: string | null;
+    openingDue: string;
 }
 
 export interface CustomerDueDetail {
@@ -62,6 +64,7 @@ export interface CustomerDueDetailsResponse {
     };
     dues: CustomerDueDetail[];
     totalDue: string;
+    openingDue: string;
 }
 
 export interface CollectionRecord {
@@ -88,6 +91,7 @@ export interface DSRDueSummary {
     pendingDuesCount: number;
     ordersWithDuesCount: number;
     dsrDuesAmount: string; // New: DSR dues from adjustments
+    openingDue: string; // Opening due balance from before the system
 }
 
 export interface DSRDueDetail {
@@ -129,6 +133,7 @@ export interface SRDueSummary {
     totalOutstanding: string;
     totalCollected: string;
     pendingDuesCount: number;
+    openingDue: string;
 }
 
 export interface SRDueDetail {
@@ -213,18 +218,83 @@ export const getCustomersWithDues = async (
 
     const results = await baseQuery;
 
-    return results.map(row => ({
-        customerId: row.customerId || 0,
-        customerName: row.customerName,
-        shopName: row.shopName,
-        mobile: row.mobile,
-        routeId: row.routeId,
-        routeName: row.routeName,
-        totalDue: parseFloat(row.totalDue || "0").toFixed(2),
-        dueCount: Number(row.dueCount) || 0,
-        oldestDueDate: row.oldestDueDate || "",
-        dsrNames: row.dsrNames || null,
-    }));
+    // Get opening balances for customer_due type
+    const openingDues = await db
+        .select({
+            entityId: openingBalances.entityId,
+            amount: openingBalances.amount,
+        })
+        .from(openingBalances)
+        .where(eq(openingBalances.type, 'customer_due'));
+
+    const openingDueMap = new Map(openingDues.map(od => [od.entityId, parseFloat(od.amount)]));
+
+    // Build map of existing customer results
+    const customerMap = new Map<number, typeof results[0]>();
+    for (const row of results) {
+        customerMap.set(row.customerId || 0, row);
+    }
+
+    // Find customers who ONLY have opening dues (not in order-based results)
+    const missingCustomerIds = openingDues
+        .filter(od => od.entityId && !customerMap.has(od.entityId))
+        .map(od => od.entityId!);
+
+    let extraCustomers: Array<{
+        customerId: number;
+        customerName: string;
+        shopName: string | null;
+        mobile: string | null;
+        routeId: number | null;
+        routeName: string | null;
+    }> = [];
+
+    if (missingCustomerIds.length > 0) {
+        extraCustomers = await db
+            .select({
+                customerId: customer.id,
+                customerName: customer.name,
+                shopName: customer.shopName,
+                mobile: customer.mobile,
+                routeId: customer.routeId,
+                routeName: route.name,
+            })
+            .from(customer)
+            .leftJoin(route, eq(customer.routeId, route.id))
+            .where(sql`${customer.id} IN (${sql.join(missingCustomerIds.map(id => sql`${id}`), sql`, `)})`);
+    }
+
+    // Merge results
+    const allCustomers = [
+        ...results.map(row => ({
+            customerId: row.customerId || 0,
+            customerName: row.customerName,
+            shopName: row.shopName,
+            mobile: row.mobile,
+            routeId: row.routeId,
+            routeName: row.routeName,
+            totalDue: parseFloat(row.totalDue || "0").toFixed(2),
+            dueCount: Number(row.dueCount) || 0,
+            oldestDueDate: row.oldestDueDate || "",
+            dsrNames: row.dsrNames || null,
+            openingDue: (openingDueMap.get(row.customerId || 0) || 0).toFixed(2),
+        })),
+        ...extraCustomers.map(c => ({
+            customerId: c.customerId,
+            customerName: c.customerName,
+            shopName: c.shopName,
+            mobile: c.mobile,
+            routeId: c.routeId,
+            routeName: c.routeName,
+            totalDue: "0.00",
+            dueCount: 0,
+            oldestDueDate: "",
+            dsrNames: null,
+            openingDue: (openingDueMap.get(c.customerId) || 0).toFixed(2),
+        })),
+    ];
+
+    return allCustomers;
 };
 
 /**
@@ -292,6 +362,16 @@ export const getCustomerDueDetails = async (
         0
     );
 
+    // Get opening due balance for this customer
+    const openingDueResult = await db
+        .select({ amount: openingBalances.amount })
+        .from(openingBalances)
+        .where(and(
+            eq(openingBalances.type, 'customer_due'),
+            eq(openingBalances.entityId, customerId)
+        ));
+    const openingDue = parseFloat(openingDueResult[0]?.amount || "0");
+
     const customerData = customerInfo[0];
     if (!customerData) return null;
 
@@ -299,6 +379,7 @@ export const getCustomerDueDetails = async (
         customer: customerData,
         dues: duesWithRemaining,
         totalDue: totalDue.toFixed(2),
+        openingDue: openingDue.toFixed(2),
     };
 };
 
@@ -356,67 +437,120 @@ export const collectDue = async (
         return { success: true, message: "Collection recorded", collectionId: collection?.id };
     }
 
-    // Auto-apply to oldest dues (FIFO)
+    // Auto-apply: opening due first (oldest), then order-based dues (FIFO)
     let remainingAmount = amount;
+    let lastCollectionId: number | undefined;
 
-    const outstandingDues = await db
-        .select({
-            id: orderCustomerDues.id,
-            orderId: orderCustomerDues.orderId,
-            amount: orderCustomerDues.amount,
-            collectedAmount: orderCustomerDues.collectedAmount,
-        })
-        .from(orderCustomerDues)
-        .innerJoin(wholesaleOrders, eq(orderCustomerDues.orderId, wholesaleOrders.id))
-        .where(
-            and(
-                eq(orderCustomerDues.customerId, customerId),
-                gt(
-                    sql`CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL)`,
-                    0
-                )
-            )
-        )
-        .orderBy(wholesaleOrders.orderDate);
+    // Step 1: Apply to opening due balance first (it's the oldest)
+    const openingDueResult = await db
+        .select({ id: openingBalances.id, amount: openingBalances.amount })
+        .from(openingBalances)
+        .where(and(
+            eq(openingBalances.type, 'customer_due'),
+            eq(openingBalances.entityId, customerId)
+        ));
 
-    if (!outstandingDues.length) {
-        return { success: false, message: "No outstanding dues for this customer" };
+    if (openingDueResult.length > 0) {
+        const openingRecord = openingDueResult[0]!;
+        const openingAmount = parseFloat(openingRecord.amount);
+
+        if (openingAmount > 0) {
+            const amountToApply = Math.min(remainingAmount, openingAmount);
+            const newBalance = openingAmount - amountToApply;
+
+            if (newBalance <= 0) {
+                await db.delete(openingBalances).where(eq(openingBalances.id, openingRecord.id));
+            } else {
+                await db.update(openingBalances)
+                    .set({ amount: newBalance.toFixed(2) })
+                    .where(eq(openingBalances.id, openingRecord.id));
+            }
+
+            // Insert collection record for opening due (no customerDueId or orderId)
+            const collResult = await db
+                .insert(dueCollections)
+                .values({
+                    customerDueId: null as any,
+                    customerId,
+                    orderId: null as any,
+                    amount: amountToApply.toFixed(2),
+                    collectionDate,
+                    paymentMethod,
+                    collectedByDsrId,
+                    note: note ? `[Opening Due] ${note}` : "[Opening Due Collection]",
+                })
+                .returning({ id: dueCollections.id });
+
+            lastCollectionId = collResult[0]?.id;
+            remainingAmount -= amountToApply;
+        }
     }
 
-    for (const due of outstandingDues) {
-        if (remainingAmount <= 0) break;
-
-        const dueRemaining = parseFloat(due.amount) - parseFloat(due.collectedAmount);
-        const amountToApply = Math.min(remainingAmount, dueRemaining);
-
-        // Insert collection record
-        await db
-            .insert(dueCollections)
-            .values({
-                customerDueId: due.id,
-                customerId,
-                orderId: due.orderId,
-                amount: amountToApply.toFixed(2),
-                collectionDate,
-                paymentMethod,
-                collectedByDsrId,
-                note,
-            });
-
-        // Update collected amount
-        await db
-            .update(orderCustomerDues)
-            .set({
-                collectedAmount: (parseFloat(due.collectedAmount) + amountToApply).toFixed(2),
+    // Step 2: Apply remaining to order-based dues (FIFO)
+    if (remainingAmount > 0) {
+        const outstandingDues = await db
+            .select({
+                id: orderCustomerDues.id,
+                orderId: orderCustomerDues.orderId,
+                amount: orderCustomerDues.amount,
+                collectedAmount: orderCustomerDues.collectedAmount,
             })
-            .where(eq(orderCustomerDues.id, due.id));
+            .from(orderCustomerDues)
+            .innerJoin(wholesaleOrders, eq(orderCustomerDues.orderId, wholesaleOrders.id))
+            .where(
+                and(
+                    eq(orderCustomerDues.customerId, customerId),
+                    gt(
+                        sql`CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL)`,
+                        0
+                    )
+                )
+            )
+            .orderBy(wholesaleOrders.orderDate);
 
-        remainingAmount -= amountToApply;
+        for (const due of outstandingDues) {
+            if (remainingAmount <= 0) break;
+
+            const dueRemaining = parseFloat(due.amount) - parseFloat(due.collectedAmount);
+            const amountToApply = Math.min(remainingAmount, dueRemaining);
+
+            // Insert collection record
+            const collResult = await db
+                .insert(dueCollections)
+                .values({
+                    customerDueId: due.id,
+                    customerId,
+                    orderId: due.orderId,
+                    amount: amountToApply.toFixed(2),
+                    collectionDate,
+                    paymentMethod,
+                    collectedByDsrId,
+                    note,
+                })
+                .returning({ id: dueCollections.id });
+
+            if (!lastCollectionId) lastCollectionId = collResult[0]?.id;
+
+            // Update collected amount
+            await db
+                .update(orderCustomerDues)
+                .set({
+                    collectedAmount: (parseFloat(due.collectedAmount) + amountToApply).toFixed(2),
+                })
+                .where(eq(orderCustomerDues.id, due.id));
+
+            remainingAmount -= amountToApply;
+        }
+    }
+
+    if (remainingAmount >= amount) {
+        return { success: false, message: "No outstanding dues for this customer" };
     }
 
     return {
         success: true,
-        message: `Collection of ৳${amount.toFixed(2)} recorded successfully`
+        message: `Collection of ৳${amount.toFixed(2)} recorded successfully`,
+        collectionId: lastCollectionId,
     };
 };
 
@@ -619,11 +753,28 @@ export const getDSRDueSummary = async (
         dsrDuesMap.set(row.dsrId, remaining > 0 ? remaining.toFixed(2) : "0.00");
     }
 
+    // Get opening due balances for all DSRs
+    const openingDueResults = await db
+        .select({
+            entityId: openingBalances.entityId,
+            amount: openingBalances.amount,
+        })
+        .from(openingBalances)
+        .where(eq(openingBalances.type, 'dsr_due'));
+
+    const openingDueMap = new Map<number, string>();
+    for (const row of openingDueResults) {
+        if (row.entityId) {
+            openingDueMap.set(row.entityId, row.amount);
+        }
+    }
+
     return customerDueResults.map(row => {
         const totalOriginal = parseFloat(row.totalOriginal || "0");
         const totalCollected = parseFloat(row.totalCollected || "0");
         const totalOutstanding = Math.max(0, totalOriginal - totalCollected);
         const dsrDuesAmount = parseFloat(dsrDuesMap.get(row.dsrId) || "0");
+        const openingDue = parseFloat(openingDueMap.get(row.dsrId) || "0");
 
         return {
             dsrId: row.dsrId,
@@ -633,6 +784,7 @@ export const getDSRDueSummary = async (
             pendingDuesCount: Number(row.pendingDuesCount) || 0,
             ordersWithDuesCount: Number(row.ordersWithDuesCount) || 0,
             dsrDuesAmount: dsrDuesAmount.toFixed(2),
+            openingDue: openingDue.toFixed(2),
         };
     });
 };
@@ -642,7 +794,7 @@ export const getDSRDueSummary = async (
  */
 export const getDSRDueDetails = async (
     dsrId: number
-): Promise<{ dsr: { id: number; name: string }; dues: DSRDueDetail[]; totalOutstanding: string; totalCollected: string }> => {
+): Promise<{ dsr: { id: number; name: string }; dues: DSRDueDetail[]; totalOutstanding: string; totalCollected: string; openingDue: string }> => {
     // Get DSR info
     const dsrInfo = await db
         .select({ id: dsr.id, name: dsr.name })
@@ -655,7 +807,8 @@ export const getDSRDueDetails = async (
             dsr: { id: dsrId, name: "Unknown" },
             dues: [],
             totalOutstanding: "0.00",
-            totalCollected: "0.00"
+            totalCollected: "0.00",
+            openingDue: "0.00"
         };
     }
 
@@ -713,11 +866,22 @@ export const getDSRDueDetails = async (
         0
     );
 
+    // Get opening due balance for this DSR
+    const openingDueResult = await db
+        .select({ amount: openingBalances.amount })
+        .from(openingBalances)
+        .where(and(
+            eq(openingBalances.type, 'dsr_due'),
+            eq(openingBalances.entityId, dsrId)
+        ));
+    const openingDue = parseFloat(openingDueResult[0]?.amount || "0");
+
     return {
         dsr: dsrInfo[0]!,
         dues: duesWithRemaining,
         totalOutstanding: totalOutstanding.toFixed(2),
         totalCollected: totalCollected.toFixed(2),
+        openingDue: openingDue.toFixed(2),
     };
 };
 
@@ -847,62 +1011,108 @@ export const collectDsrDue = async (
         return { success: true, message: `Collected ৳${amount.toFixed(2)} from DSR` };
     }
 
-    // Auto-apply to oldest DSR dues (FIFO)
+    // Auto-apply: opening due first (oldest), then order-based dues (FIFO)
     let remainingAmount = amount;
 
-    const outstandingDues = await db
-        .select({
-            id: orderDsrDues.id,
-            orderId: orderDsrDues.orderId,
-            amount: orderDsrDues.amount,
-            collectedAmount: orderDsrDues.collectedAmount,
-            note: orderDsrDues.note,
-        })
-        .from(orderDsrDues)
-        .innerJoin(wholesaleOrders, eq(orderDsrDues.orderId, wholesaleOrders.id))
-        .where(
-            and(
-                eq(orderDsrDues.dsrId, dsrId),
-                gt(
-                    sql`CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderDsrDues.collectedAmount}, '0') AS DECIMAL)`,
-                    0
-                )
-            )
-        )
-        .orderBy(wholesaleOrders.orderDate);
+    // Step 1: Apply to opening due balance first (it's the oldest)
+    const openingDueResult = await db
+        .select({ id: openingBalances.id, amount: openingBalances.amount })
+        .from(openingBalances)
+        .where(and(
+            eq(openingBalances.type, 'dsr_due'),
+            eq(openingBalances.entityId, dsrId)
+        ));
 
-    if (!outstandingDues.length) {
-        return { success: false, message: "No outstanding DSR dues found" };
+    if (openingDueResult.length > 0) {
+        const openingRecord = openingDueResult[0]!;
+        const openingAmount = parseFloat(openingRecord.amount);
+
+        if (openingAmount > 0) {
+            const amountToApply = Math.min(remainingAmount, openingAmount);
+            const newBalance = openingAmount - amountToApply;
+
+            if (newBalance <= 0) {
+                // Fully collected — delete the opening balance record
+                await db.delete(openingBalances).where(eq(openingBalances.id, openingRecord.id));
+            } else {
+                // Partially collected — reduce the amount
+                await db.update(openingBalances)
+                    .set({ amount: newBalance.toFixed(2) })
+                    .where(eq(openingBalances.id, openingRecord.id));
+            }
+
+            // Insert DSR due collection record for cash balance tracking
+            await db.insert(dsrDueCollections).values({
+                dsrDueId: null as any,
+                dsrId,
+                orderId: null as any,
+                amount: amountToApply.toFixed(2),
+                collectionDate,
+                paymentMethod,
+                note: note ? `[Opening Due] ${note}` : "[Opening Due Collection]",
+            });
+
+            remainingAmount -= amountToApply;
+        }
     }
 
-    for (const due of outstandingDues) {
-        if (remainingAmount <= 0) break;
-
-        const collectedSoFar = parseFloat(due.collectedAmount || "0");
-        const dueRemaining = parseFloat(due.amount) - collectedSoFar;
-        const amountToApply = Math.min(remainingAmount, dueRemaining);
-
-        // Update collected amount on DSR due
-        await db
-            .update(orderDsrDues)
-            .set({
-                collectedAmount: (collectedSoFar + amountToApply).toFixed(2),
-                note: note ? `${due.note || ""}\n[${collectionDate}] Collected ৳${amountToApply} via ${paymentMethod || "cash"}${note ? ": " + note : ""}` : due.note,
+    // Step 2: Apply remaining to order-based DSR dues (FIFO)
+    if (remainingAmount > 0) {
+        const outstandingDues = await db
+            .select({
+                id: orderDsrDues.id,
+                orderId: orderDsrDues.orderId,
+                amount: orderDsrDues.amount,
+                collectedAmount: orderDsrDues.collectedAmount,
+                note: orderDsrDues.note,
             })
-            .where(eq(orderDsrDues.id, due.id));
+            .from(orderDsrDues)
+            .innerJoin(wholesaleOrders, eq(orderDsrDues.orderId, wholesaleOrders.id))
+            .where(
+                and(
+                    eq(orderDsrDues.dsrId, dsrId),
+                    gt(
+                        sql`CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderDsrDues.collectedAmount}, '0') AS DECIMAL)`,
+                        0
+                    )
+                )
+            )
+            .orderBy(wholesaleOrders.orderDate);
 
-        // Insert DSR due collection record (for cash balance tracking)
-        await db.insert(dsrDueCollections).values({
-            dsrDueId: due.id,
-            dsrId,
-            orderId: due.orderId,
-            amount: amountToApply.toFixed(2),
-            collectionDate,
-            paymentMethod,
-            note,
-        });
+        for (const due of outstandingDues) {
+            if (remainingAmount <= 0) break;
 
-        remainingAmount -= amountToApply;
+            const collectedSoFar = parseFloat(due.collectedAmount || "0");
+            const dueRemaining = parseFloat(due.amount) - collectedSoFar;
+            const amountToApply = Math.min(remainingAmount, dueRemaining);
+
+            // Update collected amount on DSR due
+            await db
+                .update(orderDsrDues)
+                .set({
+                    collectedAmount: (collectedSoFar + amountToApply).toFixed(2),
+                    note: note ? `${due.note || ""}\n[${collectionDate}] Collected ৳${amountToApply} via ${paymentMethod || "cash"}${note ? ": " + note : ""}` : due.note,
+                })
+                .where(eq(orderDsrDues.id, due.id));
+
+            // Insert DSR due collection record (for cash balance tracking)
+            await db.insert(dsrDueCollections).values({
+                dsrDueId: due.id,
+                dsrId,
+                orderId: due.orderId,
+                amount: amountToApply.toFixed(2),
+                collectionDate,
+                paymentMethod,
+                note,
+            });
+
+            remainingAmount -= amountToApply;
+        }
+    }
+
+    if (remainingAmount >= amount) {
+        // Nothing was collected at all
+        return { success: false, message: "No outstanding DSR dues found" };
     }
 
     return {
@@ -932,10 +1142,27 @@ export const getSRDueSummary = async (
         .groupBy(sr.id, sr.name)
         .orderBy(desc(sql`COALESCE(SUM(CAST(${orderSrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderSrDues.collectedAmount}, '0') AS DECIMAL)), 0)`));
 
+    // Get opening due balances for all SRs
+    const openingDueResults = await db
+        .select({
+            entityId: openingBalances.entityId,
+            amount: openingBalances.amount,
+        })
+        .from(openingBalances)
+        .where(eq(openingBalances.type, 'sr_due'));
+
+    const openingDueMap = new Map<number, string>();
+    for (const row of openingDueResults) {
+        if (row.entityId) {
+            openingDueMap.set(row.entityId, row.amount);
+        }
+    }
+
     return results.map(row => {
         const totalOriginal = parseFloat(row.totalOriginal || "0");
         const totalCollected = parseFloat(row.totalCollected || "0");
         const totalOutstanding = Math.max(0, totalOriginal - totalCollected);
+        const openingDue = parseFloat(openingDueMap.get(row.srId) || "0");
 
         return {
             srId: row.srId,
@@ -943,6 +1170,7 @@ export const getSRDueSummary = async (
             totalOutstanding: totalOutstanding.toFixed(2),
             totalCollected: totalCollected.toFixed(2),
             pendingDuesCount: Number(row.pendingDuesCount) || 0,
+            openingDue: openingDue.toFixed(2),
         };
     });
 };
@@ -952,7 +1180,7 @@ export const getSRDueSummary = async (
  */
 export const getSRDueDetails = async (
     srId: number
-): Promise<{ sr: { id: number; name: string }; dues: SRDueDetail[]; totalOutstanding: string; totalCollected: string }> => {
+): Promise<{ sr: { id: number; name: string }; dues: SRDueDetail[]; totalOutstanding: string; totalCollected: string; openingDue: string }> => {
     // Get SR info
     const srInfo = await db
         .select({ id: sr.id, name: sr.name })
@@ -965,7 +1193,8 @@ export const getSRDueDetails = async (
             sr: { id: srId, name: "Unknown" },
             dues: [],
             totalOutstanding: "0.00",
-            totalCollected: "0.00"
+            totalCollected: "0.00",
+            openingDue: "0.00"
         };
     }
 
@@ -1023,11 +1252,22 @@ export const getSRDueDetails = async (
         0
     );
 
+    // Get opening due balance for this SR
+    const openingDueResult = await db
+        .select({ amount: openingBalances.amount })
+        .from(openingBalances)
+        .where(and(
+            eq(openingBalances.type, 'sr_due'),
+            eq(openingBalances.entityId, srId)
+        ));
+    const openingDue = parseFloat(openingDueResult[0]?.amount || "0");
+
     return {
         sr: srInfo[0]!,
         dues: duesWithRemaining,
         totalOutstanding: totalOutstanding.toFixed(2),
         totalCollected: totalCollected.toFixed(2),
+        openingDue: openingDue.toFixed(2),
     };
 };
 
@@ -1140,62 +1380,108 @@ export const collectSrDue = async (
         return { success: true, message: `Collected ৳${amount.toFixed(2)} from SR` };
     }
 
-    // Auto-apply to oldest SR dues (FIFO)
+    // Auto-apply: opening due first (oldest), then order-based dues (FIFO)
     let remainingAmount = amount;
 
-    const outstandingDues = await db
-        .select({
-            id: orderSrDues.id,
-            orderId: orderSrDues.orderId,
-            amount: orderSrDues.amount,
-            collectedAmount: orderSrDues.collectedAmount,
-            note: orderSrDues.note,
-        })
-        .from(orderSrDues)
-        .innerJoin(wholesaleOrders, eq(orderSrDues.orderId, wholesaleOrders.id))
-        .where(
-            and(
-                eq(orderSrDues.srId, srId),
-                gt(
-                    sql`CAST(${orderSrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderSrDues.collectedAmount}, '0') AS DECIMAL)`,
-                    0
-                )
-            )
-        )
-        .orderBy(wholesaleOrders.orderDate);
+    // Step 1: Apply to opening due balance first (it's the oldest)
+    const openingDueResult = await db
+        .select({ id: openingBalances.id, amount: openingBalances.amount })
+        .from(openingBalances)
+        .where(and(
+            eq(openingBalances.type, 'sr_due'),
+            eq(openingBalances.entityId, srId)
+        ));
 
-    if (!outstandingDues.length) {
-        return { success: false, message: "No outstanding SR dues found" };
+    if (openingDueResult.length > 0) {
+        const openingRecord = openingDueResult[0]!;
+        const openingAmount = parseFloat(openingRecord.amount);
+
+        if (openingAmount > 0) {
+            const amountToApply = Math.min(remainingAmount, openingAmount);
+            const newBalance = openingAmount - amountToApply;
+
+            if (newBalance <= 0) {
+                // Fully collected — delete the opening balance record
+                await db.delete(openingBalances).where(eq(openingBalances.id, openingRecord.id));
+            } else {
+                // Partially collected — reduce the amount
+                await db.update(openingBalances)
+                    .set({ amount: newBalance.toFixed(2) })
+                    .where(eq(openingBalances.id, openingRecord.id));
+            }
+
+            // Insert SR due collection record for cash balance tracking
+            await db.insert(srDueCollections).values({
+                srDueId: null as any,
+                srId,
+                orderId: null as any,
+                amount: amountToApply.toFixed(2),
+                collectionDate,
+                paymentMethod,
+                note: note ? `[Opening Due] ${note}` : "[Opening Due Collection]",
+            });
+
+            remainingAmount -= amountToApply;
+        }
     }
 
-    for (const due of outstandingDues) {
-        if (remainingAmount <= 0) break;
-
-        const collectedSoFar = parseFloat(due.collectedAmount || "0");
-        const dueRemaining = parseFloat(due.amount) - collectedSoFar;
-        const amountToApply = Math.min(remainingAmount, dueRemaining);
-
-        // Update collected amount on SR due
-        await db
-            .update(orderSrDues)
-            .set({
-                collectedAmount: (collectedSoFar + amountToApply).toFixed(2),
-                note: note ? `${due.note || ""}\n[${collectionDate}] Collected ৳${amountToApply} via ${paymentMethod || "cash"}${note ? ": " + note : ""}` : due.note,
+    // Step 2: Apply remaining to order-based SR dues (FIFO)
+    if (remainingAmount > 0) {
+        const outstandingDues = await db
+            .select({
+                id: orderSrDues.id,
+                orderId: orderSrDues.orderId,
+                amount: orderSrDues.amount,
+                collectedAmount: orderSrDues.collectedAmount,
+                note: orderSrDues.note,
             })
-            .where(eq(orderSrDues.id, due.id));
+            .from(orderSrDues)
+            .innerJoin(wholesaleOrders, eq(orderSrDues.orderId, wholesaleOrders.id))
+            .where(
+                and(
+                    eq(orderSrDues.srId, srId),
+                    gt(
+                        sql`CAST(${orderSrDues.amount} AS DECIMAL) - CAST(COALESCE(${orderSrDues.collectedAmount}, '0') AS DECIMAL)`,
+                        0
+                    )
+                )
+            )
+            .orderBy(wholesaleOrders.orderDate);
 
-        // Insert SR due collection record
-        await db.insert(srDueCollections).values({
-            srDueId: due.id,
-            srId,
-            orderId: due.orderId,
-            amount: amountToApply.toFixed(2),
-            collectionDate,
-            paymentMethod,
-            note,
-        });
+        for (const due of outstandingDues) {
+            if (remainingAmount <= 0) break;
 
-        remainingAmount -= amountToApply;
+            const collectedSoFar = parseFloat(due.collectedAmount || "0");
+            const dueRemaining = parseFloat(due.amount) - collectedSoFar;
+            const amountToApply = Math.min(remainingAmount, dueRemaining);
+
+            // Update collected amount on SR due
+            await db
+                .update(orderSrDues)
+                .set({
+                    collectedAmount: (collectedSoFar + amountToApply).toFixed(2),
+                    note: note ? `${due.note || ""}\n[${collectionDate}] Collected ৳${amountToApply} via ${paymentMethod || "cash"}${note ? ": " + note : ""}` : due.note,
+                })
+                .where(eq(orderSrDues.id, due.id));
+
+            // Insert SR due collection record
+            await db.insert(srDueCollections).values({
+                srDueId: due.id,
+                srId,
+                orderId: due.orderId,
+                amount: amountToApply.toFixed(2),
+                collectionDate,
+                paymentMethod,
+                note,
+            });
+
+            remainingAmount -= amountToApply;
+        }
+    }
+
+    if (remainingAmount >= amount) {
+        // Nothing was collected at all
+        return { success: false, message: "No outstanding SR dues found" };
     }
 
     return {

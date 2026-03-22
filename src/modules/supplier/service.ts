@@ -177,7 +177,7 @@ export async function getSupplierBalance(brandId: number) {
     // Negative = We owe supplier (need to pay more)
     const balance = (totalPayments - totalPurchases) + openingBalance;
 
-    return { totalPurchases, totalPayments, balance };
+    return { totalPurchases, totalPayments, balance, openingBalance: openingBalance.toFixed(2) };
 }
 
 // ==================== TOTAL SUPPLIER DUE ====================
