@@ -79,11 +79,23 @@ CREATE TABLE "bills" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "damage_claims" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"brand_id" integer NOT NULL,
+	"amount" numeric(12, 2) NOT NULL,
+	"claim_date" date NOT NULL,
+	"supplier_payment_id" integer,
+	"note" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "global_settings" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"order_edit_password" text,
 	"order_edit_lock_mode" "order_edit_lock_mode" DEFAULT 'always' NOT NULL,
 	"order_edit_locked" boolean DEFAULT false NOT NULL,
+	"snapshot_time" varchar(5) DEFAULT '23:59' NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
@@ -91,19 +103,33 @@ CREATE TABLE "global_settings" (
 CREATE TABLE "brand" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"name" varchar(100) NOT NULL,
-	"slug" varchar(100) NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "brand_slug_unique" UNIQUE("slug")
+	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "category" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"name" varchar(100) NOT NULL,
-	"slug" varchar(100) NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "category_slug_unique" UNIQUE("slug")
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "inventory_snapshots" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"snapshot_date" date NOT NULL,
+	"batch_id" integer NOT NULL,
+	"variant_id" integer NOT NULL,
+	"product_id" integer NOT NULL,
+	"brand_id" integer NOT NULL,
+	"product_name" text NOT NULL,
+	"variant_label" varchar(100) NOT NULL,
+	"brand_name" varchar(100) NOT NULL,
+	"supplier_price" numeric(12, 6) NOT NULL,
+	"sell_price" numeric(12, 6) NOT NULL,
+	"remaining_quantity" integer NOT NULL,
+	"remaining_free_qty" integer DEFAULT 0 NOT NULL,
+	"unit" varchar(20),
+	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "product" (
@@ -113,6 +139,7 @@ CREATE TABLE "product" (
 	"category_id" integer NOT NULL,
 	"brand_id" integer NOT NULL,
 	"low_stock_threshold" integer DEFAULT 10,
+	"image_url" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "product_code_unique" UNIQUE("code")
@@ -151,12 +178,14 @@ CREATE TABLE "stock_adjustments" (
 CREATE TABLE "stock_batch" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"variant_id" integer NOT NULL,
-	"supplier_price" numeric(10, 2) NOT NULL,
-	"sell_price" numeric(10, 2) NOT NULL,
+	"supplier_price" numeric(12, 6) NOT NULL,
+	"sell_price" numeric(12, 6) NOT NULL,
 	"initial_quantity" integer NOT NULL,
 	"remaining_quantity" integer NOT NULL,
 	"initial_free_qty" integer DEFAULT 0 NOT NULL,
 	"remaining_free_qty" integer DEFAULT 0 NOT NULL,
+	"unit" varchar(20) DEFAULT 'PCS',
+	"is_opening_stock" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
@@ -193,6 +222,8 @@ CREATE TABLE "damage_return_items" (
 	"total" numeric(10, 2) NOT NULL,
 	"condition" varchar(20) DEFAULT 'damaged' NOT NULL,
 	"reason" text,
+	"approved_at" date,
+	"approved_by_id" integer,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
@@ -216,10 +247,21 @@ CREATE TABLE "damage_returns" (
 CREATE TABLE "dsr" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"name" varchar(100) NOT NULL,
-	"slug" varchar(100) NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "dsr_slug_unique" UNIQUE("slug")
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "dsr_due_collections" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"dsr_due_id" integer,
+	"dsr_id" integer,
+	"order_id" integer,
+	"amount" numeric(10, 2) NOT NULL,
+	"collection_date" date NOT NULL,
+	"payment_method" varchar(50),
+	"note" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "dsr_loan_transactions" (
@@ -285,6 +327,8 @@ CREATE TABLE "order_damage_items" (
 	"selling_price" numeric(10, 2) NOT NULL,
 	"total" numeric(10, 2) NOT NULL,
 	"is_other" boolean DEFAULT false NOT NULL,
+	"approved_at" date,
+	"approved_by_id" integer,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
@@ -337,13 +381,54 @@ CREATE TABLE "order_payments" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "order_sr_dues" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"order_id" integer NOT NULL,
+	"sr_id" integer NOT NULL,
+	"amount" numeric(10, 2) NOT NULL,
+	"collected_amount" numeric(10, 2) DEFAULT '0' NOT NULL,
+	"customer_id" integer,
+	"note" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "route" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"name" varchar(100) NOT NULL,
-	"slug" varchar(100) NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "route_slug_unique" UNIQUE("slug")
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "sr" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"name" varchar(100) NOT NULL,
+	"brand_id" integer,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "sr_commissions" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"sr_id" integer NOT NULL,
+	"amount" numeric(10, 2) NOT NULL,
+	"commission_date" date NOT NULL,
+	"note" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "sr_due_collections" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"sr_due_id" integer,
+	"sr_id" integer,
+	"order_id" integer,
+	"amount" numeric(10, 2) NOT NULL,
+	"collection_date" date NOT NULL,
+	"payment_method" varchar(50),
+	"note" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "wholesale_order_items" (
@@ -352,6 +437,7 @@ CREATE TABLE "wholesale_order_items" (
 	"product_id" integer NOT NULL,
 	"batch_id" integer NOT NULL,
 	"brand_id" integer NOT NULL,
+	"sr_id" integer,
 	"quantity" integer NOT NULL,
 	"unit" varchar(20) NOT NULL,
 	"total_quantity" integer NOT NULL,
@@ -360,7 +446,7 @@ CREATE TABLE "wholesale_order_items" (
 	"extra_pieces" integer DEFAULT 0 NOT NULL,
 	"delivered_quantity" integer,
 	"delivered_free_qty" integer,
-	"sale_price" numeric(10, 2) NOT NULL,
+	"sale_price" numeric(12, 6) NOT NULL,
 	"subtotal" numeric(10, 2) NOT NULL,
 	"discount" numeric(10, 2) DEFAULT '0' NOT NULL,
 	"net" numeric(10, 2) NOT NULL,
@@ -406,6 +492,7 @@ CREATE TABLE "supplier_payments" (
 	"payment_date" date NOT NULL,
 	"payment_method" varchar(50),
 	"from_cash_balance" boolean DEFAULT false NOT NULL,
+	"is_damage_credit" boolean DEFAULT false NOT NULL,
 	"note" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
@@ -449,9 +536,34 @@ CREATE TABLE "investments" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "pl_adjustments" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"title" text NOT NULL,
+	"type" text NOT NULL,
+	"amount" numeric(12, 2) DEFAULT '0.00' NOT NULL,
+	"note" text,
+	"adjustment_date" text NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "opening_balances" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"type" varchar(50) NOT NULL,
+	"entity_id" integer,
+	"entity_name" varchar(150),
+	"amount" numeric(12, 2) NOT NULL,
+	"balance_date" date NOT NULL,
+	"note" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "damage_claims" ADD CONSTRAINT "damage_claims_brand_id_brand_id_fk" FOREIGN KEY ("brand_id") REFERENCES "public"."brand"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "damage_claims" ADD CONSTRAINT "damage_claims_supplier_payment_id_supplier_payments_id_fk" FOREIGN KEY ("supplier_payment_id") REFERENCES "public"."supplier_payments"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "product" ADD CONSTRAINT "product_category_id_category_id_fk" FOREIGN KEY ("category_id") REFERENCES "public"."category"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "product" ADD CONSTRAINT "product_brand_id_brand_id_fk" FOREIGN KEY ("brand_id") REFERENCES "public"."brand"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "product_variant" ADD CONSTRAINT "product_variant_product_id_product_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."product"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -463,6 +575,9 @@ ALTER TABLE "damage_return_items" ADD CONSTRAINT "damage_return_items_return_id_
 ALTER TABLE "damage_return_items" ADD CONSTRAINT "damage_return_items_variant_id_product_variant_id_fk" FOREIGN KEY ("variant_id") REFERENCES "public"."product_variant"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "damage_return_items" ADD CONSTRAINT "damage_return_items_batch_id_stock_batch_id_fk" FOREIGN KEY ("batch_id") REFERENCES "public"."stock_batch"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "damage_returns" ADD CONSTRAINT "damage_returns_dsr_id_dsr_id_fk" FOREIGN KEY ("dsr_id") REFERENCES "public"."dsr"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "dsr_due_collections" ADD CONSTRAINT "dsr_due_collections_dsr_due_id_order_dsr_dues_id_fk" FOREIGN KEY ("dsr_due_id") REFERENCES "public"."order_dsr_dues"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "dsr_due_collections" ADD CONSTRAINT "dsr_due_collections_dsr_id_dsr_id_fk" FOREIGN KEY ("dsr_id") REFERENCES "public"."dsr"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "dsr_due_collections" ADD CONSTRAINT "dsr_due_collections_order_id_wholesale_orders_id_fk" FOREIGN KEY ("order_id") REFERENCES "public"."wholesale_orders"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "dsr_loan_transactions" ADD CONSTRAINT "dsr_loan_transactions_dsr_id_dsr_id_fk" FOREIGN KEY ("dsr_id") REFERENCES "public"."dsr"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "dsr_target" ADD CONSTRAINT "dsr_target_dsr_id_dsr_id_fk" FOREIGN KEY ("dsr_id") REFERENCES "public"."dsr"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "due_collections" ADD CONSTRAINT "due_collections_customer_due_id_order_customer_dues_id_fk" FOREIGN KEY ("customer_due_id") REFERENCES "public"."order_customer_dues"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -483,10 +598,19 @@ ALTER TABLE "order_item_returns" ADD CONSTRAINT "order_item_returns_order_id_who
 ALTER TABLE "order_item_returns" ADD CONSTRAINT "order_item_returns_order_item_id_wholesale_order_items_id_fk" FOREIGN KEY ("order_item_id") REFERENCES "public"."wholesale_order_items"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_payments" ADD CONSTRAINT "order_payments_order_id_wholesale_orders_id_fk" FOREIGN KEY ("order_id") REFERENCES "public"."wholesale_orders"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_payments" ADD CONSTRAINT "order_payments_collected_by_dsr_id_dsr_id_fk" FOREIGN KEY ("collected_by_dsr_id") REFERENCES "public"."dsr"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "order_sr_dues" ADD CONSTRAINT "order_sr_dues_order_id_wholesale_orders_id_fk" FOREIGN KEY ("order_id") REFERENCES "public"."wholesale_orders"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "order_sr_dues" ADD CONSTRAINT "order_sr_dues_sr_id_sr_id_fk" FOREIGN KEY ("sr_id") REFERENCES "public"."sr"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "order_sr_dues" ADD CONSTRAINT "order_sr_dues_customer_id_customer_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."customer"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sr" ADD CONSTRAINT "sr_brand_id_brand_id_fk" FOREIGN KEY ("brand_id") REFERENCES "public"."brand"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sr_commissions" ADD CONSTRAINT "sr_commissions_sr_id_sr_id_fk" FOREIGN KEY ("sr_id") REFERENCES "public"."sr"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sr_due_collections" ADD CONSTRAINT "sr_due_collections_sr_due_id_order_sr_dues_id_fk" FOREIGN KEY ("sr_due_id") REFERENCES "public"."order_sr_dues"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sr_due_collections" ADD CONSTRAINT "sr_due_collections_sr_id_sr_id_fk" FOREIGN KEY ("sr_id") REFERENCES "public"."sr"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "sr_due_collections" ADD CONSTRAINT "sr_due_collections_order_id_wholesale_orders_id_fk" FOREIGN KEY ("order_id") REFERENCES "public"."wholesale_orders"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wholesale_order_items" ADD CONSTRAINT "wholesale_order_items_order_id_wholesale_orders_id_fk" FOREIGN KEY ("order_id") REFERENCES "public"."wholesale_orders"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wholesale_order_items" ADD CONSTRAINT "wholesale_order_items_product_id_product_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."product"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wholesale_order_items" ADD CONSTRAINT "wholesale_order_items_batch_id_stock_batch_id_fk" FOREIGN KEY ("batch_id") REFERENCES "public"."stock_batch"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wholesale_order_items" ADD CONSTRAINT "wholesale_order_items_brand_id_brand_id_fk" FOREIGN KEY ("brand_id") REFERENCES "public"."brand"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "wholesale_order_items" ADD CONSTRAINT "wholesale_order_items_sr_id_sr_id_fk" FOREIGN KEY ("sr_id") REFERENCES "public"."sr"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wholesale_orders" ADD CONSTRAINT "wholesale_orders_dsr_id_dsr_id_fk" FOREIGN KEY ("dsr_id") REFERENCES "public"."dsr"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wholesale_orders" ADD CONSTRAINT "wholesale_orders_route_id_route_id_fk" FOREIGN KEY ("route_id") REFERENCES "public"."route"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wholesale_orders" ADD CONSTRAINT "wholesale_orders_category_id_category_id_fk" FOREIGN KEY ("category_id") REFERENCES "public"."category"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -501,6 +625,11 @@ CREATE INDEX "audit_logs_action_idx" ON "audit_logs" USING btree ("action");--> 
 CREATE INDEX "account_userId_idx" ON "account" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");--> statement-breakpoint
+CREATE INDEX "idx_damage_claims_brand" ON "damage_claims" USING btree ("brand_id");--> statement-breakpoint
+CREATE INDEX "idx_damage_claims_date" ON "damage_claims" USING btree ("claim_date");--> statement-breakpoint
+CREATE INDEX "idx_damage_claims_payment" ON "damage_claims" USING btree ("supplier_payment_id");--> statement-breakpoint
+CREATE INDEX "idx_inventory_snapshots_date" ON "inventory_snapshots" USING btree ("snapshot_date");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_inventory_snapshots_date_batch" ON "inventory_snapshots" USING btree ("snapshot_date","batch_id");--> statement-breakpoint
 CREATE INDEX "idx_cash_withdrawals_date" ON "cash_withdrawals" USING btree ("withdrawal_date");--> statement-breakpoint
 CREATE INDEX "idx_customer_name" ON "customer" USING btree ("name");--> statement-breakpoint
 CREATE INDEX "idx_customer_route" ON "customer" USING btree ("route_id");--> statement-breakpoint
@@ -511,6 +640,10 @@ CREATE INDEX "idx_damage_returns_dsr" ON "damage_returns" USING btree ("dsr_id")
 CREATE INDEX "idx_damage_returns_date" ON "damage_returns" USING btree ("return_date");--> statement-breakpoint
 CREATE INDEX "idx_damage_returns_status" ON "damage_returns" USING btree ("status");--> statement-breakpoint
 CREATE INDEX "idx_damage_returns_number" ON "damage_returns" USING btree ("return_number");--> statement-breakpoint
+CREATE INDEX "idx_dsr_due_collections_dsr_due" ON "dsr_due_collections" USING btree ("dsr_due_id");--> statement-breakpoint
+CREATE INDEX "idx_dsr_due_collections_dsr" ON "dsr_due_collections" USING btree ("dsr_id");--> statement-breakpoint
+CREATE INDEX "idx_dsr_due_collections_order" ON "dsr_due_collections" USING btree ("order_id");--> statement-breakpoint
+CREATE INDEX "idx_dsr_due_collections_date" ON "dsr_due_collections" USING btree ("collection_date");--> statement-breakpoint
 CREATE INDEX "idx_dsr_loan_dsr" ON "dsr_loan_transactions" USING btree ("dsr_id");--> statement-breakpoint
 CREATE INDEX "idx_dsr_loan_date" ON "dsr_loan_transactions" USING btree ("transaction_date");--> statement-breakpoint
 CREATE INDEX "idx_dsr_loan_type" ON "dsr_loan_transactions" USING btree ("transaction_type");--> statement-breakpoint
@@ -536,9 +669,20 @@ CREATE INDEX "idx_order_item_returns_item" ON "order_item_returns" USING btree (
 CREATE INDEX "idx_order_payments_order" ON "order_payments" USING btree ("order_id");--> statement-breakpoint
 CREATE INDEX "idx_order_payments_date" ON "order_payments" USING btree ("payment_date");--> statement-breakpoint
 CREATE INDEX "idx_order_payments_dsr" ON "order_payments" USING btree ("collected_by_dsr_id");--> statement-breakpoint
+CREATE INDEX "idx_order_sr_dues_order" ON "order_sr_dues" USING btree ("order_id");--> statement-breakpoint
+CREATE INDEX "idx_order_sr_dues_sr" ON "order_sr_dues" USING btree ("sr_id");--> statement-breakpoint
+CREATE INDEX "idx_order_sr_dues_customer" ON "order_sr_dues" USING btree ("customer_id");--> statement-breakpoint
+CREATE INDEX "idx_sr_brand" ON "sr" USING btree ("brand_id");--> statement-breakpoint
+CREATE INDEX "idx_sr_commissions_sr" ON "sr_commissions" USING btree ("sr_id");--> statement-breakpoint
+CREATE INDEX "idx_sr_commissions_date" ON "sr_commissions" USING btree ("commission_date");--> statement-breakpoint
+CREATE INDEX "idx_sr_due_collections_sr_due" ON "sr_due_collections" USING btree ("sr_due_id");--> statement-breakpoint
+CREATE INDEX "idx_sr_due_collections_sr" ON "sr_due_collections" USING btree ("sr_id");--> statement-breakpoint
+CREATE INDEX "idx_sr_due_collections_order" ON "sr_due_collections" USING btree ("order_id");--> statement-breakpoint
+CREATE INDEX "idx_sr_due_collections_date" ON "sr_due_collections" USING btree ("collection_date");--> statement-breakpoint
 CREATE INDEX "idx_wholesale_order_items_order" ON "wholesale_order_items" USING btree ("order_id");--> statement-breakpoint
 CREATE INDEX "idx_wholesale_order_items_product" ON "wholesale_order_items" USING btree ("product_id");--> statement-breakpoint
 CREATE INDEX "idx_wholesale_order_items_batch" ON "wholesale_order_items" USING btree ("batch_id");--> statement-breakpoint
+CREATE INDEX "idx_wholesale_order_items_sr" ON "wholesale_order_items" USING btree ("sr_id");--> statement-breakpoint
 CREATE INDEX "idx_wholesale_orders_dsr" ON "wholesale_orders" USING btree ("dsr_id");--> statement-breakpoint
 CREATE INDEX "idx_wholesale_orders_route" ON "wholesale_orders" USING btree ("route_id");--> statement-breakpoint
 CREATE INDEX "idx_wholesale_orders_date" ON "wholesale_orders" USING btree ("order_date");--> statement-breakpoint
@@ -550,4 +694,7 @@ CREATE INDEX "idx_supplier_payments_brand" ON "supplier_payments" USING btree ("
 CREATE INDEX "idx_supplier_payments_date" ON "supplier_payments" USING btree ("payment_date");--> statement-breakpoint
 CREATE INDEX "idx_supplier_purchases_brand" ON "supplier_purchases" USING btree ("brand_id");--> statement-breakpoint
 CREATE INDEX "idx_supplier_purchases_date" ON "supplier_purchases" USING btree ("purchase_date");--> statement-breakpoint
-CREATE INDEX "idx_user_settings_user" ON "user_settings" USING btree ("user_id");
+CREATE INDEX "idx_user_settings_user" ON "user_settings" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "idx_opening_balances_type" ON "opening_balances" USING btree ("type");--> statement-breakpoint
+CREATE INDEX "idx_opening_balances_entity" ON "opening_balances" USING btree ("type","entity_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_opening_balances_unique" ON "opening_balances" USING btree ("type","entity_id");
