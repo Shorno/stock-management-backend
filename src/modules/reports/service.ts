@@ -408,6 +408,7 @@ export const getDailySalesCollection = async (
     const productsReturned = Array.from(returnMap.values()).sort((a, b) => parseFloat(b.returnAmount) - parseFloat(a.returnAmount));
 
     // Merge return data into soldMap so Products Sold table shows returns per product
+    // Also subtract return quantity from sold quantity so Qty shows net after returns
     for (const item of allReturnItems) {
         const multiplier = Number(item.unitMultiplier) || 1;
         const returnPieces = (item.returnQuantity * multiplier) + (item.returnExtraPieces || 0);
@@ -416,6 +417,7 @@ export const getDailySalesCollection = async (
         const key = `${item.productName}|${item.brandName}`;
         const existing = soldMap.get(key);
         if (existing) {
+            existing.quantity -= returnPieces;
             existing.returnQuantity += returnPieces;
             existing.returnAmount = (parseFloat(existing.returnAmount) + returnAmt).toFixed(2);
             existing.totalAmount = (parseFloat(existing.totalAmount) - returnAmt).toFixed(2);
@@ -1612,6 +1614,7 @@ export interface ExpenseItem {
     routeName: string;
     expenseType: string;
     amount: string;
+    note: string | null;
 }
 
 export interface PaymentReceivedItem {
@@ -1841,9 +1844,11 @@ export const getDailySettlement = async (
     }
 
     // Group damage items by order (only non-other damage, matching adjustment page's settlementDamage)
+    // Uses sellingPrice × qty (not d.total which stores unitPrice × qty) to match settlement/invoice logic
     const damageByOrder = new Map<number, number>();
     for (const d of allDamageItems) {
-        damageByOrder.set(d.orderId, (damageByOrder.get(d.orderId) || 0) + parseFloat(d.total));
+        const damageAtSelling = parseFloat(d.sellingPrice) * d.quantity;
+        damageByOrder.set(d.orderId, (damageByOrder.get(d.orderId) || 0) + damageAtSelling);
     }
 
     const netSales: NetSalesItem[] = orders.map((order) => {
@@ -1898,6 +1903,7 @@ export const getDailySettlement = async (
             routeName: order?.routeName || "",
             expenseType: expense.expenseType,
             amount: expense.amount,
+            note: expense.note ?? null,
         };
     });
 
@@ -1979,10 +1985,11 @@ export const getDailySettlement = async (
     });
 
     // 7. Build Damage Return Items list
+    // Uses sellingPrice × qty to match settlement/invoice logic (not d.total which stores at cost)
     let totalDamageReturn = 0;
     const damageReturnsList: DamageReturnItem[] = allDamageItems.map((item) => {
         const order = orderMap.get(item.orderId);
-        const total = parseFloat(item.total);
+        const total = parseFloat(item.sellingPrice) * item.quantity;
         totalDamageReturn += total;
         return {
             orderDate: order?.orderDate || "",

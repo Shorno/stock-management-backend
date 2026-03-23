@@ -1044,9 +1044,13 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // ----- NET ASSETS -----
     // Total business value = Assets - Liabilities
     // Assets: Current Stock + Cash Balance + Receivables (Customer Due + DSR Own Due + SR Own Due + Pending Orders) + Damage Returns (at cost)
-    // Liabilities: Supplier Due (if negative, we owe them) + Damage Profit Margin (unrecoverable loss)
+    // Liabilities: Supplier Due (if negative, we owe them)
+    // Note: Damage margin (selling - cost) is NOT deducted here because it's already naturally captured:
+    //   - Settlement deducts damage at selling price → reduces cash/dues received
+    //   - Damage asset is tracked at cost → lower than selling price
+    //   - The margin gap is inherently reflected in the difference
     // All values include opening balances
-    const netAssets = currentStock + adjustedCashBalance + adjustedCustomerDues + adjustedDsrDue + adjustedSrDue + adjustedSupplierDue + damageReturnsValue + pendingOrdersValue - totalDamageProfit - totalOrderDamageMargin;
+    const netAssets = currentStock + adjustedCashBalance + adjustedCustomerDues + adjustedDsrDue + adjustedSrDue + adjustedSupplierDue + damageReturnsValue + pendingOrdersValue;
 
     return {
         netSales: Math.round(netSales * 100) / 100,
