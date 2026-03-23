@@ -305,7 +305,7 @@ export interface AdjustmentData {
     customerDues: AdjustmentCustomerDue[];
     damageReturns?: DamageReturn[];
     dsrDues?: { id?: number; amount: number; note?: string }[];
-    srDues?: { id?: number; srId: number; srName?: string; customerName?: string; amount: number; note?: string }[];
+    srDues?: { id?: number; srId: number; srName?: string; brandName?: string; customerName?: string; amount: number; note?: string }[];
     itemsWithCalculations: AdjustmentItemWithCalculations[];
     summary: AdjustmentSummary;
 }
@@ -811,11 +811,12 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
                 doc.fontSize(8).font("BanglaRegular");
                 adjustment.srDues.forEach(due => {
-                    const srLabel = due.customerName
-                        ? `${due.srName || `SR #${due.srId}`} (${due.customerName})`
-                        : (due.srName || due.note || `SR #${due.srId}`);
-                    doc.fillColor(mediumGray).text(srLabel, leftCol, currentY);
-                    doc.fillColor("#4f46e5").text(formatCurrency(due.amount), leftCol + 100, currentY);
+                    const srName = due.srName || `SR #${due.srId}`;
+                    const brand = due.brandName ? ` [${due.brandName}]` : '';
+                    const cust = due.customerName ? ` (${due.customerName})` : '';
+                    const srLabel = `${srName}${brand}${cust}`;
+                    doc.fillColor(mediumGray).text(srLabel, leftCol, currentY, { width: 200, ellipsis: true });
+                    doc.fillColor("#4f46e5").text(formatCurrency(due.amount), leftCol + 205, currentY);
                     currentY += 12;
                 });
                 currentY += 8;

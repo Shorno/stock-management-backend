@@ -5,6 +5,7 @@ import { logError } from "../../lib/error-handler";
 import { getWithdrawalsQuerySchema, createWithdrawalInputSchema } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 
 const cashWithdrawalRoutes = new Hono();
 
@@ -91,6 +92,18 @@ cashWithdrawalRoutes.post(
                 metadata: { financialImpact },
             });
 
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "cash_withdrawal",
+                description: `Cash withdrawal — ৳${amount.toLocaleString()}${input.note ? ` (${input.note})` : ""}`,
+                amount,
+                netAssetChange: -amount,
+                affectedComponent: "cash",
+                entityType: "cash_withdrawal",
+                entityId: result.withdrawalId!,
+                transactionDate: input.withdrawalDate,
+            });
+
             return c.json({
                 success: true,
                 message: result.message,
@@ -142,6 +155,18 @@ cashWithdrawalRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
                 entityName: `Withdrawal ৳${amount.toLocaleString()}`,
                 oldValue: withdrawalToDelete,
                 metadata: { financialImpact },
+            });
+
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "withdrawal_deleted",
+                description: `Withdrawal deleted — ৳${amount.toLocaleString()} restored`,
+                amount,
+                netAssetChange: amount,
+                affectedComponent: "cash",
+                entityType: "cash_withdrawal",
+                entityId: withdrawalId,
+                transactionDate: withdrawalToDelete.withdrawalDate,
             });
         }
 
