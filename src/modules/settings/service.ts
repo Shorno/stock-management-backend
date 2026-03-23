@@ -74,6 +74,7 @@ export const getGlobalSettings = async (): Promise<GlobalSettings> => {
     const [created] = await db.insert(globalSettings).values({
         orderEditLockMode: "always",
         orderEditLocked: false,
+        openingStockEnabled: true,
     }).returning();
 
     if (!created) {
@@ -171,4 +172,73 @@ export const getOrderEditProtectionStatus = async (): Promise<OrderEditProtectio
         isLocked: settings.orderEditLocked,
         lockMode: settings.orderEditLockMode,
     };
+};
+
+// ==================== OPENING STOCK ====================
+
+/**
+ * Get opening stock enabled status
+ */
+export const getOpeningStockEnabled = async (): Promise<boolean> => {
+    const settings = await getGlobalSettings();
+    return settings.openingStockEnabled;
+};
+
+/**
+ * Set opening stock enabled status (admin only)
+ */
+export const setOpeningStockEnabled = async (enabled: boolean): Promise<void> => {
+    const settings = await getGlobalSettings();
+
+    await db
+        .update(globalSettings)
+        .set({ openingStockEnabled: enabled })
+        .where(eq(globalSettings.id, settings.id));
+};
+
+// ==================== FEATURE TOGGLES ====================
+
+export interface FeatureToggles {
+    openingStockEnabled: boolean;
+    srOpeningBalanceEnabled: boolean;
+    dsrOpeningBalanceEnabled: boolean;
+    supplierOpeningBalanceEnabled: boolean;
+    openingBalancesTabEnabled: boolean;
+}
+
+const TOGGLE_KEYS: (keyof FeatureToggles)[] = [
+    "openingStockEnabled",
+    "srOpeningBalanceEnabled",
+    "dsrOpeningBalanceEnabled",
+    "supplierOpeningBalanceEnabled",
+    "openingBalancesTabEnabled",
+];
+
+/**
+ * Get all feature toggles
+ */
+export const getFeatureToggles = async (): Promise<FeatureToggles> => {
+    const settings = await getGlobalSettings();
+    return {
+        openingStockEnabled: settings.openingStockEnabled,
+        srOpeningBalanceEnabled: settings.srOpeningBalanceEnabled,
+        dsrOpeningBalanceEnabled: settings.dsrOpeningBalanceEnabled,
+        supplierOpeningBalanceEnabled: settings.supplierOpeningBalanceEnabled,
+        openingBalancesTabEnabled: settings.openingBalancesTabEnabled,
+    };
+};
+
+/**
+ * Set a single feature toggle (admin only)
+ */
+export const setFeatureToggle = async (key: keyof FeatureToggles, enabled: boolean): Promise<void> => {
+    if (!TOGGLE_KEYS.includes(key)) {
+        throw new Error(`Invalid toggle key: ${key}`);
+    }
+    const settings = await getGlobalSettings();
+
+    await db
+        .update(globalSettings)
+        .set({ [key]: enabled })
+        .where(eq(globalSettings.id, settings.id));
 };

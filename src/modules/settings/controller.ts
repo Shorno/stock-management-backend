@@ -218,3 +218,82 @@ export const handleSetOrderEditLockMode = async (c: AppContext): Promise<Respons
         return c.json({ success: false, message: "Failed to set lock mode" }, 500);
     }
 };
+
+// ==================== OPENING STOCK ====================
+
+/**
+ * Get opening stock enabled status (public - anyone can check)
+ */
+export const handleGetOpeningStockEnabled = async (c: Context): Promise<Response> => {
+    try {
+        const enabled = await settingsService.getOpeningStockEnabled();
+        return c.json({ success: true, data: { enabled } });
+    } catch (error) {
+        logError("Error fetching opening stock status:", error);
+        return c.json({ success: false, message: "Failed to fetch opening stock status" }, 500);
+    }
+};
+
+/**
+ * Set opening stock enabled status (admin only)
+ */
+export const handleSetOpeningStockEnabled = async (c: AppContext): Promise<Response> => {
+    try {
+        const user = c.get("user");
+        if (!user || user.role !== "super_admin") {
+            return c.json({ success: false, message: "Admin access required" }, 403);
+        }
+
+        const body = await c.req.json<{ enabled: boolean }>();
+
+        if (typeof body.enabled !== "boolean") {
+            return c.json({ success: false, message: "enabled must be a boolean" }, 400);
+        }
+
+        await settingsService.setOpeningStockEnabled(body.enabled);
+        return c.json({ success: true, message: `Opening stock ${body.enabled ? "enabled" : "disabled"}` });
+    } catch (error) {
+        logError("Error setting opening stock status:", error);
+        return c.json({ success: false, message: "Failed to set opening stock status" }, 500);
+    }
+};
+
+// ==================== FEATURE TOGGLES ====================
+
+/**
+ * Get all feature toggles (public - anyone can check)
+ */
+export const handleGetFeatureToggles = async (c: Context): Promise<Response> => {
+    try {
+        const toggles = await settingsService.getFeatureToggles();
+        return c.json({ success: true, data: toggles });
+    } catch (error) {
+        logError("Error fetching feature toggles:", error);
+        return c.json({ success: false, message: "Failed to fetch feature toggles" }, 500);
+    }
+};
+
+/**
+ * Set a feature toggle (admin only)
+ */
+export const handleSetFeatureToggle = async (c: AppContext): Promise<Response> => {
+    try {
+        const user = c.get("user");
+        if (!user || user.role !== "super_admin") {
+            return c.json({ success: false, message: "Admin access required" }, 403);
+        }
+
+        const body = await c.req.json<{ key: string; enabled: boolean }>();
+
+        if (!body.key || typeof body.enabled !== "boolean") {
+            return c.json({ success: false, message: "key (string) and enabled (boolean) are required" }, 400);
+        }
+
+        await settingsService.setFeatureToggle(body.key as keyof settingsService.FeatureToggles, body.enabled);
+        return c.json({ success: true, message: `${body.key} ${body.enabled ? "enabled" : "disabled"}` });
+    } catch (error) {
+        logError("Error setting feature toggle:", error);
+        const message = error instanceof Error ? error.message : "Failed to set feature toggle";
+        return c.json({ success: false, message }, 500);
+    }
+};

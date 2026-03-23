@@ -49,4 +49,20 @@ app.patch("/order-edit-protection/lock", settingsController.handleSetOrderEditLo
 // Set lock mode (admin only)
 app.patch("/order-edit-protection/lock-mode", settingsController.handleSetOrderEditLockMode);
 
+// ==================== OPENING STOCK ====================
+
+// Get opening stock enabled status (public)
+app.get("/opening-stock", settingsController.handleGetOpeningStockEnabled);
+
+// Set opening stock enabled status (admin only)
+app.patch("/opening-stock", settingsController.handleSetOpeningStockEnabled);
+
+// ==================== FEATURE TOGGLES ====================
+
+// Get all feature toggles (public)
+app.get("/feature-toggles", settingsController.handleGetFeatureToggles);
+
+// Set a feature toggle (admin only)
+app.patch("/feature-toggles", settingsController.handleSetFeatureToggle);
+
 export default app;
