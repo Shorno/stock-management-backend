@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import * as supplierService from "./service";
 import { formatDatabaseError, logError } from "../../lib/error-handler";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 
 // ==================== COMPANY (BRAND) AS SUPPLIER HANDLERS ====================
 
@@ -64,6 +65,18 @@ export async function handleAddPurchase(c: Context) {
             entityName: `Purchase ৳${amount.toLocaleString()}`,
             newValue: purchase,
             metadata: { financialImpact, brandId },
+        });
+
+        // Record net asset ledger entry (neutral: stock value ↑, supplier due ↓)
+        await recordEntry({
+            transactionType: "supplier_purchase",
+            description: `Supplier purchase from brand #${brandId} — ৳${amount.toLocaleString()}`,
+            amount,
+            netAssetChange: 0,
+            affectedComponent: "supplierDue",
+            entityType: "supplier_purchase",
+            entityId: (purchase as any).id,
+            transactionDate: body.purchaseDate,
         });
 
         return c.json({ success: true, data: purchase }, 201);
@@ -131,6 +144,18 @@ export async function handleAddPayment(c: Context) {
             entityName: `Payment ৳${amount.toLocaleString()}`,
             newValue: payment,
             metadata: { financialImpact, brandId },
+        });
+
+        // Record net asset ledger entry (neutral: cash ↓ if from cash, supplier due ↑)
+        await recordEntry({
+            transactionType: "supplier_payment",
+            description: `Supplier payment to brand #${brandId} — ৳${amount.toLocaleString()}${body.fromCashBalance ? " (from cash)" : ""}`,
+            amount,
+            netAssetChange: 0,
+            affectedComponent: body.fromCashBalance ? "cash" : "supplierDue",
+            entityType: "supplier_payment",
+            entityId: (payment as any).id,
+            transactionDate: body.paymentDate,
         });
 
         return c.json({ success: true, data: payment }, 201);

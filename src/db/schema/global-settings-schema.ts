@@ -18,6 +18,13 @@ export const globalSettings = pgTable("global_settings", {
     orderEditLocked: boolean("order_edit_locked").notNull().default(false),
     // Inventory snapshot schedule (HH:MM format, 24h)
     snapshotTime: varchar("snapshot_time", { length: 5 }).notNull().default("23:59"),
+    // Opening stock toggle
+    openingStockEnabled: boolean("opening_stock_enabled").notNull().default(true),
+    // Opening balance toggles (individually controllable)
+    srOpeningBalanceEnabled: boolean("sr_opening_balance_enabled").notNull().default(true),
+    dsrOpeningBalanceEnabled: boolean("dsr_opening_balance_enabled").notNull().default(true),
+    supplierOpeningBalanceEnabled: boolean("supplier_opening_balance_enabled").notNull().default(true),
+    openingBalancesTabEnabled: boolean("opening_balances_tab_enabled").notNull().default(true),
     ...timestamps
 });
 

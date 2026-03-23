@@ -32,6 +32,7 @@ import { plAdjustmentRoutes } from "./modules/pl-adjustments";
 import damageClaimsRoutes from "./modules/damage-claims/routes";
 import { srCommissionRoutes } from "./modules/sr-commission";
 import { openingBalanceRoutes } from "./modules/opening-balance";
+import { netAssetLedgerRoutes } from "./modules/net-asset-ledger";
 
 const app = new Hono<{
     Variables: {
@@ -125,6 +126,7 @@ app.route("/pl-adjustments", plAdjustmentRoutes);
 app.route("/damage-claims", damageClaimsRoutes);
 app.route("/sr-commissions", srCommissionRoutes);
 app.route("/opening-balances", openingBalanceRoutes);
+app.route("/net-asset-ledger", netAssetLedgerRoutes);
 
 
 const port = Number(process.env.PORT) || 3000;

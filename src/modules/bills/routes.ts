@@ -5,6 +5,7 @@ import * as billsService from "./service";
 import { createBillSchema, getBillsQuerySchema } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 
 const billsRoutes = new Hono();
 
@@ -72,6 +73,18 @@ billsRoutes.post(
                 metadata: { financialImpact },
             });
 
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "bill",
+                description: `Bill: ${bill.title} — ৳${amount.toLocaleString()}`,
+                amount,
+                netAssetChange: -amount,
+                affectedComponent: "cash",
+                entityType: "bill",
+                entityId: bill.id,
+                transactionDate: input.billDate,
+            });
+
             return c.json({ success: true, data: bill, message: "Bill created successfully" });
         } catch (error) {
             logError("Error creating bill:", error);
@@ -119,6 +132,18 @@ billsRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
                 entityName: billToDelete.title,
                 oldValue: billToDelete,
                 metadata: { financialImpact },
+            });
+
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "bill_deleted",
+                description: `Bill deleted: ${billToDelete.title} — ৳${amount.toLocaleString()} restored`,
+                amount,
+                netAssetChange: amount,
+                affectedComponent: "cash",
+                entityType: "bill",
+                entityId: id,
+                transactionDate: billToDelete.billDate,
             });
         }
 

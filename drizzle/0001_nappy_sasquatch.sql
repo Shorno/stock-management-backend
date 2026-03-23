@@ -1,0 +1,1 @@
+ALTER TABLE "global_settings" ADD COLUMN "opening_stock_enabled" boolean DEFAULT true NOT NULL;
