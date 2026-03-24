@@ -39,7 +39,7 @@ export interface ReturnListItem {
     returnAmount: number;
     adjustmentAmount: number;
     quantity: number;
-    type: 'Order Adjustment' | 'Damage Return' | 'Order Damage';
+    type: 'Order Adjustment' | 'Damage Return' | 'Order Damage' | 'Opening Damage';
     referenceNumber: string; // Order Number or Return Number
     dsrName?: string;
     unitPrice?: number; // Buying/cost price
@@ -56,7 +56,7 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
     const { startDate, endDate, limit = 50, offset = 0, brandId, dsrId, approvalStatus = 'all' } = params;
 
     // Get Damage Returns (standalone)
-    const damageReturnsConditions = [eq(damageReturns.status, 'approved')];
+    const damageReturnsConditions: any[] = [];
     if (startDate) damageReturnsConditions.push(gte(damageReturns.returnDate, startDate));
     if (endDate) damageReturnsConditions.push(lte(damageReturns.returnDate, endDate));
     if (dsrId && dsrId !== "all") damageReturnsConditions.push(eq(damageReturns.dsrId, Number(dsrId)));
@@ -75,6 +75,7 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
             returnNumber: damageReturns.returnNumber,
             unitPrice: damageReturnItems.unitPrice,
             batchSellPrice: stockBatch.sellPrice,
+            returnType: damageReturns.returnType,
             dsrName: dsr.name,
         })
         .from(damageReturnItems)
@@ -84,7 +85,7 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
         .innerJoin(product, eq(productVariant.productId, product.id))
         .leftJoin(brand, eq(product.brandId, brand.id))
         .leftJoin(category, eq(product.categoryId, category.id))
-        .innerJoin(dsr, eq(damageReturns.dsrId, dsr.id));
+        .leftJoin(dsr, eq(damageReturns.dsrId, dsr.id));
 
     // Apply Brand Filter
     if (brandId && brandId !== "all") {
@@ -125,9 +126,9 @@ export const getReturnsList = async (params: ReturnsListQueryParams): Promise<Re
             returnAmount: Number(item.returnAmount || 0),
             adjustmentAmount: lossAmount,
             quantity: item.quantity,
-            type: 'Damage Return' as const,
+            type: (item.returnType === 'opening_damage' ? 'Opening Damage' : 'Damage Return') as 'Opening Damage' | 'Damage Return',
             referenceNumber: item.returnNumber,
-            dsrName: item.dsrName,
+            dsrName: item.dsrName || undefined,
             unitPrice: unitPrice,
             sellPrice: sellPrice,
         };

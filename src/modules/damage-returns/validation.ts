@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Return types enum
-export const returnTypeEnum = z.enum(["customer_return", "damage", "expired", "defective"]);
+export const returnTypeEnum = z.enum(["customer_return", "damage", "expired", "defective", "opening_damage"]);
 export const returnStatusEnum = z.enum(["pending", "approved", "rejected"]);
 export const conditionEnum = z.enum(["resellable", "damaged"]);
 
@@ -17,7 +17,7 @@ const createReturnItemSchema = z.object({
 
 // Create damage return schema
 export const createDamageReturnSchema = z.object({
-    dsrId: z.number().int().positive(),
+    dsrId: z.number().int().positive().optional(),
     returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
     returnType: returnTypeEnum,
     notes: z.string().optional(),

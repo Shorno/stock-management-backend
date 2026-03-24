@@ -1,0 +1,1 @@
+export { billTypeRoutes } from "./routes";

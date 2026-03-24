@@ -416,7 +416,6 @@ export const damageReturns = pgTable("damage_returns", {
     id: serial("id").primaryKey(),
     returnNumber: varchar("return_number", { length: 50 }).notNull().unique(),
     dsrId: integer("dsr_id")
-        .notNull()
         .references(() => dsr.id, { onDelete: "restrict" }),
     returnDate: date("return_date").notNull(),
     returnType: varchar("return_type", { length: 30 }).notNull(), // customer_return, damage, expired, defective

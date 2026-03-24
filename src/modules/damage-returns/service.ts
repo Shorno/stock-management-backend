@@ -45,7 +45,7 @@ export const createDamageReturn = async (data: CreateDamageReturnInput) => {
     // Insert return
     const [createdReturn] = await db.insert(damageReturns).values({
         returnNumber,
-        dsrId: data.dsrId,
+        dsrId: data.dsrId ?? null,
         returnDate: data.returnDate,
         returnType: data.returnType,
         status: "pending",
