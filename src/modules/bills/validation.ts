@@ -5,6 +5,7 @@ export const createBillSchema = z.object({
     amount: z.string().regex(/^\d+(\.\d{1,2})?$/, "Invalid amount format"),
     note: z.string().optional(),
     billDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format (YYYY-MM-DD)"),
+    billTypeId: z.number().int().positive("Bill type is required"),
 });
 
 export const updateBillSchema = z.object({

@@ -1,7 +1,23 @@
 import { db } from "../../db/config";
-import { bills } from "../../db/schema";
+import { bills, billTypes } from "../../db/schema";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import type { CreateBillInput, GetBillsQuery } from "./validation";
+
+export interface BillWithType {
+    id: number;
+    title: string;
+    amount: string;
+    note: string | null;
+    billDate: string;
+    billTypeId: number;
+    createdAt: Date;
+    updatedAt: Date;
+    billType: {
+        id: number;
+        code: string;
+        name: string;
+    } | null;
+}
 
 export interface Bill {
     id: number;
@@ -9,6 +25,7 @@ export interface Bill {
     amount: string;
     note: string | null;
     billDate: string;
+    billTypeId: number;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -19,9 +36,9 @@ export interface BillsSummary {
 }
 
 /**
- * Get all bills with optional date filtering
+ * Get all bills with optional date filtering, includes bill type info
  */
-export const getBills = async (query: GetBillsQuery): Promise<Bill[]> => {
+export const getBills = async (query: GetBillsQuery): Promise<BillWithType[]> => {
     const conditions = [];
 
     if (query.startDate) {
@@ -32,8 +49,23 @@ export const getBills = async (query: GetBillsQuery): Promise<Bill[]> => {
     }
 
     const result = await db
-        .select()
+        .select({
+            id: bills.id,
+            title: bills.title,
+            amount: bills.amount,
+            note: bills.note,
+            billDate: bills.billDate,
+            billTypeId: bills.billTypeId,
+            createdAt: bills.createdAt,
+            updatedAt: bills.updatedAt,
+            billType: {
+                id: billTypes.id,
+                code: billTypes.code,
+                name: billTypes.name,
+            },
+        })
         .from(bills)
+        .leftJoin(billTypes, eq(bills.billTypeId, billTypes.id))
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(desc(bills.billDate), desc(bills.createdAt));
 
@@ -51,6 +83,7 @@ export const createBill = async (input: CreateBillInput): Promise<Bill> => {
             amount: input.amount,
             note: input.note || null,
             billDate: input.billDate,
+            billTypeId: input.billTypeId,
         })
         .returning();
 
