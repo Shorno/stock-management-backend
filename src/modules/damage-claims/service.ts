@@ -16,16 +16,33 @@ import { eq, and, sql, sum, isNotNull, isNull, desc } from "drizzle-orm";
 export async function approveItems(
     sourceType: "damage_return" | "order_damage",
     itemIds: number[],
-    approvedById?: number
+    approvedById?: number,
+    approvalDate?: string
 ) {
-    const today = new Date().toISOString().split("T")[0];
+    const today = approvalDate || new Date().toISOString().split("T")[0];
 
     if (sourceType === "damage_return") {
+        const returnIdsToApprove = new Set<number>();
         for (const id of itemIds) {
+            // Get the returnId for this item
+            const [item] = await db
+                .select({ returnId: damageReturnItems.returnId })
+                .from(damageReturnItems)
+                .where(eq(damageReturnItems.id, id))
+                .limit(1);
+            if (item) returnIdsToApprove.add(item.returnId);
+
             await db
                 .update(damageReturnItems)
                 .set({ approvedAt: today, approvedById: approvedById ?? null })
                 .where(and(eq(damageReturnItems.id, id), isNull(damageReturnItems.approvedAt)));
+        }
+        // Also update parent damageReturns status to "approved"
+        for (const returnId of returnIdsToApprove) {
+            await db
+                .update(damageReturns)
+                .set({ status: "approved" })
+                .where(eq(damageReturns.id, returnId));
         }
     } else {
         for (const id of itemIds) {
@@ -146,7 +163,16 @@ export async function getCompaniesWithDamageTotals() {
 
 // ==================== GET COMPANY ITEMS (GROUPED BY PRODUCT+VARIANT) ====================
 
-export async function getCompanyItems(brandId: number) {
+export async function getCompanyItems(brandId: number, startDate?: string, endDate?: string) {
+    // Build date conditions
+    const dateConditions = [];
+    if (startDate) {
+        dateConditions.push(sql`${damageReturnItems.approvedAt} >= ${startDate}`);
+    }
+    if (endDate) {
+        dateConditions.push(sql`${damageReturnItems.approvedAt} <= ${endDate}`);
+    }
+
     // Get approved damage return items for this brand
     const damageItems = await db
         .select({
@@ -165,8 +191,18 @@ export async function getCompanyItems(brandId: number) {
         .where(and(
             eq(damageReturns.status, "approved"),
             isNotNull(damageReturnItems.approvedAt),
-            eq(product.brandId, brandId)
+            eq(product.brandId, brandId),
+            ...dateConditions
         ));
+
+    // Build date conditions for order damage items
+    const orderDateConditions = [];
+    if (startDate) {
+        orderDateConditions.push(sql`${orderDamageItems.approvedAt} >= ${startDate}`);
+    }
+    if (endDate) {
+        orderDateConditions.push(sql`${orderDamageItems.approvedAt} <= ${endDate}`);
+    }
 
     // Get approved order damage items for this brand
     const orderItems = await db
@@ -183,7 +219,8 @@ export async function getCompanyItems(brandId: number) {
         .leftJoin(product, eq(orderDamageItems.productId, product.id))
         .where(and(
             isNotNull(orderDamageItems.approvedAt),
-            eq(product.brandId, brandId)
+            eq(product.brandId, brandId),
+            ...orderDateConditions
         ));
 
     // Group by product + variant

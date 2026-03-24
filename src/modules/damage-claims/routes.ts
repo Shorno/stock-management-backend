@@ -10,15 +10,16 @@ const app = new Hono();
 // Approve damage items
 app.post(
     "/approve",
-    requireRole(["admin"]),
+    requireRole(["admin", "super_admin"]),
     zValidator("json", z.object({
         sourceType: z.enum(["damage_return", "order_damage"]),
         itemIds: z.array(z.number()).min(1),
+        approvalDate: z.string().optional(),
     })),
     async (ctx) => {
         try {
-            const { sourceType, itemIds } = ctx.req.valid("json");
-            const result = await damageClaimsService.approveItems(sourceType, itemIds);
+            const { sourceType, itemIds, approvalDate } = ctx.req.valid("json");
+            const result = await damageClaimsService.approveItems(sourceType, itemIds, undefined, approvalDate);
 
             const userInfo = getUserInfoFromContext(ctx);
             await auditLog({
@@ -61,7 +62,10 @@ app.get("/companies/:brandId/items", async (ctx) => {
         const brandId = parseInt(ctx.req.param("brandId"));
         if (isNaN(brandId)) return ctx.json({ success: false, message: "Invalid brand ID" }, 400);
 
-        const items = await damageClaimsService.getCompanyItems(brandId);
+        const startDate = ctx.req.query("startDate") || undefined;
+        const endDate = ctx.req.query("endDate") || undefined;
+
+        const items = await damageClaimsService.getCompanyItems(brandId, startDate, endDate);
         return ctx.json({ success: true, data: items });
     } catch (error) {
         return ctx.json({
