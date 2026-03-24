@@ -94,11 +94,12 @@ app.get("/companies/:brandId/history", async (ctx) => {
 // Record a claim
 app.post(
     "/companies/:brandId/claim",
-    requireRole(["admin"]),
+    requireRole(["admin", "super_admin"]),
     zValidator("json", z.object({
         amount: z.number().positive(),
         claimDate: z.string(),
         note: z.string().optional(),
+        isWriteOff: z.boolean().optional(),
     })),
     async (ctx) => {
         try {
@@ -133,7 +134,7 @@ app.post(
 // Delete a claim
 app.delete(
     "/:claimId",
-    requireRole(["admin"]),
+    requireRole(["admin", "super_admin"]),
     async (ctx) => {
         try {
             const claimId = parseInt(ctx.req.param("claimId"));

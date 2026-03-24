@@ -636,25 +636,9 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         totalAdjustmentDiscounts = Number(returnsResult[0]?.totalAdjustmentDiscounts || 0);
     }
 
-    // Get damage returns (approved only)
-    const damageReturnsFilters = [eq(damageReturns.status, 'approved')];
-    if (dateRange?.startDate) {
-        damageReturnsFilters.push(gte(damageReturns.returnDate, dateRange.startDate));
-    }
-    if (dateRange?.endDate) {
-        damageReturnsFilters.push(lte(damageReturns.returnDate, dateRange.endDate));
-    }
-
-    const damageReturnsResult = await db
-        .select({
-            totalProfit: sql<number>`sum((COALESCE(${stockBatch.sellPrice}, 0) - ${damageReturnItems.unitPrice}) * ${damageReturnItems.quantity})`,
-        })
-        .from(damageReturns)
-        .innerJoin(damageReturnItems, eq(damageReturns.id, damageReturnItems.returnId))
-        .leftJoin(stockBatch, eq(damageReturnItems.batchId, stockBatch.id))
-        .where(and(...damageReturnsFilters));
-
-    const totalDamageProfit = Number(damageReturnsResult[0]?.totalProfit || 0);
+    // Note: Standalone/opening damage returns are NOT deducted from Net Sales or P&L
+    // because they were never sold — no revenue was generated. Their cost is tracked
+    // separately as a claimable damage asset in damageReturnsValue.
 
     // Get order damage items — both margin (for P&L) and selling price (for Net Sales display)
     let totalOrderDamageMargin = 0;
@@ -691,11 +675,11 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
 
     const totalExpenses = Number(expensesResult[0]?.total || 0);
 
-    // Net Sales (display): deducts damage at selling price — reflects actual revenue lost from damaged items
-    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageSelling - totalExpenses;
+    // Net Sales (display): deducts order damage at selling price — reflects actual revenue lost from damaged items in orders
+    const netSales = totalSales - totalReturns - totalAdjustmentDiscounts - totalOrderDamageSelling - totalExpenses;
 
-    // Net Sales for P&L: deducts only the lost margin and expenses — keeps profit calculation accurate
-    const netSalesForPL = totalSales - totalReturns - totalAdjustmentDiscounts - totalDamageProfit - totalOrderDamageMargin - totalExpenses;
+    // Net Sales for P&L: deducts only the lost margin from order damages and expenses — keeps profit calculation accurate
+    const netSalesForPL = totalSales - totalReturns - totalAdjustmentDiscounts - totalOrderDamageMargin - totalExpenses;
 
     // ----- NET PURCHASE -----
     // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
@@ -978,10 +962,21 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     // ----- DAMAGE RETURNS VALUE (at cost — unclaimed only, since claimed amounts are already in supplierDue) -----
     const { damageClaims } = await import("../../db/schema/damage-claims-schema");
 
-    const damageValueResult = await db
+    // Order damage items (from order adjustments)
+    const orderDamageValueResult = await db
         .select({ totalAtCost: sql<string>`COALESCE(SUM(CAST(${orderDamageItems.unitPrice} AS DECIMAL) * ${orderDamageItems.quantity}), 0)` })
         .from(orderDamageItems);
-    const totalDamageAtCost = Number(damageValueResult[0]?.totalAtCost || 0);
+    const totalOrderDamageAtCost = Number(orderDamageValueResult[0]?.totalAtCost || 0);
+
+    // Damage return items (from damage returns page, including opening damage)
+    const damageReturnValueResult = await db
+        .select({ totalAtCost: sql<string>`COALESCE(SUM(CAST(${damageReturnItems.unitPrice} AS DECIMAL) * ${damageReturnItems.quantity}), 0)` })
+        .from(damageReturnItems)
+        .innerJoin(damageReturns, eq(damageReturnItems.returnId, damageReturns.id))
+        .where(eq(damageReturns.status, "approved"));
+    const totalDamageReturnAtCost = Number(damageReturnValueResult[0]?.totalAtCost || 0);
+
+    const totalDamageAtCost = totalOrderDamageAtCost + totalDamageReturnAtCost;
 
     const claimedResult = await db
         .select({ totalClaimed: sql<string>`COALESCE(SUM(CAST(${damageClaims.amount} AS DECIMAL)), 0)` })

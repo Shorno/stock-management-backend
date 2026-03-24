@@ -298,6 +298,7 @@ export async function recordClaim(brandId: number, data: {
     amount: number;
     claimDate: string;
     note?: string;
+    isWriteOff?: boolean;
 }) {
     // Validate brand exists
     const [brandRecord] = await db.select().from(brand).where(eq(brand.id, brandId)).limit(1);
@@ -309,25 +310,30 @@ export async function recordClaim(brandId: number, data: {
     if (!company) throw new Error("No approved damages found for this company");
 
     if (data.amount > company.remaining) {
-        throw new Error(`Claim amount (৳${data.amount.toFixed(2)}) exceeds remaining claimable amount (৳${company.remaining.toFixed(2)})`);
+        throw new Error(`Amount (৳${data.amount.toFixed(2)}) exceeds remaining claimable amount (৳${company.remaining.toFixed(2)})`);
     }
 
-    // Create supplier payment (damage credit)
-    const creditNote = `Damage claim: ${data.note || "Damage settlement"}`;
-    const result = await db
-        .insert(supplierPayments)
-        .values({
-            brandId,
-            amount: data.amount.toString(),
-            paymentDate: data.claimDate,
-            paymentMethod: "Damage Credit",
-            isDamageCredit: true,
-            note: creditNote,
-        })
-        .returning();
+    let supplierPaymentId: number | null = null;
 
-    const payment = result[0];
-    if (!payment) throw new Error("Failed to create supplier payment");
+    if (!data.isWriteOff) {
+        // Create supplier payment (damage credit) — only for actual claims, not write-offs
+        const creditNote = `Damage claim: ${data.note || "Damage settlement"}`;
+        const result = await db
+            .insert(supplierPayments)
+            .values({
+                brandId,
+                amount: data.amount.toString(),
+                paymentDate: data.claimDate,
+                paymentMethod: "Damage Credit",
+                isDamageCredit: true,
+                note: creditNote,
+            })
+            .returning();
+
+        const payment = result[0];
+        if (!payment) throw new Error("Failed to create supplier payment");
+        supplierPaymentId = payment.id;
+    }
 
     // Create damage claim record
     const claimResult = await db
@@ -336,8 +342,9 @@ export async function recordClaim(brandId: number, data: {
             brandId,
             amount: data.amount.toString(),
             claimDate: data.claimDate,
-            supplierPaymentId: payment.id,
-            note: data.note,
+            supplierPaymentId,
+            isWriteOff: data.isWriteOff || false,
+            note: data.isWriteOff ? `[Write-off] ${data.note || "Uncollectable damage"}` : data.note,
         })
         .returning();
 
