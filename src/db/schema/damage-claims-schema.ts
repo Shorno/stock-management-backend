@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, decimal, text, date, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, decimal, text, date, index, boolean } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { timestamps } from "../column.helpers";
 import { brand } from "./product-schema";
@@ -7,6 +7,7 @@ import { supplierPayments } from "./supplier-schema";
 // ==================== DAMAGE CLAIMS ====================
 // Records claims/settlements made against a company's approved damage items.
 // Each claim creates a supplier payment (with isDamageCredit=true) on the supplier ledger.
+// Write-offs are uncollectable damage amounts that reduce the damage asset without supplier credit.
 
 export const damageClaims = pgTable("damage_claims", {
     id: serial("id").primaryKey(),
@@ -17,6 +18,7 @@ export const damageClaims = pgTable("damage_claims", {
     claimDate: date("claim_date").notNull(),
     supplierPaymentId: integer("supplier_payment_id")
         .references(() => supplierPayments.id, { onDelete: "set null" }),
+    isWriteOff: boolean("is_write_off").default(false).notNull(),
     note: text("note"),
     ...timestamps
 }, (table) => ({
