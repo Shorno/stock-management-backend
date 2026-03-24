@@ -968,12 +968,10 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         .from(orderDamageItems);
     const totalOrderDamageAtCost = Number(orderDamageValueResult[0]?.totalAtCost || 0);
 
-    // Damage return items (from damage returns page, including opening damage)
+    // Damage return items (from damage returns page, including opening damage — counted immediately like order damages)
     const damageReturnValueResult = await db
         .select({ totalAtCost: sql<string>`COALESCE(SUM(CAST(${damageReturnItems.unitPrice} AS DECIMAL) * ${damageReturnItems.quantity}), 0)` })
-        .from(damageReturnItems)
-        .innerJoin(damageReturns, eq(damageReturnItems.returnId, damageReturns.id))
-        .where(eq(damageReturns.status, "approved"));
+        .from(damageReturnItems);
     const totalDamageReturnAtCost = Number(damageReturnValueResult[0]?.totalAtCost || 0);
 
     const totalDamageAtCost = totalOrderDamageAtCost + totalDamageReturnAtCost;
