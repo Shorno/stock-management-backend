@@ -26,7 +26,7 @@ export const getProductsQuerySchema = z.object({
     categoryId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
     brandId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
     search: z.string().optional(),
-    limit: z.string().optional().transform((val) => (val ? Number(val) : 50)),
+    limit: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
     offset: z.string().optional().transform((val) => (val ? Number(val) : 0)),
 });
 
