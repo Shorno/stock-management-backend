@@ -8,6 +8,7 @@ import {
 import * as damageReturnService from "./service";
 import { requireRole } from "../../lib/auth-middleware";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 
 const app = new Hono();
 
@@ -92,6 +93,23 @@ app.post(
                 newValue: result,
                 metadata: { description: "Created damage return request" },
             });
+
+            // Record net asset ledger entry (damageReturns ↑)
+            // Calculate total cost of damage items
+            const items = (data as any).items || [];
+            const totalDamageCost = items.reduce((sum: number, item: any) => sum + (Number(item.unitPrice || 0) * (item.quantity || 0)), 0);
+            if (totalDamageCost > 0) {
+                await recordEntry({
+                    transactionType: "damage_return_created",
+                    description: `Damage return created — ৳${totalDamageCost.toLocaleString()} (at cost)`,
+                    amount: totalDamageCost,
+                    netAssetChange: totalDamageCost,
+                    affectedComponent: "damageReturns",
+                    entityType: "damage_return",
+                    entityId: (result as any).id || 0,
+                    transactionDate: (data as any).returnDate || new Date().toISOString().split("T")[0],
+                });
+            }
 
             return ctx.json({
                 success: true,

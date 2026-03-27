@@ -14,6 +14,7 @@ import {
     collectSrDueInputSchema,
 } from "./validation";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 
 const dueCollectionRoutes = new Hono();
 
@@ -86,6 +87,18 @@ dueCollectionRoutes.post(
                 entityName: `Due Collection ৳${amount.toLocaleString()}`,
                 newValue: input,
                 metadata: { financialImpact },
+            });
+
+            // Record net asset ledger entry (neutral: cash ↑, customerDue ↓)
+            await recordEntry({
+                transactionType: "due_collection_customer",
+                description: `Customer due collected — ৳${amount.toLocaleString()} from customer #${input.customerId}`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "cash",
+                entityType: "due_collection",
+                entityId: result.collectionId!,
+                transactionDate: input.collectionDate,
             });
 
             return c.json({
@@ -209,6 +222,18 @@ dueCollectionRoutes.post(
                 metadata: { financialImpact },
             });
 
+            // Record net asset ledger entry (neutral: cash ↑, dsrDue ↓)
+            await recordEntry({
+                transactionType: "due_collection_dsr",
+                description: `DSR due collected — ৳${amount.toLocaleString()} from DSR #${input.dsrId}`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "cash",
+                entityType: "dsr_due_collection",
+                entityId: input.dsrId,
+                transactionDate: input.collectionDate,
+            });
+
             return c.json({
                 success: true,
                 message: result.message,
@@ -311,6 +336,18 @@ dueCollectionRoutes.post(
                 entityName: `SR Due Collection \u09f3${amount.toLocaleString()}`,
                 newValue: input,
                 metadata: { financialImpact },
+            });
+
+            // Record net asset ledger entry (neutral: cash ↑, srDue ↓)
+            await recordEntry({
+                transactionType: "due_collection_sr",
+                description: `SR due collected — ৳${amount.toLocaleString()} from SR #${input.srId}`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "cash",
+                entityType: "sr_due_collection",
+                entityId: input.srId,
+                transactionDate: input.collectionDate,
             });
 
             return c.json({

@@ -730,6 +730,18 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
                 transactionDate: orderDate,
             });
         }
+        if (totalDamageReturns > 0) {
+            await recordEntry({
+                transactionType: "damage_item",
+                description: `Damage returns for Order ${orderNumber} — ৳${totalDamageReturns.toLocaleString()}`,
+                amount: totalDamageReturns,
+                netAssetChange: totalDamageReturns,
+                affectedComponent: "damageReturns",
+                entityType: "order",
+                entityId: id,
+                transactionDate: orderDate,
+            });
+        }
 
         return c.json({
             success: true,

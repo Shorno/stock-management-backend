@@ -1,0 +1,1 @@
+ALTER TABLE "net_asset_ledger" ADD COLUMN "net_asset_after" numeric(14, 2);

@@ -4,6 +4,7 @@ import { z } from "zod";
 import * as damageClaimsService from "./service";
 import { requireRole } from "../../lib/auth-middleware";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 
 const app = new Hono();
 
@@ -121,6 +122,22 @@ app.post(
                 metadata: { description: `Recorded damage claim of ৳${data.amount}` },
             });
 
+            // Record net asset ledger entry
+            // Write-off: damageReturns ↓ with nothing gained back → net asset decreases
+            // Regular claim: damageReturns ↓, supplierDue ↑ → neutral
+            await recordEntry({
+                transactionType: data.isWriteOff ? "damage_write_off" : "damage_claim",
+                description: data.isWriteOff
+                    ? `Damage write-off for brand #${brandId} — ৳${data.amount.toLocaleString()}`
+                    : `Damage claim from brand #${brandId} — ৳${data.amount.toLocaleString()}`,
+                amount: data.amount,
+                netAssetChange: data.isWriteOff ? -data.amount : 0,
+                affectedComponent: "damageReturns",
+                entityType: "damage_claim",
+                entityId: claim.id,
+                transactionDate: data.claimDate,
+            });
+
             return ctx.json({ success: true, data: claim, message: "Claim recorded successfully" }, 201);
         } catch (error) {
             return ctx.json({
@@ -151,6 +168,19 @@ app.delete(
                 entityId: claimId,
                 entityName: `Damage claim #${claimId}`,
                 metadata: { description: "Deleted damage claim and reversed supplier credit" },
+            });
+
+            // Record net asset ledger entry (reverse of claim)
+            // Fetch the claim data before it was deleted for the note
+            await recordEntry({
+                transactionType: "damage_claim_deleted",
+                description: `Damage claim #${claimId} deleted — reversed`,
+                amount: 0,
+                netAssetChange: 0,
+                affectedComponent: "damageReturns",
+                entityType: "damage_claim",
+                entityId: claimId,
+                transactionDate: new Date().toISOString().split("T")[0] as string,
             });
 
             return ctx.json({ success: true, message: "Claim deleted successfully" });

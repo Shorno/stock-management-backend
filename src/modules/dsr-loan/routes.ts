@@ -10,6 +10,7 @@ import {
 } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 
 const dsrLoanRoutes = new Hono();
 
@@ -108,6 +109,18 @@ dsrLoanRoutes.post(
                 metadata: { financialImpact },
             });
 
+            // Record net asset ledger entry (neutral: dsrDue ↑, cash ↓)
+            await recordEntry({
+                transactionType: "dsr_loan_given",
+                description: `DSR loan given — ৳${amount.toLocaleString()} to DSR #${input.dsrId}`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "dsrDue",
+                entityType: "dsr_loan",
+                entityId: result.transactionId!,
+                transactionDate: input.transactionDate,
+            });
+
             return c.json({
                 success: true,
                 message: result.message,
@@ -153,6 +166,18 @@ dsrLoanRoutes.post(
                 entityName: `Repayment ৳${amount.toLocaleString()}`,
                 newValue: input,
                 metadata: { financialImpact },
+            });
+
+            // Record net asset ledger entry (neutral: dsrDue ↓, cash ↑)
+            await recordEntry({
+                transactionType: "dsr_loan_repaid",
+                description: `DSR loan repaid — ৳${amount.toLocaleString()} from DSR #${input.dsrId}`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "dsrDue",
+                entityType: "dsr_loan",
+                entityId: result.transactionId!,
+                transactionDate: input.transactionDate,
             });
 
             return c.json({
