@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { brand } from "../../db/schema/product-schema";
+import { brand, product, productVariant, stockBatch } from "../../db/schema/product-schema";
 import { supplierPurchases, supplierPayments, openingBalances } from "../../db/schema";
 import { eq, and, desc, sum } from "drizzle-orm";
 
@@ -203,4 +203,32 @@ export async function getTotalSupplierDue(): Promise<number> {
 
     // Positive = Suppliers owe us, Negative = We owe suppliers
     return (totalPayments - totalPurchases) + totalOpeningBalance;
+}
+
+// ==================== PRODUCT PURCHASE HISTORY (BATCH-WISE) ====================
+
+export async function getSupplierProductBatches(brandId: number) {
+    const batches = await db
+        .select({
+            id: stockBatch.id,
+            productName: product.name,
+            productCode: product.code,
+            variantLabel: productVariant.label,
+            supplierPrice: stockBatch.supplierPrice,
+            sellPrice: stockBatch.sellPrice,
+            initialQuantity: stockBatch.initialQuantity,
+            remainingQuantity: stockBatch.remainingQuantity,
+            initialFreeQty: stockBatch.initialFreeQty,
+            remainingFreeQty: stockBatch.remainingFreeQty,
+            unit: stockBatch.unit,
+            isOpeningStock: stockBatch.isOpeningStock,
+            createdAt: stockBatch.createdAt,
+        })
+        .from(stockBatch)
+        .innerJoin(productVariant, eq(stockBatch.variantId, productVariant.id))
+        .innerJoin(product, eq(productVariant.productId, product.id))
+        .where(eq(product.brandId, brandId))
+        .orderBy(desc(stockBatch.createdAt));
+
+    return batches;
 }

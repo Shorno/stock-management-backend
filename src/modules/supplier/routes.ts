@@ -20,3 +20,6 @@ supplierRoutes.delete("/:id/purchases/:purchaseId", requireRole(["admin"]), cont
 supplierRoutes.post("/:id/payments", controller.handleAddPayment);
 // Delete payment (Admin only)
 supplierRoutes.delete("/:id/payments/:paymentId", requireRole(["admin"]), controller.handleDeletePayment);
+
+// Product purchase history (batch-wise)
+supplierRoutes.get("/:id/product-batches", controller.handleGetSupplierProductBatches);
