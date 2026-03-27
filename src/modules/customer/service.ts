@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
 import { customer, route, orderCustomerDues } from "../../db/schema";
-import { eq, ilike, count, and, or, sql } from "drizzle-orm";
+import { eq, ilike, and, or, sql } from "drizzle-orm";
 import type { CreateCustomerInput, UpdateCustomerInput, GetCustomersQuery } from "./validation";
 import type { Customer, NewCustomer } from "./types";
 
@@ -48,35 +48,27 @@ export const getCustomers = async (
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [customersResult, totalResult] = await Promise.all([
-        db
-            .select({
-                id: customer.id,
-                name: customer.name,
-                shopName: customer.shopName,
-                mobile: customer.mobile,
-                address: customer.address,
-                profileImageUrl: customer.profileImageUrl,
-                locationUrl: customer.locationUrl,
-                routeId: customer.routeId,
-                createdAt: customer.createdAt,
-                updatedAt: customer.updatedAt,
-                route: {
-                    id: route.id,
-                    name: route.name,
-                },
-            })
-            .from(customer)
-            .leftJoin(route, eq(customer.routeId, route.id))
-            .where(whereClause)
-            .limit(query.limit)
-            .offset(query.offset)
-            .orderBy(customer.name),
-        db
-            .select({ count: count() })
-            .from(customer)
-            .where(whereClause),
-    ]);
+    const customersResult = await db
+        .select({
+            id: customer.id,
+            name: customer.name,
+            shopName: customer.shopName,
+            mobile: customer.mobile,
+            address: customer.address,
+            profileImageUrl: customer.profileImageUrl,
+            locationUrl: customer.locationUrl,
+            routeId: customer.routeId,
+            createdAt: customer.createdAt,
+            updatedAt: customer.updatedAt,
+            route: {
+                id: route.id,
+                name: route.name,
+            },
+        })
+        .from(customer)
+        .leftJoin(route, eq(customer.routeId, route.id))
+        .where(whereClause)
+        .orderBy(customer.name);
 
     // Get customer IDs to fetch dues
     const customerIds = customersResult.map(c => c.id);
@@ -121,7 +113,7 @@ export const getCustomers = async (
 
     return {
         customers,
-        total: totalResult[0]?.count || 0,
+        total: customers.length,
     };
 };
 

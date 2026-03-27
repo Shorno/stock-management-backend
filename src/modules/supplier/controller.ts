@@ -201,3 +201,16 @@ export async function handleGetTotalSupplierDue(c: Context) {
         return c.json({ success: false, error: "Failed to fetch total supplier due" }, 500);
     }
 }
+
+// ==================== PRODUCT BATCH HISTORY ====================
+
+export async function handleGetSupplierProductBatches(c: Context) {
+    try {
+        const brandId = Number(c.req.param("id"));
+        const batches = await supplierService.getSupplierProductBatches(brandId);
+        return c.json({ success: true, data: batches });
+    } catch (error) {
+        logError("Error fetching supplier product batches:", error);
+        return c.json({ success: false, error: "Failed to fetch product batches" }, 500);
+    }
+}

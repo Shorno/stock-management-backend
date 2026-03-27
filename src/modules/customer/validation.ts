@@ -23,8 +23,6 @@ export const updateCustomerSchema = z.object({
 export const getCustomersQuerySchema = z.object({
     search: z.string().optional(),
     routeId: z.coerce.number().int().positive().optional(),
-    limit: z.coerce.number().int().positive().default(50),
-    offset: z.coerce.number().int().min(0).default(0),
 });
 
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
