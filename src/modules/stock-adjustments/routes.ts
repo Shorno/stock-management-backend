@@ -3,6 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import * as stockAdjustmentService from "./service";
 import { logError } from "../../lib/error-handler";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 import {
     createStockAdjustmentSchema,
     getStockAdjustmentsQuerySchema,
@@ -46,6 +47,33 @@ stockAdjustmentRoutes.post(
                     } as FinancialImpact,
                 },
             });
+
+            // Record net asset ledger entry
+            // Fetch batch cost for accurate net asset change
+            try {
+                if (input.batchId) {
+                    const { db } = await import("../../db/config");
+                    const { stockBatch } = await import("../../db/schema/product-schema");
+                    const { eq } = await import("drizzle-orm");
+                    const [batch] = await db.select({ supplierPrice: stockBatch.supplierPrice }).from(stockBatch).where(eq(stockBatch.id, input.batchId)).limit(1);
+                    const costPerUnit = Number(batch?.supplierPrice || 0);
+                    const totalCost = costPerUnit * input.quantity;
+                    const isDamage = input.adjustmentType === "damage";
+                    const today = new Date().toISOString().split("T")[0] as string;
+                    await recordEntry({
+                        transactionType: "stock_adjustment",
+                        description: `Stock ${input.adjustmentType}: ${input.quantity} units — ৳${totalCost.toLocaleString()}${input.note ? ` (${input.note})` : ""}`,
+                        amount: totalCost,
+                        netAssetChange: isDamage ? -totalCost : totalCost,
+                        affectedComponent: "stock",
+                        entityType: "stock_adjustment",
+                        entityId: (result as any).adjustmentId || 0,
+                        transactionDate: today,
+                    });
+                }
+            } catch (ledgerErr) {
+                console.error("[Ledger] Failed to record stock adjustment:", ledgerErr);
+            }
 
             return c.json({ success: true, data: result });
         } catch (error) {

@@ -31,6 +31,9 @@ export const netAssetLedger = pgTable("net_asset_ledger", {
     // When the transaction occurred (business date)
     transactionDate: date("transaction_date").notNull(),
 
+    // Net asset value after this transaction was recorded (snapshot)
+    netAssetAfter: decimal("net_asset_after", { precision: 14, scale: 2 }),
+
     ...timestamps,
 });
 

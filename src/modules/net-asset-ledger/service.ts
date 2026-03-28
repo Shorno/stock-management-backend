@@ -21,7 +21,7 @@ export interface RecordLedgerEntryInput {
  */
 export async function recordEntry(input: RecordLedgerEntryInput): Promise<void> {
     try {
-        await db.insert(netAssetLedger).values({
+        const [inserted] = await db.insert(netAssetLedger).values({
             transactionType: input.transactionType,
             description: input.description,
             amount: input.amount.toFixed(2),
@@ -30,7 +30,21 @@ export async function recordEntry(input: RecordLedgerEntryInput): Promise<void> 
             entityType: input.entityType || null,
             entityId: input.entityId || null,
             transactionDate: input.transactionDate,
-        });
+        }).returning({ id: netAssetLedger.id });
+
+        // Capture current net asset snapshot after the transaction
+        if (inserted) {
+            try {
+                const { getDashboardStats } = await import("../analytics/service");
+                const analytics = await getDashboardStats();
+                const { eq } = await import("drizzle-orm");
+                await db.update(netAssetLedger)
+                    .set({ netAssetAfter: analytics.netAssets.toFixed(2) })
+                    .where(eq(netAssetLedger.id, inserted.id));
+            } catch (snapshotErr) {
+                console.error("[NetAssetLedger] Failed to capture net asset snapshot:", snapshotErr);
+            }
+        }
     } catch (error) {
         // Don't let ledger failures break the main transaction
         console.error("[NetAssetLedger] Failed to record entry:", error);
@@ -57,6 +71,7 @@ export interface LedgerEntryResult {
     entityType: string | null;
     entityId: number | null;
     transactionDate: string;
+    netAssetAfter: string | null;
     createdAt: Date;
 }
 
@@ -116,6 +131,7 @@ export async function getLedger(query: LedgerQuery = {}): Promise<LedgerResponse
                 entityType: netAssetLedger.entityType,
                 entityId: netAssetLedger.entityId,
                 transactionDate: netAssetLedger.transactionDate,
+                netAssetAfter: netAssetLedger.netAssetAfter,
                 createdAt: netAssetLedger.createdAt,
             })
             .from(netAssetLedger)

@@ -9,6 +9,7 @@ import {
 } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 
 const investmentRoutes = new Hono();
 
@@ -78,6 +79,18 @@ investmentRoutes.post(
                 metadata: { financialImpact },
             });
 
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "investment",
+                description: `Investment deposit — ৳${amount.toLocaleString()}${input.note ? ` (${input.note})` : ""}`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "investment",
+                entityType: "investment",
+                entityId: result.investmentId!,
+                transactionDate: input.investmentDate,
+            });
+
             return c.json({
                 success: true,
                 message: result.message,
@@ -125,6 +138,18 @@ investmentRoutes.delete("/:id", requireRole(["admin"]), async (c) => {
                 entityName: `Investment ৳${amount.toLocaleString()}`,
                 oldValue: investmentToDelete,
                 metadata: { financialImpact },
+            });
+
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "investment_deleted",
+                description: `Investment deleted — ৳${amount.toLocaleString()} removed`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "investment",
+                entityType: "investment",
+                entityId: investmentId,
+                transactionDate: investmentToDelete?.investmentDate || new Date().toISOString().split("T")[0] as string,
             });
         }
 
@@ -215,6 +240,18 @@ investmentRoutes.post(
                 metadata: { financialImpact },
             });
 
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "investment_withdrawal",
+                description: `Investment withdrawal — ৳${amount.toLocaleString()}${input.note ? ` (${input.note})` : ""}`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "investment",
+                entityType: "investment_withdrawal",
+                entityId: result.withdrawalId!,
+                transactionDate: input.withdrawalDate,
+            });
+
             return c.json({
                 success: true,
                 message: result.message,
@@ -262,6 +299,18 @@ investmentRoutes.delete("/withdrawals/:id", requireRole(["admin"]), async (c) =>
                 entityName: `Inv. Withdrawal ৳${amount.toLocaleString()}`,
                 oldValue: withdrawalToDelete,
                 metadata: { financialImpact },
+            });
+
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "investment_withdrawal_deleted",
+                description: `Investment withdrawal deleted — ৳${amount.toLocaleString()} restored`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "investment",
+                entityType: "investment_withdrawal",
+                entityId: withdrawalId,
+                transactionDate: withdrawalToDelete?.withdrawalDate || new Date().toISOString().split("T")[0] as string,
             });
         }
 

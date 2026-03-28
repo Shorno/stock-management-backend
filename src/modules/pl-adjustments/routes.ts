@@ -5,6 +5,7 @@ import * as plAdjustmentsService from "./service";
 import { createPlAdjustmentSchema, getPlAdjustmentsQuerySchema } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
+import { recordEntry } from "../net-asset-ledger/service";
 
 const plAdjustmentRoutes = new Hono();
 
@@ -76,6 +77,18 @@ plAdjustmentRoutes.post(
                 metadata: { financialImpact },
             });
 
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "pl_adjustment",
+                description: `P&L ${input.type}: ${input.title} — ৳${amount.toLocaleString()}`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "profitLoss",
+                entityType: "pl_adjustment",
+                entityId: (adjustment as any).id,
+                transactionDate: input.adjustmentDate,
+            });
+
             return c.json({ success: true, data: adjustment, message: "P&L adjustment created successfully" });
         } catch (error) {
             logError("Error creating P&L adjustment:", error);
@@ -126,6 +139,18 @@ plAdjustmentRoutes.delete("/:id", requireRole(["admin", "super_admin"]), async (
                 entityName: adjustmentToDelete.title,
                 oldValue: adjustmentToDelete,
                 metadata: { financialImpact },
+            });
+
+            // Record net asset ledger entry
+            await recordEntry({
+                transactionType: "pl_adjustment_deleted",
+                description: `P&L ${adjustmentToDelete.type} deleted: ${adjustmentToDelete.title} — ৳${amount.toLocaleString()}`,
+                amount,
+                netAssetChange: 0,
+                affectedComponent: "profitLoss",
+                entityType: "pl_adjustment",
+                entityId: id,
+                transactionDate: adjustmentToDelete.adjustmentDate || new Date().toISOString().split("T")[0] as string,
             });
         }
 
