@@ -673,12 +673,11 @@ app.post("/inventory-snapshot/take", async (ctx) => {
         const body = await ctx.req.json().catch(() => ({}));
         const date = body?.date as string | undefined;
 
-        // If re-taking for a specific date, delete existing first
-        if (date) {
-            await db.delete(inventorySnapshots).where(eq(inventorySnapshots.snapshotDate, date));
-        }
+        // Always determine the target date and delete existing snapshot before re-taking
+        const targetDate = date ?? new Date().toISOString().split("T")[0]!;
+        await db.delete(inventorySnapshots).where(eq(inventorySnapshots.snapshotDate, targetDate));
 
-        const count = await takeInventorySnapshot(date);
+        const count = await takeInventorySnapshot(targetDate);
 
         return ctx.json({
             success: true,
