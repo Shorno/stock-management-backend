@@ -41,7 +41,13 @@ export function requireRole(allowedRoles: UserRole[]) {
 
         const userRole = (user.role as UserRole) || "dsr";
 
-        if (!allowedRoles.includes(userRole)) {
+        // super_admin inherits all admin permissions
+        const effectiveRoles = [...allowedRoles];
+        if (effectiveRoles.includes("admin") && !effectiveRoles.includes("super_admin")) {
+            effectiveRoles.push("super_admin");
+        }
+
+        if (!effectiveRoles.includes(userRole)) {
             return c.json({ error: "Forbidden: Insufficient permissions" }, 403);
         }
 
