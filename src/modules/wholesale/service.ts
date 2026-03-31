@@ -57,11 +57,15 @@ const validateAndGetBatch = async (
     requestedFreeQty: number,
     tx: any
 ) => {
-    // Fetch batch with its variant to check product ownership
+    // Fetch batch with its variant and product to include product name in errors
     const batch = await tx.query.stockBatch.findFirst({
         where: (batches: any, { eq }: any) => eq(batches.id, batchId),
         with: {
-            variant: true,
+            variant: {
+                with: {
+                    product: true,
+                },
+            },
         },
     });
 
@@ -69,20 +73,22 @@ const validateAndGetBatch = async (
         throw new Error(`Batch with ID ${batchId} not found`);
     }
 
+    const productName = batch.variant?.product?.name || `ID ${productId}`;
+
     // Check if batch's variant belongs to the product
     if (!batch.variant || batch.variant.productId !== productId) {
-        throw new Error(`Batch ${batchId} does not belong to product ${productId}`);
+        throw new Error(`Batch ${batchId} does not belong to product "${productName}"`);
     }
 
     if (batch.remainingQuantity < requestedQty) {
         throw new Error(
-            `Insufficient quantity in batch ${batchId}. Available: ${batch.remainingQuantity}, Requested: ${requestedQty}`
+            `Insufficient quantity for "${productName}" (batch ${batchId}). Available: ${batch.remainingQuantity}, Requested: ${requestedQty}`
         );
     }
 
     if (batch.remainingFreeQty < requestedFreeQty) {
         throw new Error(
-            `Insufficient free quantity in batch ${batchId}. Available: ${batch.remainingFreeQty}, Requested: ${requestedFreeQty}`
+            `Insufficient free quantity for "${productName}" (batch ${batchId}). Available: ${batch.remainingFreeQty}, Requested: ${requestedFreeQty}`
         );
     }
 
