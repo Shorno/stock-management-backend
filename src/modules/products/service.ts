@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
 import { product } from "../../db/schema";
-import { eq, and, or, ilike, count } from "drizzle-orm";
+import { eq, and, or, ilike, count, asc } from "drizzle-orm";
 import type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation";
 import type { Product, NewProduct } from "./types";
 
@@ -53,6 +53,7 @@ export const getProducts = async (
       where: whereClause,
       limit: query.limit,
       offset: query.offset,
+      orderBy: asc(product.code),
       with: {
         category: true,
         brand: true,

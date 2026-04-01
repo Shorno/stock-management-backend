@@ -454,7 +454,6 @@ export const getOrderById = async (id: number): Promise<OrderWithItems | undefin
     return order as OrderWithItems | undefined;
 };
 
-// Update order
 export const updateOrder = async (
     id: number,
     data: UpdateOrderInput
@@ -463,13 +462,30 @@ export const updateOrder = async (
         // Check if order exists
         const existingOrder = await tx.query.wholesaleOrders.findFirst({
             where: (orders, { eq }) => eq(orders.id, id),
+            with: {
+                items: true,  // Need old items to restore stock
+            },
         });
 
         if (!existingOrder) {
             return undefined;
         }
 
-        // Validate batches and get batch data
+        // Step 1: Restore stock consumed by the old order items
+        // This "returns" the quantities back to the batches so validation works correctly
+        for (const oldItem of (existingOrder as any).items || []) {
+            // paidQuantity = totalQuantity - freeQuantity (what was deducted from remainingQuantity)
+            const paidQuantity = (oldItem.totalQuantity ?? oldItem.quantity) - (oldItem.freeQuantity ?? 0);
+            await tx
+                .update(stockBatch)
+                .set({
+                    remainingQuantity: sql`${stockBatch.remainingQuantity} + ${paidQuantity}`,
+                    remainingFreeQty: sql`${stockBatch.remainingFreeQty} + ${oldItem.freeQuantity ?? 0}`,
+                })
+                .where(eq(stockBatch.id, oldItem.batchId));
+        }
+
+        // Step 2: Validate batches and get batch data (now with restored stock)
         const itemsWithBatchData = await Promise.all(
             data.items.map(async (item) => {
                 // Calculate paid quantity for validation (quantity × multiplier + extraPieces)
@@ -515,10 +531,16 @@ export const updateOrder = async (
         // Delete existing items
         await tx.delete(wholesaleOrderItems).where(eq(wholesaleOrderItems.orderId, id));
 
-        // Create new items
+        // Step 3: Create new items and deduct stock for updated quantities
         const orderItems: NewWholesaleOrderItem[] = [];
         for (const item of itemsWithBatchData) {
             const itemTotals = await calculateItemTotals(item, item.salePrice);
+
+            // Calculate paid quantity for stock deduction (excludes freeQuantity)
+            const multiplier = await getUnitMultiplier(item.unit);
+            const extraPieces = item.extraPieces || 0;
+            const paidQuantity = (item.quantity * multiplier) + extraPieces;
+
             orderItems.push({
                 orderId: id,
                 productId: item.productId,
@@ -536,6 +558,15 @@ export const updateOrder = async (
                 discount: item.discount.toString(),
                 net: itemTotals.net,
             });
+
+            // Deduct stock for new items (same as createOrder)
+            await tx
+                .update(stockBatch)
+                .set({
+                    remainingQuantity: sql`${stockBatch.remainingQuantity} - ${paidQuantity}`,
+                    remainingFreeQty: sql`${stockBatch.remainingFreeQty} - ${item.freeQuantity}`,
+                })
+                .where(eq(stockBatch.id, item.batchId));
         }
 
         await tx.insert(wholesaleOrderItems).values(orderItems);
@@ -562,13 +593,36 @@ export const updateOrder = async (
     });
 };
 
-// Delete order
+// Delete order (restores stock to batches)
 export const deleteOrder = async (id: number): Promise<boolean> => {
-    const result = await db
-        .delete(wholesaleOrders)
-        .where(eq(wholesaleOrders.id, id))
-        .returning();
-    return result.length > 0;
+    return await db.transaction(async (tx) => {
+        // Fetch order with items to restore stock
+        const order = await tx.query.wholesaleOrders.findFirst({
+            where: (orders, { eq }) => eq(orders.id, id),
+            with: { items: true },
+        });
+
+        if (!order) return false;
+
+        // Restore stock consumed by the order items
+        for (const item of (order as any).items || []) {
+            const paidQuantity = (item.totalQuantity ?? item.quantity) - (item.freeQuantity ?? 0);
+            await tx
+                .update(stockBatch)
+                .set({
+                    remainingQuantity: sql`${stockBatch.remainingQuantity} + ${paidQuantity}`,
+                    remainingFreeQty: sql`${stockBatch.remainingFreeQty} + ${item.freeQuantity ?? 0}`,
+                })
+                .where(eq(stockBatch.id, item.batchId));
+        }
+
+        // Delete the order (cascades to items)
+        const result = await tx
+            .delete(wholesaleOrders)
+            .where(eq(wholesaleOrders.id, id))
+            .returning();
+        return result.length > 0;
+    });
 };
 
 // Update order status - simplified to only pending/adjusted
