@@ -9,7 +9,7 @@ export const orderItemSchema = z.object({
     productId: z.coerce.number().int("Product ID must be an integer").positive("Product ID must be positive"),
     batchId: z.coerce.number().int("Batch ID must be an integer").positive("Batch ID must be positive"),
     brandId: z.coerce.number().int("Brand ID must be an integer").positive("Brand ID must be positive"),
-    quantity: z.coerce.number().int("Quantity must be an integer").positive("Quantity must be greater than 0"),
+    quantity: z.coerce.number().int("Quantity must be an integer").nonnegative("Quantity cannot be negative"),
     unit: z.string().min(1, "Unit is required"),
     totalQuantity: z.coerce.number().int("Total quantity must be an integer").nonnegative("Total quantity cannot be negative"),
     availableQuantity: z.coerce.number().int("Available quantity must be an integer").nonnegative("Available quantity cannot be negative").default(0),
