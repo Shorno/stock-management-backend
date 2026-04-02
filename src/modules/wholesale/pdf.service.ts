@@ -116,38 +116,50 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
             const tableLeft = 40;
             const tableWidth = 515;
             const colWidths = { sl: 25, product: 130, brand: 70, qty: 40, unit: 40, price: 70, discount: 65, net: 75 };
+            const pageBottom = 780; // A4 usable height with margins
+            const rowHeight = 13;
 
-            // Table header background
-            doc.fillColor(lightGray).rect(tableLeft, currentY, tableWidth, 16).fill();
+            // Helper to draw table header
+            const drawTableHeader = () => {
+                doc.fillColor(lightGray).rect(tableLeft, currentY, tableWidth, 16).fill();
+                doc.fillColor(primaryColor).fontSize(7).font("BanglaBold");
+                let hColX = tableLeft + 3;
+                doc.text("SL", hColX, currentY + 5);
+                hColX += colWidths.sl;
+                doc.text("Product", hColX, currentY + 5);
+                hColX += colWidths.product;
+                doc.text("Brand", hColX, currentY + 5);
+                hColX += colWidths.brand;
+                doc.text("Qty", hColX, currentY + 5, { width: colWidths.qty, align: "right" });
+                hColX += colWidths.qty;
+                doc.text("Unit", hColX, currentY + 5, { width: colWidths.unit, align: "center" });
+                hColX += colWidths.unit;
+                doc.text("Price", hColX, currentY + 5, { width: colWidths.price, align: "right" });
+                hColX += colWidths.price;
+                doc.text("Discount", hColX, currentY + 5, { width: colWidths.discount, align: "right" });
+                hColX += colWidths.discount;
+                doc.text("Net", hColX, currentY + 5, { width: colWidths.net, align: "right" });
+                currentY += 18;
+            };
 
-            doc.fillColor(primaryColor).fontSize(7).font("BanglaBold");
-            let colX = tableLeft + 3;
-            doc.text("SL", colX, currentY + 5);
-            colX += colWidths.sl;
-            doc.text("Product", colX, currentY + 5);
-            colX += colWidths.product;
-            doc.text("Brand", colX, currentY + 5);
-            colX += colWidths.brand;
-            doc.text("Qty", colX, currentY + 5, { width: colWidths.qty, align: "right" });
-            colX += colWidths.qty;
-            doc.text("Unit", colX, currentY + 5, { width: colWidths.unit, align: "center" });
-            colX += colWidths.unit;
-            doc.text("Price", colX, currentY + 5, { width: colWidths.price, align: "right" });
-            colX += colWidths.price;
-            doc.text("Discount", colX, currentY + 5, { width: colWidths.discount, align: "right" });
-            colX += colWidths.discount;
-            doc.text("Net", colX, currentY + 5, { width: colWidths.net, align: "right" });
-
-            currentY += 18;
+            drawTableHeader();
 
             // Table rows - Compact
             doc.font("BanglaRegular").fontSize(7);
             order.items.forEach((item, index) => {
+                // Check for page break
+                if (currentY + rowHeight > pageBottom) {
+                    doc.addPage();
+                    currentY = 40;
+                    drawTableHeader();
+                    doc.font("BanglaRegular").fontSize(7);
+                }
+
                 if (index % 2 === 0) {
                     doc.fillColor("#fafafa").rect(tableLeft, currentY - 1, tableWidth, 13).fill();
                 }
 
-                colX = tableLeft + 3;
+                let colX = tableLeft + 3;
                 doc.fillColor(darkGray).text((index + 1).toString(), colX, currentY + 1);
                 colX += colWidths.sl;
                 doc.fillColor(primaryColor).text(truncateText(item.product?.name || "Unknown", 22), colX, currentY + 1);
@@ -166,6 +178,12 @@ export async function generateInvoicePdf(order: OrderWithItems): Promise<Buffer>
 
                 currentY += 13;
             });
+
+            // Check page break before summary
+            if (currentY + 80 > pageBottom) {
+                doc.addPage();
+                currentY = 40;
+            }
 
             // Table bottom border
             doc.moveTo(tableLeft, currentY + 2).lineTo(tableLeft + tableWidth, currentY + 2).strokeColor("#e9ecef").lineWidth(1).stroke();
@@ -386,25 +404,29 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
             const tableLeft = 40;
             const tableWidth = 515;
             const colWidths = { sl: 25, product: 160, brand: 100, qty: 55, unit: 45, free: 55 };
+            const pageBottom = 780; // A4 usable height with margins
+            const rowHeight = 20;
 
-            // Table header
-            doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
+            // Helper to draw sales invoice table header
+            const drawSalesTableHeader = () => {
+                doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
+                doc.fillColor("#ffffff").fontSize(9).font("BanglaBold");
+                let hColX = tableLeft + 8;
+                doc.text("SL", hColX, currentY + 6);
+                hColX += colWidths.sl;
+                doc.text("Product", hColX, currentY + 6);
+                hColX += colWidths.product;
+                doc.text("Brand", hColX, currentY + 6);
+                hColX += colWidths.brand;
+                doc.text("Qty", hColX, currentY + 6, { width: colWidths.qty, align: "right" });
+                hColX += colWidths.qty;
+                doc.text("Unit", hColX, currentY + 6, { width: colWidths.unit, align: "center" });
+                hColX += colWidths.unit;
+                doc.text("Free Qty", hColX, currentY + 6, { width: colWidths.free, align: "right" });
+                currentY += 24;
+            };
 
-            doc.fillColor("#ffffff").fontSize(9).font("BanglaBold");
-            let colX = tableLeft + 8;
-            doc.text("SL", colX, currentY + 6);
-            colX += colWidths.sl;
-            doc.text("Product", colX, currentY + 6);
-            colX += colWidths.product;
-            doc.text("Brand", colX, currentY + 6);
-            colX += colWidths.brand;
-            doc.text("Qty", colX, currentY + 6, { width: colWidths.qty, align: "right" });
-            colX += colWidths.qty;
-            doc.text("Unit", colX, currentY + 6, { width: colWidths.unit, align: "center" });
-            colX += colWidths.unit;
-            doc.text("Free Qty", colX, currentY + 6, { width: colWidths.free, align: "right" });
-
-            currentY += 24;
+            drawSalesTableHeader();
 
             // Use adjustment items if available, otherwise use order items
             const items = adjustment?.itemsWithCalculations || order.items.map(item => ({
@@ -421,6 +443,14 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
             let totalFree = 0;
 
             items.forEach((item, index) => {
+                // Check for page break
+                if (currentY + rowHeight > pageBottom) {
+                    doc.addPage();
+                    currentY = 40;
+                    drawSalesTableHeader();
+                    doc.font("BanglaRegular").fontSize(9);
+                }
+
                 if (index % 2 === 0) {
                     doc.fillColor("#f9f9f9").rect(tableLeft, currentY - 2, tableWidth, 20).fill();
                 }
@@ -430,7 +460,7 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
                 totalQty += qty;
                 totalFree += freeQty;
 
-                colX = tableLeft + 8;
+                let colX = tableLeft + 8;
                 doc.fillColor(mediumGray).text((index + 1).toString(), colX, currentY + 3);
                 colX += colWidths.sl;
                 doc.fillColor(darkGray).text(truncateText(item.productName || (item as any).product?.name || "Unknown", 28), colX, currentY + 3);
@@ -446,13 +476,19 @@ export async function generateSalesInvoicePdf(order: OrderWithItems, adjustment?
                 currentY += 20;
             });
 
+            // Check page break before total row
+            if (currentY + 50 > pageBottom) {
+                doc.addPage();
+                currentY = 40;
+            }
+
             // Total row
             doc.moveTo(tableLeft, currentY).lineTo(tableLeft + tableWidth, currentY).strokeColor(lightGray).lineWidth(1).stroke();
             currentY += 5;
 
             doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
             doc.fillColor("#ffffff").fontSize(9).font("BanglaBold");
-            colX = tableLeft + 8;
+            let colX = tableLeft + 8;
             doc.text("TOTAL", colX, currentY + 6);
             colX = tableLeft + colWidths.sl + colWidths.product + colWidths.brand + 8;
             doc.text(totalQty.toString(), colX, currentY + 6, { width: colWidths.qty, align: "right" });
@@ -549,6 +585,36 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
             currentY += 25;
 
+            // === ASSIGNED SRs ===
+            // Extract unique SRs from order items (SR is assigned per item via brand)
+            const srMap = new Map<number, { name: string; brandName: string }>();
+            for (const item of order.items) {
+                const sr = (item as any).sr;
+                if (sr && sr.id) {
+                    if (!srMap.has(sr.id)) {
+                        const brandName = (item as any).brand?.name || "";
+                        srMap.set(sr.id, { name: sr.name, brandName });
+                    }
+                }
+            }
+
+            if (srMap.size > 0) {
+                doc.fillColor(mediumGray).font("BanglaRegular").fontSize(9).text("Assigned SR:", 40, currentY);
+                let srX = 100;
+                let srLineY = currentY;
+                srMap.forEach((sr) => {
+                    const label = sr.brandName ? `${sr.name} [${sr.brandName}]` : sr.name;
+                    const labelWidth = doc.widthOfString(label) + 12;
+                    if (srX + labelWidth > 540) {
+                        srX = 100;
+                        srLineY += 14;
+                    }
+                    doc.fillColor("#4f46e5").font("BanglaBold").text(label, srX, srLineY);
+                    srX += labelWidth + 5;
+                });
+                currentY = srLineY + 18;
+            }
+
             // Divider
             doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightGray).lineWidth(1).stroke();
             currentY += 15;
@@ -557,43 +623,47 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             const tableLeft = 40;
             const tableWidth = 515;
             const colWidths = { sl: 18, product: 72, brand: 42, qty: 20, unit: 30, extra: 20, free: 20, total: 25, price: 40, disc: 30, subtotal: 40, retQty: 22, netQty: 25, netTotal: 40, profit: 40 };
+            const pageBottom = 780; // A4 usable height with margins
+            const mainRowHeight = 18;
 
-            // Table header
-            doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
+            // Helper to draw main invoice table header
+            const drawMainTableHeader = () => {
+                doc.fillColor(darkGray).rect(tableLeft, currentY, tableWidth, 22).fill();
+                doc.fillColor("#ffffff").fontSize(7).font("BanglaBold");
+                let hColX = tableLeft + 4;
+                doc.text("SL", hColX, currentY + 7);
+                hColX += colWidths.sl;
+                doc.text("Product", hColX, currentY + 7);
+                hColX += colWidths.product;
+                doc.text("Brand", hColX, currentY + 7);
+                hColX += colWidths.brand;
+                doc.text("Qty", hColX, currentY + 7, { width: colWidths.qty, align: "right" });
+                hColX += colWidths.qty;
+                doc.text("Unit", hColX, currentY + 7, { width: colWidths.unit, align: "center" });
+                hColX += colWidths.unit;
+                doc.text("Extra", hColX, currentY + 7, { width: colWidths.extra, align: "right" });
+                hColX += colWidths.extra;
+                doc.text("Free", hColX, currentY + 7, { width: colWidths.free, align: "right" });
+                hColX += colWidths.free;
+                doc.text("Total", hColX, currentY + 7, { width: colWidths.total, align: "right" });
+                hColX += colWidths.total;
+                doc.text("Price", hColX, currentY + 7, { width: colWidths.price, align: "right" });
+                hColX += colWidths.price;
+                doc.text("Disc", hColX, currentY + 7, { width: colWidths.disc, align: "right" });
+                hColX += colWidths.disc;
+                doc.text("Subtotal", hColX, currentY + 7, { width: colWidths.subtotal, align: "right" });
+                hColX += colWidths.subtotal;
+                doc.text("Ret", hColX, currentY + 7, { width: colWidths.retQty, align: "right" });
+                hColX += colWidths.retQty;
+                doc.text("Net Qty", hColX, currentY + 7, { width: colWidths.netQty, align: "right" });
+                hColX += colWidths.netQty;
+                doc.text("Net", hColX, currentY + 7, { width: colWidths.netTotal, align: "right" });
+                hColX += colWidths.netTotal;
+                doc.text("Profit", hColX, currentY + 7, { width: colWidths.profit, align: "right" });
+                currentY += 24;
+            };
 
-            doc.fillColor("#ffffff").fontSize(7).font("BanglaBold");
-            let colX = tableLeft + 4;
-            doc.text("SL", colX, currentY + 7);
-            colX += colWidths.sl;
-            doc.text("Product", colX, currentY + 7);
-            colX += colWidths.product;
-            doc.text("Brand", colX, currentY + 7);
-            colX += colWidths.brand;
-            doc.text("Qty", colX, currentY + 7, { width: colWidths.qty, align: "right" });
-            colX += colWidths.qty;
-            doc.text("Unit", colX, currentY + 7, { width: colWidths.unit, align: "center" });
-            colX += colWidths.unit;
-            doc.text("Extra", colX, currentY + 7, { width: colWidths.extra, align: "right" });
-            colX += colWidths.extra;
-            doc.text("Free", colX, currentY + 7, { width: colWidths.free, align: "right" });
-            colX += colWidths.free;
-            doc.text("Total", colX, currentY + 7, { width: colWidths.total, align: "right" });
-            colX += colWidths.total;
-            doc.text("Price", colX, currentY + 7, { width: colWidths.price, align: "right" });
-            colX += colWidths.price;
-            doc.text("Disc", colX, currentY + 7, { width: colWidths.disc, align: "right" });
-            colX += colWidths.disc;
-            doc.text("Subtotal", colX, currentY + 7, { width: colWidths.subtotal, align: "right" });
-            colX += colWidths.subtotal;
-            doc.text("Ret", colX, currentY + 7, { width: colWidths.retQty, align: "right" });
-            colX += colWidths.retQty;
-            doc.text("Net Qty", colX, currentY + 7, { width: colWidths.netQty, align: "right" });
-            colX += colWidths.netQty;
-            doc.text("Net", colX, currentY + 7, { width: colWidths.netTotal, align: "right" });
-            colX += colWidths.netTotal;
-            doc.text("Profit", colX, currentY + 7, { width: colWidths.profit, align: "right" });
-
-            currentY += 24;
+            drawMainTableHeader();
 
             // Use adjustment items if available, otherwise use order items
             const items = adjustment?.itemsWithCalculations || order.items.map(item => ({
@@ -616,11 +686,19 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             doc.font("BanglaRegular").fontSize(7);
 
             items.forEach((item, index) => {
+                // Check for page break
+                if (currentY + mainRowHeight > pageBottom) {
+                    doc.addPage();
+                    currentY = 40;
+                    drawMainTableHeader();
+                    doc.font("BanglaRegular").fontSize(7);
+                }
+
                 if (index % 2 === 0) {
                     doc.fillColor("#f9f9f9").rect(tableLeft, currentY - 2, tableWidth, 18).fill();
                 }
 
-                colX = tableLeft + 4;
+                let colX = tableLeft + 4;
                 doc.fillColor(mediumGray).text((index + 1).toString(), colX, currentY + 3);
                 colX += colWidths.sl;
                 doc.fillColor(darkGray).text(truncateText(item.productName, 16), colX, currentY + 3);
@@ -672,11 +750,16 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 currentY += 18;
             });
 
+            // Check page break before summary section
+            if (currentY + 60 > pageBottom) {
+                doc.addPage();
+                currentY = 40;
+            }
+
             // Table bottom border
             doc.moveTo(tableLeft, currentY).lineTo(tableLeft + tableWidth, currentY).strokeColor(lightGray).lineWidth(1).stroke();
             currentY += 20;
-
-            // === FINANCIAL SUMMARY ===
+            // === FINANCIAL SUMMARY ===
             const summaryData = adjustment?.summary || {
                 subtotal: order.items.reduce((sum, item) => sum + parseFloat(item.net), 0),
                 discount: parseFloat(order.discount),
@@ -691,13 +774,20 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 due: parseFloat(order.total) - parseFloat(order.paidAmount),
             };
 
-            // Two column layout for summary
             const leftCol = 40;
-            const rightCol = 320;
-            const labelWidth = 120;
-            const valueWidth = 80;
 
-            // Left column - Payments & Expenses
+            // Helper: check page break and add new page if needed
+            const checkPageBreak = (requiredSpace: number) => {
+                if (currentY + requiredSpace > pageBottom) {
+                    doc.addPage();
+                    currentY = 40;
+                }
+            };
+
+            // --- Left column sections rendered sequentially ---
+
+            // Payments Received
+            checkPageBreak(40);
             doc.fontSize(9).font("BanglaBold").fillColor(darkGray);
             doc.text("Payments Received", leftCol, currentY);
             currentY += 14;
@@ -705,6 +795,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.payments && adjustment.payments.length > 0) {
                 adjustment.payments.forEach(payment => {
+                    checkPageBreak(14);
                     doc.fillColor(mediumGray).text(payment.method || "Cash", leftCol, currentY);
                     doc.fillColor(darkGray).text(formatCurrency(payment.amount), leftCol + 100, currentY);
                     currentY += 12;
@@ -714,9 +805,10 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 currentY += 12;
             }
 
-            const paymentEndY = currentY;
             currentY += 8;
 
+            // Expenses
+            checkPageBreak(40);
             doc.font("BanglaBold").fillColor(darkGray);
             doc.text("Expenses", leftCol, currentY);
             currentY += 14;
@@ -724,6 +816,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.expenses && adjustment.expenses.length > 0) {
                 adjustment.expenses.forEach(expense => {
+                    checkPageBreak(14);
                     doc.fillColor(mediumGray).text(expense.type.replace("_", " "), leftCol, currentY);
                     doc.fillColor(darkGray).text(formatCurrency(expense.amount), leftCol + 100, currentY);
                     currentY += 12;
@@ -735,7 +828,8 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
             currentY += 8;
 
-            // Left column: Customer Dues (NEW)
+            // Customer Dues
+            checkPageBreak(40);
             doc.font("BanglaBold").fillColor(darkGray);
             doc.text("Customer Dues", leftCol, currentY);
             currentY += 14;
@@ -743,6 +837,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.customerDues && adjustment.customerDues.length > 0) {
                 adjustment.customerDues.forEach(due => {
+                    checkPageBreak(14);
                     doc.fillColor(mediumGray).text(truncateText(due.customerName, 25), leftCol, currentY);
                     doc.fillColor(darkGray).text(formatCurrency(due.amount), leftCol + 100, currentY);
                     currentY += 12;
@@ -754,8 +849,9 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
             currentY += 8;
 
-            // Left column: Damage Returns (NEW)
+            // Damage Returns
             if (adjustment?.damageReturns && adjustment.damageReturns.length > 0) {
+                checkPageBreak(30);
                 doc.font("BanglaBold").fillColor("#dc3545");
                 doc.text("Damage Returns", leftCol, currentY);
                 currentY += 14;
@@ -764,9 +860,8 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 let totalDamage = 0;
                 let totalLostMargin = 0;
                 adjustment.damageReturns.forEach(item => {
-                    // Settlement uses selling price
+                    checkPageBreak(14);
                     const itemTotal = item.quantity * (item.sellingPrice || item.unitPrice);
-                    // Lost profit margin = (sellingPrice - buyingPrice) Ã— qty
                     const lostMargin = item.quantity * ((item.sellingPrice || item.unitPrice) - item.unitPrice);
                     totalDamage += itemTotal;
                     totalLostMargin += lostMargin;
@@ -777,25 +872,26 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                     doc.fillColor("#dc3545").text(formatCurrency(itemTotal), leftCol + 130, currentY);
                     currentY += 12;
                 });
-                // Total damage line
+                checkPageBreak(30);
                 doc.fillColor("#dc3545").font("BanglaBold");
                 doc.text("Total:", leftCol, currentY);
                 doc.text(formatCurrency(totalDamage), leftCol + 130, currentY);
                 currentY += 14;
-                // Lost profit margin note
                 doc.fillColor("#e67e22").fontSize(7).font("BanglaRegular");
                 doc.text(`P&L Impact: -${formatCurrency(totalLostMargin)} (lost margin)`, leftCol, currentY);
                 currentY += 16;
             }
 
-            // Left column: DSR Dues
+            // DSR Dues
             if (adjustment?.dsrDues && adjustment.dsrDues.length > 0) {
+                checkPageBreak(30);
                 doc.fontSize(9).font("BanglaBold").fillColor("#e67e22");
                 doc.text("DSR Dues", leftCol, currentY);
                 currentY += 14;
 
                 doc.fontSize(8).font("BanglaRegular");
                 adjustment.dsrDues.forEach(due => {
+                    checkPageBreak(14);
                     doc.fillColor(mediumGray).text("DSR Due", leftCol, currentY);
                     doc.fillColor("#e67e22").text(formatCurrency(due.amount), leftCol + 100, currentY);
                     currentY += 12;
@@ -803,32 +899,44 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 currentY += 8;
             }
 
-            // Left column: SR Dues
+            // SR Dues
             if (adjustment?.srDues && adjustment.srDues.length > 0) {
+                checkPageBreak(30);
                 doc.fontSize(9).font("BanglaBold").fillColor("#4f46e5");
                 doc.text("SR Dues", leftCol, currentY);
                 currentY += 14;
 
                 doc.fontSize(8).font("BanglaRegular");
+                let totalSrDueAmount = 0;
                 adjustment.srDues.forEach(due => {
+                    checkPageBreak(14);
                     const srName = due.srName || `SR #${due.srId}`;
-                    const brand = due.brandName ? ` [${due.brandName}]` : '';
                     const cust = due.customerName ? ` (${due.customerName})` : '';
-                    const srLabel = `${srName}${brand}${cust}`;
-                    doc.fillColor(mediumGray).text(srLabel, leftCol, currentY, { width: 200, ellipsis: true });
-                    doc.fillColor("#4f46e5").text(formatCurrency(due.amount), leftCol + 205, currentY);
+                    const srLabel = truncateText(`${srName}${cust}`, 35);
+                    doc.fillColor(mediumGray).text(srLabel, leftCol, currentY);
+                    doc.fillColor("#4f46e5").text(formatCurrency(due.amount), leftCol + 160, currentY);
+                    totalSrDueAmount += due.amount;
                     currentY += 12;
                 });
+                checkPageBreak(16);
+                doc.fillColor("#4f46e5").font("BanglaBold");
+                doc.text("Total:", leftCol, currentY);
+                doc.text(formatCurrency(totalSrDueAmount), leftCol + 160, currentY);
+                currentY += 14;
                 currentY += 8;
             }
 
+            // Divider before summary waterfall
+            currentY += 5;
+            checkPageBreak(20);
+            doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightGray).lineWidth(1).stroke();
+            currentY += 15;
 
-            // Right column - Summary totals with running balance waterfall
-            let rightY = paymentEndY - (adjustment?.payments?.length || 1) * 12 - 14;
+            // --- Summary waterfall (rendered sequentially, right-aligned) ---
+            const rightCol = 320;
+            const labelWidth = 120;
+            const valueWidth = 80;
 
-            doc.fontSize(9);
-
-            // Running balance waterfall
             const subtotal = summaryData.subtotal;
             const discount = summaryData.discount;
             const total = summaryData.total;
@@ -844,19 +952,22 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             const dsrDues = summaryData.totalDsrDues || 0;
             const srDues = summaryData.totalSrDues || 0;
 
-            // Helper to render a summary line
+            doc.fontSize(9);
+
+            // Helper to render a summary line using currentY
             const renderLine = (label: string, value: string, options?: { bold?: boolean; color?: string }) => {
+                checkPageBreak(16);
                 doc.font(options?.bold ? "BanglaBold" : "BanglaRegular").fillColor(mediumGray);
-                doc.text(label, rightCol, rightY);
+                doc.text(label, rightCol, currentY);
                 doc.fillColor(options?.color || darkGray);
-                doc.text(value, rightCol + labelWidth, rightY, { width: valueWidth, align: "right" });
-                rightY += 14;
+                doc.text(value, rightCol + labelWidth, currentY, { width: valueWidth, align: "right" });
+                currentY += 14;
             };
 
             const renderRunning = (value: number) => {
                 doc.font("BanglaRegular").fillColor("#999999").fontSize(7);
-                doc.text(`= ${formatCurrency(value)}`, rightCol + labelWidth, rightY - 2, { width: valueWidth, align: "right" });
-                rightY += 10;
+                doc.text(`= ${formatCurrency(value)}`, rightCol + labelWidth, currentY - 2, { width: valueWidth, align: "right" });
+                currentY += 10;
                 doc.fontSize(9);
             };
 
@@ -894,16 +1005,14 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             }
 
             // Net Total
-            rightY += 4;
+            currentY += 4;
             renderLine("Net Total", formatCurrency(netTotal), { bold: true });
-            rightY += 4;
+            currentY += 4;
 
             // Payments
             renderLine("Payments", `-${formatCurrency(payments)}`, { color: "#28a745" });
             let running = netTotal - payments;
             renderRunning(running);
-
-
 
             // Customer Dues
             if (custDues > 0) {
@@ -926,36 +1035,36 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
             // Profit
             const profit = summaryData.totalProfit || 0;
-            rightY += 4;
+            currentY += 4;
             renderLine("Total Profit", formatCurrency(profit), { bold: true, color: profit >= 0 ? "#2563eb" : "#dc3545" });
 
             // Due amount (highlighted)
-            rightY += 5;
-            doc.fillColor(black).rect(rightCol - 5, rightY - 3, labelWidth + valueWidth + 15, 22).fill();
+            checkPageBreak(30);
+            currentY += 5;
+            doc.fillColor(black).rect(rightCol - 5, currentY - 3, labelWidth + valueWidth + 15, 22).fill();
             doc.fillColor("#ffffff").fontSize(10).font("BanglaBold");
-            doc.text("DUE", rightCol, rightY + 2);
-            doc.text(formatCurrency(summaryData.due), rightCol + labelWidth, rightY + 2, { width: valueWidth, align: "right" });
+            doc.text("DUE", rightCol, currentY + 2);
+            doc.text(formatCurrency(summaryData.due), rightCol + labelWidth, currentY + 2, { width: valueWidth, align: "right" });
+            currentY += 30;
 
-            // === AMOUNT TO COLLECT (for DSR) - Left side, prominent display ===
-            const collectY = Math.max(currentY, rightY) + 20;
-
-            // Amount to collect = total customer dues (what DSR should collect from customers)
-            const amountToCollect = summaryData.totalCustomerDues;
+            // === AMOUNT TO COLLECT (for DSR) ===
+            checkPageBreak(80);
 
             doc.fillColor("#1a5f2a").fontSize(9).font("BanglaBold");
-            doc.text("AMOUNT TO COLLECT", leftCol, collectY);
+            doc.text("AMOUNT TO COLLECT", leftCol, currentY);
 
             doc.fillColor("#1a5f2a").fontSize(22).font("BanglaBold");
-            doc.text(formatCurrency(amountToCollect), leftCol, collectY + 14);
+            doc.text(formatCurrency(summaryData.totalCustomerDues), leftCol, currentY + 14);
 
             doc.fillColor(mediumGray).fontSize(8).font("BanglaRegular");
-            doc.text("(To be collected by DSR from customers)", leftCol, collectY + 40);
+            doc.text("(To be collected by DSR from customers)", leftCol, currentY + 40);
+            currentY += 60;
 
             // === FOOTER ===
-            const footerY = collectY + 60;
-            doc.moveTo(40, footerY).lineTo(555, footerY).strokeColor(lightGray).lineWidth(1).stroke();
+            checkPageBreak(25);
+            doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightGray).lineWidth(1).stroke();
             doc.fillColor(mediumGray).fontSize(7).font("BanglaRegular")
-                .text(`Generated on ${new Date().toLocaleString("en-US", { timeZone: "Asia/Dhaka" })}`, 40, footerY + 8, { align: "center", width: 515 });
+                .text(`Generated on ${new Date().toLocaleString("en-US", { timeZone: "Asia/Dhaka" })}`, 40, currentY + 8, { align: "center", width: 515 });
 
             doc.end();
         } catch (error) {
