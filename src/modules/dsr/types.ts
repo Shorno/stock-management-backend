@@ -1,7 +1,10 @@
-import { dsr } from "../../db/schema";
+import { dsr, dsrDocuments } from "../../db/schema";
 
 export type Dsr = typeof dsr.$inferSelect;
 export type NewDsr = typeof dsr.$inferInsert;
+
+export type DsrDocument = typeof dsrDocuments.$inferSelect;
+export type NewDsrDocument = typeof dsrDocuments.$inferInsert;
 
 export type DsrResponse =
   | {
@@ -15,4 +18,3 @@ export type DsrResponse =
       message: string;
       errors?: Array<{ path: string; message: string }>;
     };
-

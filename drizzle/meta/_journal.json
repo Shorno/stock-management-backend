@@ -50,6 +50,13 @@
       "when": 1774634133801,
       "tag": "0006_bizarre_valeria_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1775189802594,
+      "tag": "0007_spotty_sentry",
+      "breakpoints": true
     }
   ]
 }

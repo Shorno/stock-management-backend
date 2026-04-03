@@ -24,6 +24,7 @@ export const globalSettings = pgTable("global_settings", {
     srOpeningBalanceEnabled: boolean("sr_opening_balance_enabled").notNull().default(true),
     dsrOpeningBalanceEnabled: boolean("dsr_opening_balance_enabled").notNull().default(true),
     supplierOpeningBalanceEnabled: boolean("supplier_opening_balance_enabled").notNull().default(true),
+    customerOpeningDueEnabled: boolean("customer_opening_due_enabled").notNull().default(true),
     openingBalancesTabEnabled: boolean("opening_balances_tab_enabled").notNull().default(true),
     ...timestamps
 });

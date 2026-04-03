@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery } from "./validation";
+import type { CreateDsrInput, UpdateDsrInput, GetDsrsQuery, UpdateDsrProfileInput, CreateDsrDocumentInput } from "./validation";
 import type { DsrResponse } from "./types";
 import * as dsrService from "./service";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
@@ -173,3 +173,84 @@ export const handleDeleteDsr = async (c: AppContext): Promise<Response> => {
   }
 };
 
+// ==================== Profile ====================
+
+export const handleUpdateDsrProfile = async (c: Context): Promise<Response> => {
+  try {
+    const id = Number(c.req.param("id"));
+    if (isNaN(id)) {
+      return c.json({ success: false, message: "Invalid DSR ID" }, 400);
+    }
+
+    const validatedData = c.req.valid("json") as UpdateDsrProfileInput;
+    const updated = await dsrService.updateDsrProfile(id, validatedData);
+
+    if (!updated) {
+      return c.json({ success: false, message: "DSR not found" }, 404);
+    }
+
+    return c.json({ success: true, data: updated, message: "Profile updated successfully" });
+  } catch (error) {
+    logError("Error updating DSR profile:", error);
+    return c.json({ success: false, message: "Failed to update profile" }, 500);
+  }
+};
+
+// ==================== Documents ====================
+
+export const handleGetDsrDocuments = async (c: Context): Promise<Response> => {
+  try {
+    const dsrId = Number(c.req.param("id"));
+    if (isNaN(dsrId)) {
+      return c.json({ success: false, message: "Invalid DSR ID" }, 400);
+    }
+
+    const documents = await dsrService.getDsrDocuments(dsrId);
+    return c.json({ success: true, data: documents });
+  } catch (error) {
+    logError("Error fetching DSR documents:", error);
+    return c.json({ success: false, message: "Failed to fetch documents" }, 500);
+  }
+};
+
+export const handleAddDsrDocument = async (c: Context): Promise<Response> => {
+  try {
+    const dsrId = Number(c.req.param("id"));
+    if (isNaN(dsrId)) {
+      return c.json({ success: false, message: "Invalid DSR ID" }, 400);
+    }
+
+    // Verify DSR exists
+    const dsr = await dsrService.getDsrById(dsrId);
+    if (!dsr) {
+      return c.json({ success: false, message: "DSR not found" }, 404);
+    }
+
+    const validatedData = c.req.valid("json") as CreateDsrDocumentInput;
+    const document = await dsrService.addDsrDocument(dsrId, validatedData);
+
+    return c.json({ success: true, data: document, message: "Document added successfully" }, 201);
+  } catch (error) {
+    logError("Error adding DSR document:", error);
+    return c.json({ success: false, message: "Failed to add document" }, 500);
+  }
+};
+
+export const handleDeleteDsrDocument = async (c: Context): Promise<Response> => {
+  try {
+    const docId = Number(c.req.param("docId"));
+    if (isNaN(docId)) {
+      return c.json({ success: false, message: "Invalid document ID" }, 400);
+    }
+
+    const deleted = await dsrService.deleteDsrDocument(docId);
+    if (!deleted) {
+      return c.json({ success: false, message: "Document not found" }, 404);
+    }
+
+    return c.json({ success: true, message: "Document deleted successfully" });
+  } catch (error) {
+    logError("Error deleting DSR document:", error);
+    return c.json({ success: false, message: "Failed to delete document" }, 500);
+  }
+};

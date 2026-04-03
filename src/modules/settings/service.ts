@@ -203,6 +203,7 @@ export interface FeatureToggles {
     srOpeningBalanceEnabled: boolean;
     dsrOpeningBalanceEnabled: boolean;
     supplierOpeningBalanceEnabled: boolean;
+    customerOpeningDueEnabled: boolean;
     openingBalancesTabEnabled: boolean;
 }
 
@@ -211,6 +212,7 @@ const TOGGLE_KEYS: (keyof FeatureToggles)[] = [
     "srOpeningBalanceEnabled",
     "dsrOpeningBalanceEnabled",
     "supplierOpeningBalanceEnabled",
+    "customerOpeningDueEnabled",
     "openingBalancesTabEnabled",
 ];
 
@@ -224,6 +226,7 @@ export const getFeatureToggles = async (): Promise<FeatureToggles> => {
         srOpeningBalanceEnabled: settings.srOpeningBalanceEnabled,
         dsrOpeningBalanceEnabled: settings.dsrOpeningBalanceEnabled,
         supplierOpeningBalanceEnabled: settings.supplierOpeningBalanceEnabled,
+        customerOpeningDueEnabled: settings.customerOpeningDueEnabled,
         openingBalancesTabEnabled: settings.openingBalancesTabEnabled,
     };
 };
