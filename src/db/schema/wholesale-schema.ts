@@ -6,6 +6,12 @@ import { category, brand, product, stockBatch, productVariant } from "./product-
 export const dsr = pgTable("dsr", {
     id: serial("id").primaryKey(),
     name: varchar("name", { length: 100 }).notNull(),
+    phone: varchar("phone", { length: 20 }),
+    address: text("address"),
+    nidNumber: varchar("nid_number", { length: 30 }),
+    emergencyContact: varchar("emergency_contact", { length: 100 }),
+    notes: text("notes"),
+    profilePhoto: text("profile_photo"),
     ...timestamps
 });
 
@@ -24,6 +30,18 @@ export const route = pgTable("route", {
     name: varchar("name", { length: 100 }).notNull(),
     ...timestamps
 });
+
+export const dsrDocuments = pgTable("dsr_documents", {
+    id: serial("id").primaryKey(),
+    dsrId: integer("dsr_id").notNull().references(() => dsr.id, { onDelete: "cascade" }),
+    documentType: varchar("document_type", { length: 50 }).notNull(),
+    documentName: varchar("document_name", { length: 200 }).notNull(),
+    documentUrl: text("document_url").notNull(),
+    publicId: varchar("public_id", { length: 300 }),
+    ...timestamps
+}, (table) => ({
+    dsrIdx: index("idx_dsr_documents_dsr").on(table.dsrId),
+}));
 
 export const dsrTarget = pgTable("dsr_target", {
     id: serial("id").primaryKey(),
@@ -135,6 +153,14 @@ export const wholesaleOrderItems = pgTable("wholesale_order_items", {
 export const dsrRelations = relations(dsr, ({ many }) => ({
     wholesaleOrders: many(wholesaleOrders),
     targets: many(dsrTarget),
+    documents: many(dsrDocuments),
+}));
+
+export const dsrDocumentsRelations = relations(dsrDocuments, ({ one }) => ({
+    dsr: one(dsr, {
+        fields: [dsrDocuments.dsrId],
+        references: [dsr.id],
+    }),
 }));
 
 export const dsrTargetRelations = relations(dsrTarget, ({ one }) => ({
