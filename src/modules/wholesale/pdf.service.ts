@@ -749,17 +749,21 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
                 currentY += 18;
             });
-
-            // Check page break before summary section
-            if (currentY + 60 > pageBottom) {
+            // === FINANCIAL SUMMARY ===
+            // Force a new page for summary section if not enough space for two-column layout
+            const spaceRemaining = pageBottom - currentY;
+            if (spaceRemaining < 350) {
                 doc.addPage();
                 currentY = 40;
+            } else {
+                // Table bottom border
+                doc.moveTo(tableLeft, currentY).lineTo(tableLeft + tableWidth, currentY).strokeColor(lightGray).lineWidth(1).stroke();
+                currentY += 15;
+                // Divider
+                doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightGray).lineWidth(1).stroke();
+                currentY += 15;
             }
 
-            // Table bottom border
-            doc.moveTo(tableLeft, currentY).lineTo(tableLeft + tableWidth, currentY).strokeColor(lightGray).lineWidth(1).stroke();
-            currentY += 20;
-            // === FINANCIAL SUMMARY ===
             const summaryData = adjustment?.summary || {
                 subtotal: order.items.reduce((sum, item) => sum + parseFloat(item.net), 0),
                 discount: parseFloat(order.discount),
@@ -775,92 +779,81 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             };
 
             const leftCol = 40;
+            const rightCol = 310;
+            const labelWidth = 120;
+            const valueWidth = 80;
+            const summaryStartY = currentY;
 
-            // Helper: check page break and add new page if needed
-            const checkPageBreak = (requiredSpace: number) => {
-                if (currentY + requiredSpace > pageBottom) {
-                    doc.addPage();
-                    currentY = 40;
-                }
-            };
-
-            // --- Left column sections rendered sequentially ---
+            // =================== LEFT COLUMN ===================
+            let leftY = summaryStartY;
 
             // Payments Received
-            checkPageBreak(40);
             doc.fontSize(9).font("BanglaBold").fillColor(darkGray);
-            doc.text("Payments Received", leftCol, currentY);
-            currentY += 14;
+            doc.text("Payments Received", leftCol, leftY);
+            leftY += 14;
 
             doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.payments && adjustment.payments.length > 0) {
                 adjustment.payments.forEach(payment => {
-                    checkPageBreak(14);
-                    doc.fillColor(mediumGray).text(payment.method || "Cash", leftCol, currentY);
-                    doc.fillColor(darkGray).text(formatCurrency(payment.amount), leftCol + 100, currentY);
-                    currentY += 12;
+                    doc.fillColor(mediumGray).text(payment.method || "Cash", leftCol, leftY);
+                    doc.fillColor(darkGray).text(formatCurrency(payment.amount), leftCol + 100, leftY);
+                    leftY += 12;
                 });
             } else {
-                doc.fillColor(mediumGray).text("No payments", leftCol, currentY);
-                currentY += 12;
+                doc.fillColor(mediumGray).text("No payments", leftCol, leftY);
+                leftY += 12;
             }
 
-            currentY += 8;
+            leftY += 8;
 
             // Expenses
-            checkPageBreak(40);
-            doc.font("BanglaBold").fillColor(darkGray);
-            doc.text("Expenses", leftCol, currentY);
-            currentY += 14;
+            doc.font("BanglaBold").fontSize(9).fillColor(darkGray);
+            doc.text("Expenses", leftCol, leftY);
+            leftY += 14;
 
             doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.expenses && adjustment.expenses.length > 0) {
                 adjustment.expenses.forEach(expense => {
-                    checkPageBreak(14);
-                    doc.fillColor(mediumGray).text(expense.type.replace("_", " "), leftCol, currentY);
-                    doc.fillColor(darkGray).text(formatCurrency(expense.amount), leftCol + 100, currentY);
-                    currentY += 12;
+                    doc.fillColor(mediumGray).text(expense.type.replace("_", " "), leftCol, leftY);
+                    doc.fillColor(darkGray).text(formatCurrency(expense.amount), leftCol + 100, leftY);
+                    leftY += 12;
                 });
             } else {
-                doc.fillColor(mediumGray).text("No expenses", leftCol, currentY);
-                currentY += 12;
+                doc.fillColor(mediumGray).text("No expenses", leftCol, leftY);
+                leftY += 12;
             }
 
-            currentY += 8;
+            leftY += 8;
 
             // Customer Dues
-            checkPageBreak(40);
-            doc.font("BanglaBold").fillColor(darkGray);
-            doc.text("Customer Dues", leftCol, currentY);
-            currentY += 14;
+            doc.font("BanglaBold").fontSize(9).fillColor(darkGray);
+            doc.text("Customer Dues", leftCol, leftY);
+            leftY += 14;
 
             doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.customerDues && adjustment.customerDues.length > 0) {
                 adjustment.customerDues.forEach(due => {
-                    checkPageBreak(14);
-                    doc.fillColor(mediumGray).text(truncateText(due.customerName, 25), leftCol, currentY);
-                    doc.fillColor(darkGray).text(formatCurrency(due.amount), leftCol + 100, currentY);
-                    currentY += 12;
+                    doc.fillColor(mediumGray).text(truncateText(due.customerName, 25), leftCol, leftY);
+                    doc.fillColor(darkGray).text(formatCurrency(due.amount), leftCol + 100, leftY);
+                    leftY += 12;
                 });
             } else {
-                doc.fillColor(mediumGray).text("No customer dues", leftCol, currentY);
-                currentY += 12;
+                doc.fillColor(mediumGray).text("No customer dues", leftCol, leftY);
+                leftY += 12;
             }
 
-            currentY += 8;
+            leftY += 8;
 
             // Damage Returns
             if (adjustment?.damageReturns && adjustment.damageReturns.length > 0) {
-                checkPageBreak(30);
-                doc.font("BanglaBold").fillColor("#dc3545");
-                doc.text("Damage Returns", leftCol, currentY);
-                currentY += 14;
+                doc.font("BanglaBold").fontSize(9).fillColor("#dc3545");
+                doc.text("Damage Returns", leftCol, leftY);
+                leftY += 14;
 
                 doc.fontSize(8).font("BanglaRegular");
                 let totalDamage = 0;
                 let totalLostMargin = 0;
                 adjustment.damageReturns.forEach(item => {
-                    checkPageBreak(14);
                     const itemTotal = item.quantity * (item.sellingPrice || item.unitPrice);
                     const lostMargin = item.quantity * ((item.sellingPrice || item.unitPrice) - item.unitPrice);
                     totalDamage += itemTotal;
@@ -868,74 +861,60 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                     const label = item.variantName
                         ? `${truncateText(item.productName, 15)} (${item.variantName}) x${item.quantity}`
                         : `${truncateText(item.productName, 20)} x${item.quantity}`;
-                    doc.fillColor(mediumGray).text(label, leftCol, currentY);
-                    doc.fillColor("#dc3545").text(formatCurrency(itemTotal), leftCol + 130, currentY);
-                    currentY += 12;
+                    doc.fillColor(mediumGray).text(label, leftCol, leftY);
+                    doc.fillColor("#dc3545").text(formatCurrency(itemTotal), leftCol + 130, leftY);
+                    leftY += 12;
                 });
-                checkPageBreak(30);
                 doc.fillColor("#dc3545").font("BanglaBold");
-                doc.text("Total:", leftCol, currentY);
-                doc.text(formatCurrency(totalDamage), leftCol + 130, currentY);
-                currentY += 14;
+                doc.text("Total:", leftCol, leftY);
+                doc.text(formatCurrency(totalDamage), leftCol + 130, leftY);
+                leftY += 14;
                 doc.fillColor("#e67e22").fontSize(7).font("BanglaRegular");
-                doc.text(`P&L Impact: -${formatCurrency(totalLostMargin)} (lost margin)`, leftCol, currentY);
-                currentY += 16;
+                doc.text(`P&L Impact: -${formatCurrency(totalLostMargin)} (lost margin)`, leftCol, leftY);
+                leftY += 16;
             }
 
             // DSR Dues
             if (adjustment?.dsrDues && adjustment.dsrDues.length > 0) {
-                checkPageBreak(30);
                 doc.fontSize(9).font("BanglaBold").fillColor("#e67e22");
-                doc.text("DSR Dues", leftCol, currentY);
-                currentY += 14;
+                doc.text("DSR Dues", leftCol, leftY);
+                leftY += 14;
 
                 doc.fontSize(8).font("BanglaRegular");
                 adjustment.dsrDues.forEach(due => {
-                    checkPageBreak(14);
-                    doc.fillColor(mediumGray).text("DSR Due", leftCol, currentY);
-                    doc.fillColor("#e67e22").text(formatCurrency(due.amount), leftCol + 100, currentY);
-                    currentY += 12;
+                    doc.fillColor(mediumGray).text("DSR Due", leftCol, leftY);
+                    doc.fillColor("#e67e22").text(formatCurrency(due.amount), leftCol + 100, leftY);
+                    leftY += 12;
                 });
-                currentY += 8;
+                leftY += 8;
             }
 
             // SR Dues
             if (adjustment?.srDues && adjustment.srDues.length > 0) {
-                checkPageBreak(30);
                 doc.fontSize(9).font("BanglaBold").fillColor("#4f46e5");
-                doc.text("SR Dues", leftCol, currentY);
-                currentY += 14;
+                doc.text("SR Dues", leftCol, leftY);
+                leftY += 14;
 
                 doc.fontSize(8).font("BanglaRegular");
                 let totalSrDueAmount = 0;
                 adjustment.srDues.forEach(due => {
-                    checkPageBreak(14);
                     const srName = due.srName || `SR #${due.srId}`;
                     const cust = due.customerName ? ` (${due.customerName})` : '';
                     const srLabel = truncateText(`${srName}${cust}`, 35);
-                    doc.fillColor(mediumGray).text(srLabel, leftCol, currentY);
-                    doc.fillColor("#4f46e5").text(formatCurrency(due.amount), leftCol + 160, currentY);
+                    doc.fillColor(mediumGray).text(srLabel, leftCol, leftY);
+                    doc.fillColor("#4f46e5").text(formatCurrency(due.amount), leftCol + 160, leftY);
                     totalSrDueAmount += due.amount;
-                    currentY += 12;
+                    leftY += 12;
                 });
-                checkPageBreak(16);
                 doc.fillColor("#4f46e5").font("BanglaBold");
-                doc.text("Total:", leftCol, currentY);
-                doc.text(formatCurrency(totalSrDueAmount), leftCol + 160, currentY);
-                currentY += 14;
-                currentY += 8;
+                doc.text("Total:", leftCol, leftY);
+                doc.text(formatCurrency(totalSrDueAmount), leftCol + 160, leftY);
+                leftY += 14;
+                leftY += 8;
             }
 
-            // Divider before summary waterfall
-            currentY += 5;
-            checkPageBreak(20);
-            doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightGray).lineWidth(1).stroke();
-            currentY += 15;
-
-            // --- Summary waterfall (rendered sequentially, right-aligned) ---
-            const rightCol = 320;
-            const labelWidth = 120;
-            const valueWidth = 80;
+            // =================== RIGHT COLUMN ===================
+            let rightY = summaryStartY;
 
             const subtotal = summaryData.subtotal;
             const discount = summaryData.discount;
@@ -954,27 +933,26 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
             doc.fontSize(9);
 
-            // Helper to render a summary line using currentY
+            // Helper to render a summary line
             const renderLine = (label: string, value: string, options?: { bold?: boolean; color?: string }) => {
-                checkPageBreak(16);
                 doc.font(options?.bold ? "BanglaBold" : "BanglaRegular").fillColor(mediumGray);
-                doc.text(label, rightCol, currentY);
+                doc.text(label, rightCol, rightY);
                 doc.fillColor(options?.color || darkGray);
-                doc.text(value, rightCol + labelWidth, currentY, { width: valueWidth, align: "right" });
-                currentY += 14;
+                doc.text(value, rightCol + labelWidth, rightY, { width: valueWidth, align: "right" });
+                rightY += 14;
             };
 
             const renderRunning = (value: number) => {
                 doc.font("BanglaRegular").fillColor("#999999").fontSize(7);
-                doc.text(`= ${formatCurrency(value)}`, rightCol + labelWidth, currentY - 2, { width: valueWidth, align: "right" });
-                currentY += 10;
+                doc.text(`= ${formatCurrency(value)}`, rightCol + labelWidth, rightY - 2, { width: valueWidth, align: "right" });
+                rightY += 10;
                 doc.fontSize(9);
             };
 
             // Subtotal
             renderLine("Subtotal", formatCurrency(subtotal));
 
-            // Discount (only if > 0)
+            // Discount
             if (discount > 0) {
                 renderLine("Discount", `-${formatCurrency(discount)}`, { color: "#dc3545" });
             }
@@ -1005,9 +983,9 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             }
 
             // Net Total
-            currentY += 4;
+            rightY += 4;
             renderLine("Net Total", formatCurrency(netTotal), { bold: true });
-            currentY += 4;
+            rightY += 4;
 
             // Payments
             renderLine("Payments", `-${formatCurrency(payments)}`, { color: "#28a745" });
@@ -1035,21 +1013,27 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
             // Profit
             const profit = summaryData.totalProfit || 0;
-            currentY += 4;
+            rightY += 4;
             renderLine("Total Profit", formatCurrency(profit), { bold: true, color: profit >= 0 ? "#2563eb" : "#dc3545" });
 
             // Due amount (highlighted)
-            checkPageBreak(30);
-            currentY += 5;
-            doc.fillColor(black).rect(rightCol - 5, currentY - 3, labelWidth + valueWidth + 15, 22).fill();
+            rightY += 5;
+            doc.fillColor(black).rect(rightCol - 5, rightY - 3, labelWidth + valueWidth + 15, 22).fill();
             doc.fillColor("#ffffff").fontSize(10).font("BanglaBold");
-            doc.text("DUE", rightCol, currentY + 2);
-            doc.text(formatCurrency(summaryData.due), rightCol + labelWidth, currentY + 2, { width: valueWidth, align: "right" });
-            currentY += 30;
+            doc.text("DUE", rightCol, rightY + 2);
+            doc.text(formatCurrency(summaryData.due), rightCol + labelWidth, rightY + 2, { width: valueWidth, align: "right" });
+            rightY += 30;
+
+            // =================== BELOW BOTH COLUMNS ===================
+            currentY = Math.max(leftY, rightY) + 10;
+
+            // If Amount to Collect doesn't fit, add a page
+            if (currentY + 80 > pageBottom) {
+                doc.addPage();
+                currentY = 40;
+            }
 
             // === AMOUNT TO COLLECT (for DSR) ===
-            checkPageBreak(80);
-
             doc.fillColor("#1a5f2a").fontSize(9).font("BanglaBold");
             doc.text("AMOUNT TO COLLECT", leftCol, currentY);
 
@@ -1061,10 +1045,13 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             currentY += 60;
 
             // === FOOTER ===
-            checkPageBreak(25);
+            if (currentY + 25 > pageBottom) {
+                doc.addPage();
+                currentY = 40;
+            }
             doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor(lightGray).lineWidth(1).stroke();
             doc.fillColor(mediumGray).fontSize(7).font("BanglaRegular")
-                .text(`Generated on ${new Date().toLocaleString("en-US", { timeZone: "Asia/Dhaka" })}`, 40, currentY + 8, { align: "center", width: 515 });
+                .text(`Generated on ${new Date().toLocaleString("en-US", { timeZone: "Asia/Dhaka" })}`, 40, currentY + 8, { align: "center", width: 515 });;
 
             doc.end();
         } catch (error) {
