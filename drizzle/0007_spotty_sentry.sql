@@ -1,0 +1,1 @@
+ALTER TABLE "global_settings" ADD COLUMN "customer_opening_due_enabled" boolean DEFAULT true NOT NULL;
