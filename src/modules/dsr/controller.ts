@@ -182,7 +182,7 @@ export const handleUpdateDsrProfile = async (c: Context): Promise<Response> => {
       return c.json({ success: false, message: "Invalid DSR ID" }, 400);
     }
 
-    const validatedData = c.req.valid("json") as UpdateDsrProfileInput;
+    const validatedData = (c as any).req.valid("json") as UpdateDsrProfileInput;
     const updated = await dsrService.updateDsrProfile(id, validatedData);
 
     if (!updated) {
@@ -226,7 +226,7 @@ export const handleAddDsrDocument = async (c: Context): Promise<Response> => {
       return c.json({ success: false, message: "DSR not found" }, 404);
     }
 
-    const validatedData = c.req.valid("json") as CreateDsrDocumentInput;
+    const validatedData = (c as any).req.valid("json") as CreateDsrDocumentInput;
     const document = await dsrService.addDsrDocument(dsrId, validatedData);
 
     return c.json({ success: true, data: document, message: "Document added successfully" }, 201);
