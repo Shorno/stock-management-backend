@@ -858,6 +858,18 @@ export const saveOrderAdjustment = async (
             orderItemsMap.set(item.id, { batchId: item.batchId, unit: item.unit });
         }
 
+        // Validate that all item return IDs actually belong to this order's current items
+        // This prevents FK violations when stale item IDs are sent after an order edit
+        // (editing an order deletes old items and creates new ones with different IDs)
+        for (const itemReturn of data.itemReturns) {
+            if (!orderItemsMap.has(itemReturn.itemId)) {
+                throw new Error(
+                    `Invalid order item ID ${itemReturn.itemId} - it does not belong to order #${orderId}. ` +
+                    `This can happen if the order was recently edited. Please reload the page and try again.`
+                );
+            }
+        }
+
         // Get existing returns BEFORE deleting (to reverse their stock impact)
         const existingReturns = await tx.query.orderItemReturns.findMany({
             where: (returns, { eq }) => eq(returns.orderId, orderId),
