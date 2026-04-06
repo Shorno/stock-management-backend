@@ -823,9 +823,28 @@ export const getDSRDueSummary = async (
 /**
  * Get detailed dues for a specific DSR's orders
  */
+export interface DSROwnDueDetail {
+    dueId: number;
+    orderId: number;
+    orderNumber: string;
+    orderDate: string;
+    originalAmount: string;
+    collectedAmount: string;
+    remainingDue: string;
+    note: string | null;
+}
+
 export const getDSRDueDetails = async (
     dsrId: number
-): Promise<{ dsr: { id: number; name: string }; dues: DSRDueDetail[]; totalOutstanding: string; totalCollected: string; openingDue: string }> => {
+): Promise<{
+    dsr: { id: number; name: string };
+    dues: DSRDueDetail[];
+    totalOutstanding: string;
+    totalCollected: string;
+    openingDue: string;
+    dsrOwnDues: DSROwnDueDetail[];
+    dsrOwnDuesTotal: string;
+}> => {
     // Get DSR info
     const dsrInfo = await db
         .select({ id: dsr.id, name: dsr.name })
@@ -839,7 +858,9 @@ export const getDSRDueDetails = async (
             dues: [],
             totalOutstanding: "0.00",
             totalCollected: "0.00",
-            openingDue: "0.00"
+            openingDue: "0.00",
+            dsrOwnDues: [],
+            dsrOwnDuesTotal: "0.00",
         };
     }
 
@@ -907,12 +928,51 @@ export const getDSRDueDetails = async (
         ));
     const openingDue = parseFloat(openingDueResult[0]?.amount || "0");
 
+    // Get DSR's own pending dues from order adjustments
+    const allDsrOwnDues = await db
+        .select({
+            dueId: orderDsrDues.id,
+            orderId: orderDsrDues.orderId,
+            orderNumber: wholesaleOrders.orderNumber,
+            orderDate: wholesaleOrders.orderDate,
+            originalAmount: orderDsrDues.amount,
+            collectedAmount: orderDsrDues.collectedAmount,
+            note: orderDsrDues.note,
+        })
+        .from(orderDsrDues)
+        .innerJoin(wholesaleOrders, eq(orderDsrDues.orderId, wholesaleOrders.id))
+        .where(eq(orderDsrDues.dsrId, dsrId))
+        .orderBy(wholesaleOrders.orderDate);
+
+    const pendingDsrOwnDues = allDsrOwnDues.filter(due => {
+        const remaining = parseFloat(due.originalAmount) - parseFloat(due.collectedAmount || "0");
+        return remaining > 0;
+    });
+
+    const dsrOwnDuesWithRemaining = pendingDsrOwnDues.map(due => ({
+        dueId: due.dueId,
+        orderId: due.orderId,
+        orderNumber: due.orderNumber,
+        orderDate: due.orderDate,
+        originalAmount: due.originalAmount,
+        collectedAmount: due.collectedAmount || "0",
+        remainingDue: (parseFloat(due.originalAmount) - parseFloat(due.collectedAmount || "0")).toFixed(2),
+        note: due.note,
+    }));
+
+    const dsrOwnDuesTotal = allDsrOwnDues.reduce(
+        (sum, due) => sum + Math.max(0, parseFloat(due.originalAmount) - parseFloat(due.collectedAmount || "0")),
+        0
+    );
+
     return {
         dsr: dsrInfo[0]!,
         dues: duesWithRemaining,
         totalOutstanding: totalOutstanding.toFixed(2),
         totalCollected: totalCollected.toFixed(2),
         openingDue: openingDue.toFixed(2),
+        dsrOwnDues: dsrOwnDuesWithRemaining,
+        dsrOwnDuesTotal: dsrOwnDuesTotal.toFixed(2),
     };
 };
 
@@ -984,6 +1044,65 @@ export const getDSRCollectionHistory = async (
         paymentMethod: row.paymentMethod,
         collectedByDsrId: row.collectedByDsrId,
         collectedByDsrName: row.collectedByDsrId ? collectorMap.get(row.collectedByDsrId) || null : null,
+        note: row.note,
+        createdAt: row.createdAt,
+    }));
+};
+
+// ==================== DSR OWN DUE COLLECTION HISTORY ====================
+
+export interface DSROwnDueCollectionRecord {
+    id: number;
+    orderId: number | null;
+    orderNumber: string | null;
+    orderDate: string | null;
+    amount: string;
+    collectionDate: string;
+    paymentMethod: string | null;
+    note: string | null;
+    createdAt: Date;
+}
+
+/**
+ * Get DSR's own due collection history (money DSR paid back to the company)
+ */
+export const getDSROwnDueCollectionHistory = async (
+    query: GetDSRCollectionHistoryQuery
+): Promise<DSROwnDueCollectionRecord[]> => {
+    const conditions = [eq(dsrDueCollections.dsrId, query.dsrId)];
+
+    if (query.startDate) {
+        conditions.push(gte(dsrDueCollections.collectionDate, query.startDate));
+    }
+    if (query.endDate) {
+        conditions.push(lte(dsrDueCollections.collectionDate, query.endDate));
+    }
+
+    const results = await db
+        .select({
+            id: dsrDueCollections.id,
+            orderId: dsrDueCollections.orderId,
+            orderNumber: wholesaleOrders.orderNumber,
+            orderDate: wholesaleOrders.orderDate,
+            amount: dsrDueCollections.amount,
+            collectionDate: dsrDueCollections.collectionDate,
+            paymentMethod: dsrDueCollections.paymentMethod,
+            note: dsrDueCollections.note,
+            createdAt: dsrDueCollections.createdAt,
+        })
+        .from(dsrDueCollections)
+        .leftJoin(wholesaleOrders, eq(dsrDueCollections.orderId, wholesaleOrders.id))
+        .where(and(...conditions))
+        .orderBy(desc(dsrDueCollections.collectionDate), desc(dsrDueCollections.createdAt));
+
+    return results.map(row => ({
+        id: row.id,
+        orderId: row.orderId,
+        orderNumber: row.orderNumber || null,
+        orderDate: row.orderDate || null,
+        amount: row.amount,
+        collectionDate: row.collectionDate,
+        paymentMethod: row.paymentMethod,
         note: row.note,
         createdAt: row.createdAt,
     }));
