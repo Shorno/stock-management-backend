@@ -187,6 +187,30 @@ dueCollectionRoutes.get(
     }
 );
 
+// Get DSR's own due collection history (money DSR paid back to company)
+dueCollectionRoutes.get(
+    "/dsr/:dsrId/own-collections",
+    zValidator("query", getDSRCollectionHistoryQuerySchema),
+    async (c) => {
+        try {
+            const dsrId = Number(c.req.param("dsrId"));
+            if (isNaN(dsrId)) {
+                return c.json({ success: false, error: "Invalid DSR ID" }, 400);
+            }
+
+            const query = c.req.valid("query");
+            const history = await dueCollectionService.getDSROwnDueCollectionHistory({
+                ...query,
+                dsrId
+            });
+            return c.json({ success: true, data: history });
+        } catch (error) {
+            logError("Error fetching DSR own due collection history:", error);
+            return c.json({ success: false, error: "Failed to fetch DSR own due collection history" }, 500);
+        }
+    }
+);
+
 // Collect DSR's own due (from order adjustments)
 dueCollectionRoutes.post(
     "/dsr/collect",
