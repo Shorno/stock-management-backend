@@ -368,11 +368,13 @@ export const orderDsrDues = pgTable("order_dsr_dues", {
         .references(() => dsr.id, { onDelete: "cascade" }),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     collectedAmount: decimal("collected_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+    customerId: integer("customer_id").references(() => customer.id, { onDelete: "set null" }),
     note: text("note"),
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_dsr_dues_order").on(table.orderId),
     dsrIdx: index("idx_order_dsr_dues_dsr").on(table.dsrId),
+    customerIdx: index("idx_order_dsr_dues_customer").on(table.customerId),
 }));
 
 // Order DSR dues relations
@@ -384,6 +386,10 @@ export const orderDsrDuesRelations = relations(orderDsrDues, ({ one }) => ({
     dsr: one(dsr, {
         fields: [orderDsrDues.dsrId],
         references: [dsr.id],
+    }),
+    customer: one(customer, {
+        fields: [orderDsrDues.customerId],
+        references: [customer.id],
     }),
 }));
 

@@ -963,6 +963,7 @@ export const saveOrderAdjustment = async (
                     orderId,
                     dsrId: order.dsrId, // Use the DSR assigned to this order
                     amount: dsrDue.amount.toFixed(2),
+                    customerId: dsrDue.customerId || null,
                     note: dsrDue.note || null,
                 });
                 totalDsrDuesAmount += dsrDue.amount;
@@ -1111,9 +1112,10 @@ export const getOrderAdjustment = async (orderId: number) => {
         where: (d, { eq }) => eq(d.orderId, orderId),
     });
 
-    // Get DSR dues
+    // Get DSR dues (with customer name)
     const dsrDuesData = await db.query.orderDsrDues.findMany({
         where: (d, { eq }) => eq(d.orderId, orderId),
+        with: { customer: true },
     });
 
     // Get SR dues (with SR name, brand/company name, and customer name)
@@ -1241,6 +1243,8 @@ export const getOrderAdjustment = async (orderId: number) => {
             id: d.id,
             dsrId: d.dsrId,
             amount: parseFloat(d.amount),
+            customerId: d.customerId || undefined,
+            customerName: (d as any).customer?.name || undefined,
             note: d.note || undefined,
         })),
         srDues: srDuesData.map(d => ({
