@@ -74,6 +74,7 @@ export interface CollectionRecord {
     entityId: number | null;
     orderId: number | null;
     orderNumber: string | null;
+    orderDate: string | null;
     amount: string;
     collectionDate: string;
     paymentMethod: string | null;
@@ -301,6 +302,103 @@ export const getCustomersWithDues = async (
 };
 
 /**
+ * Get total outstanding dues for ALL customers (direct + SR-tagged + DSR-tagged).
+ * Returns a simple map of customerId → totalDue for display in customer selection dropdowns.
+ */
+export const getAllCustomerDueSummary = async (): Promise<Record<number, number>> => {
+    const dueMap: Record<number, number> = {};
+
+    // 1. Direct customer dues (from orderCustomerDues)
+    const directDues = await db
+        .select({
+            customerId: orderCustomerDues.customerId,
+            totalDue: sql<string>`SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL))`,
+        })
+        .from(orderCustomerDues)
+        .where(
+            gt(
+                sql`CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL)`,
+                0
+            )
+        )
+        .groupBy(orderCustomerDues.customerId);
+
+    for (const row of directDues) {
+        if (row.customerId) {
+            dueMap[row.customerId] = (dueMap[row.customerId] || 0) + parseFloat(row.totalDue || "0");
+        }
+    }
+
+    // 2. SR-tagged customer dues (from orderSrDues where customerId is set)
+    const srTaggedDues = await db
+        .select({
+            customerId: orderSrDues.customerId,
+            totalDue: sql<string>`SUM(CAST(${orderSrDues.amount} AS DECIMAL) - CAST(${orderSrDues.collectedAmount} AS DECIMAL))`,
+        })
+        .from(orderSrDues)
+        .where(
+            and(
+                sql`${orderSrDues.customerId} IS NOT NULL`,
+                gt(
+                    sql`CAST(${orderSrDues.amount} AS DECIMAL) - CAST(${orderSrDues.collectedAmount} AS DECIMAL)`,
+                    0
+                )
+            )
+        )
+        .groupBy(orderSrDues.customerId);
+
+    for (const row of srTaggedDues) {
+        if (row.customerId) {
+            dueMap[row.customerId] = (dueMap[row.customerId] || 0) + parseFloat(row.totalDue || "0");
+        }
+    }
+
+    // 3. DSR-tagged customer dues (from orderDsrDues where customerId is set)
+    const dsrTaggedDues = await db
+        .select({
+            customerId: orderDsrDues.customerId,
+            totalDue: sql<string>`SUM(CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(${orderDsrDues.collectedAmount} AS DECIMAL))`,
+        })
+        .from(orderDsrDues)
+        .where(
+            and(
+                sql`${orderDsrDues.customerId} IS NOT NULL`,
+                gt(
+                    sql`CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(${orderDsrDues.collectedAmount} AS DECIMAL)`,
+                    0
+                )
+            )
+        )
+        .groupBy(orderDsrDues.customerId);
+
+    for (const row of dsrTaggedDues) {
+        if (row.customerId) {
+            dueMap[row.customerId] = (dueMap[row.customerId] || 0) + parseFloat(row.totalDue || "0");
+        }
+    }
+
+    // 4. Opening balance dues
+    const openingDues = await db
+        .select({
+            entityId: openingBalances.entityId,
+            amount: openingBalances.amount,
+        })
+        .from(openingBalances)
+        .where(eq(openingBalances.type, 'customer_due'));
+
+    for (const row of openingDues) {
+        if (row.entityId) {
+            const amount = parseFloat(row.amount);
+            if (amount > 0) {
+                dueMap[row.entityId] = (dueMap[row.entityId] || 0) + amount;
+            }
+        }
+    }
+
+    return dueMap;
+};
+
+/**
  * Get detailed dues for a specific customer
  */
 export const getCustomerDueDetails = async (
@@ -383,6 +481,116 @@ export const getCustomerDueDetails = async (
         dues: duesWithRemaining,
         totalDue: totalDue.toFixed(2),
         openingDue: openingDue.toFixed(2),
+    };
+};
+
+/**
+ * Get categorized due breakdown for a specific customer.
+ * Returns dues grouped by source: direct, via SR, via DSR.
+ */
+export const getCategorizedCustomerDues = async (customerId: number) => {
+    // 1. Direct customer dues (from orderCustomerDues)
+    const directDues = await db
+        .select({
+            dueId: orderCustomerDues.id,
+            orderId: orderCustomerDues.orderId,
+            orderNumber: wholesaleOrders.orderNumber,
+            orderDate: wholesaleOrders.orderDate,
+            originalAmount: orderCustomerDues.amount,
+            collectedAmount: orderCustomerDues.collectedAmount,
+            dsrName: dsr.name,
+        })
+        .from(orderCustomerDues)
+        .innerJoin(wholesaleOrders, eq(orderCustomerDues.orderId, wholesaleOrders.id))
+        .innerJoin(dsr, eq(wholesaleOrders.dsrId, dsr.id))
+        .where(
+            and(
+                eq(orderCustomerDues.customerId, customerId),
+                gt(
+                    sql`CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL)`,
+                    0
+                )
+            )
+        )
+        .orderBy(wholesaleOrders.orderDate);
+
+    // 2. SR-tagged dues (from orderSrDues where customerId matches)
+    const srTaggedDues = await db
+        .select({
+            dueId: orderSrDues.id,
+            orderId: orderSrDues.orderId,
+            orderNumber: wholesaleOrders.orderNumber,
+            orderDate: wholesaleOrders.orderDate,
+            originalAmount: orderSrDues.amount,
+            collectedAmount: orderSrDues.collectedAmount,
+            srName: sr.name,
+            note: orderSrDues.note,
+        })
+        .from(orderSrDues)
+        .innerJoin(wholesaleOrders, eq(orderSrDues.orderId, wholesaleOrders.id))
+        .innerJoin(sr, eq(orderSrDues.srId, sr.id))
+        .where(
+            and(
+                eq(orderSrDues.customerId, customerId),
+                gt(
+                    sql`CAST(${orderSrDues.amount} AS DECIMAL) - CAST(${orderSrDues.collectedAmount} AS DECIMAL)`,
+                    0
+                )
+            )
+        )
+        .orderBy(wholesaleOrders.orderDate);
+
+    // 3. DSR-tagged dues (from orderDsrDues where customerId matches)
+    const dsrTaggedDues = await db
+        .select({
+            dueId: orderDsrDues.id,
+            orderId: orderDsrDues.orderId,
+            orderNumber: wholesaleOrders.orderNumber,
+            orderDate: wholesaleOrders.orderDate,
+            originalAmount: orderDsrDues.amount,
+            collectedAmount: orderDsrDues.collectedAmount,
+            dsrName: dsr.name,
+            note: orderDsrDues.note,
+        })
+        .from(orderDsrDues)
+        .innerJoin(wholesaleOrders, eq(orderDsrDues.orderId, wholesaleOrders.id))
+        .innerJoin(dsr, eq(wholesaleOrders.dsrId, dsr.id))
+        .where(
+            and(
+                eq(orderDsrDues.customerId, customerId),
+                gt(
+                    sql`CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(${orderDsrDues.collectedAmount} AS DECIMAL)`,
+                    0
+                )
+            )
+        )
+        .orderBy(wholesaleOrders.orderDate);
+
+    const mapDue = (d: any) => ({
+        dueId: d.dueId,
+        orderId: d.orderId,
+        orderNumber: d.orderNumber,
+        orderDate: d.orderDate,
+        originalAmount: d.originalAmount,
+        collectedAmount: d.collectedAmount,
+        remainingDue: (parseFloat(d.originalAmount) - parseFloat(d.collectedAmount)).toFixed(2),
+        staffName: d.dsrName || d.srName || null,
+        note: d.note || null,
+    });
+
+    const directMapped = directDues.map(mapDue);
+    const srMapped = srTaggedDues.map(mapDue);
+    const dsrMapped = dsrTaggedDues.map(mapDue);
+
+    return {
+        direct: directMapped,
+        viaSR: srMapped,
+        viaDSR: dsrMapped,
+        totals: {
+            directDue: directMapped.reduce((sum, d) => sum + parseFloat(d.remainingDue), 0),
+            srTaggedDue: srMapped.reduce((sum, d) => sum + parseFloat(d.remainingDue), 0),
+            dsrTaggedDue: dsrMapped.reduce((sum, d) => sum + parseFloat(d.remainingDue), 0),
+        },
     };
 };
 
@@ -583,6 +791,7 @@ export const getCollectionHistory = async (
                 customerName: customer.name,
                 orderId: dueCollections.orderId,
                 orderNumber: wholesaleOrders.orderNumber,
+                orderDate: wholesaleOrders.orderDate,
                 routeId: wholesaleOrders.routeId,
                 routeName: route.name,
                 amount: dueCollections.amount,
@@ -609,6 +818,7 @@ export const getCollectionHistory = async (
                 entityId: row.customerId,
                 orderId: row.orderId,
                 orderNumber: row.orderNumber || null,
+                orderDate: row.orderDate || null,
                 amount: row.amount,
                 collectionDate: row.collectionDate,
                 paymentMethod: row.paymentMethod,
@@ -636,6 +846,7 @@ export const getCollectionHistory = async (
                 dsrName: dsr.name,
                 orderId: dsrDueCollections.orderId,
                 orderNumber: wholesaleOrders.orderNumber,
+                orderDate: wholesaleOrders.orderDate,
                 routeId: wholesaleOrders.routeId,
                 routeName: route.name,
                 customerName: customer.name,
@@ -666,6 +877,7 @@ export const getCollectionHistory = async (
                 entityId: row.dsrId,
                 orderId: row.orderId,
                 orderNumber: row.orderNumber || null,
+                orderDate: row.orderDate || null,
                 amount: row.amount,
                 collectionDate: row.collectionDate,
                 paymentMethod: row.paymentMethod,
@@ -693,6 +905,7 @@ export const getCollectionHistory = async (
                 srName: sr.name,
                 orderId: srDueCollections.orderId,
                 orderNumber: wholesaleOrders.orderNumber,
+                orderDate: wholesaleOrders.orderDate,
                 routeId: wholesaleOrders.routeId,
                 routeName: route.name,
                 customerName: customer.name,
@@ -719,6 +932,7 @@ export const getCollectionHistory = async (
                 entityId: row.srId,
                 orderId: row.orderId,
                 orderNumber: row.orderNumber || null,
+                orderDate: row.orderDate || null,
                 amount: row.amount,
                 collectionDate: row.collectionDate,
                 paymentMethod: row.paymentMethod,

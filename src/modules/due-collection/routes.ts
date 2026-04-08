@@ -34,6 +34,17 @@ dueCollectionRoutes.get(
     }
 );
 
+// Get aggregated customer due totals (all due types) for dropdowns
+dueCollectionRoutes.get("/customer-due-summary", async (c) => {
+    try {
+        const summary = await dueCollectionService.getAllCustomerDueSummary();
+        return c.json({ success: true, data: summary });
+    } catch (error) {
+        logError("Error fetching customer due summary:", error);
+        return c.json({ success: false, error: "Failed to fetch customer due summary" }, 500);
+    }
+});
+
 // Get customer due details
 dueCollectionRoutes.get("/customers/:customerId", async (c) => {
     try {
@@ -51,6 +62,22 @@ dueCollectionRoutes.get("/customers/:customerId", async (c) => {
     } catch (error) {
         logError("Error fetching customer due details:", error);
         return c.json({ success: false, error: "Failed to fetch customer details" }, 500);
+    }
+});
+
+// Get categorized due breakdown for a specific customer
+dueCollectionRoutes.get("/customers/:customerId/categorized", async (c) => {
+    try {
+        const customerId = Number(c.req.param("customerId"));
+        if (isNaN(customerId)) {
+            return c.json({ success: false, error: "Invalid customer ID" }, 400);
+        }
+
+        const data = await dueCollectionService.getCategorizedCustomerDues(customerId);
+        return c.json({ success: true, data });
+    } catch (error) {
+        logError("Error fetching categorized customer dues:", error);
+        return c.json({ success: false, error: "Failed to fetch categorized dues" }, 500);
     }
 });
 

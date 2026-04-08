@@ -622,7 +622,7 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             // === ITEMS TABLE ===
             const tableLeft = 40;
             const tableWidth = 515;
-            const colWidths = { sl: 18, product: 72, brand: 42, qty: 20, unit: 30, extra: 20, free: 20, total: 25, price: 40, disc: 30, subtotal: 40, retQty: 22, netQty: 25, netTotal: 40, profit: 40 };
+            const colWidths = { sl: 18, product: 82, brand: 52, qty: 20, unit: 30, extra: 20, free: 20, total: 25, price: 40, disc: 30, subtotal: 40, retQty: 22, netQty: 25, netTotal: 50 };
             const pageBottom = 780; // A4 usable height with margins
             const mainRowHeight = 18;
 
@@ -658,8 +658,6 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 doc.text("Net Qty", hColX, currentY + 7, { width: colWidths.netQty, align: "right" });
                 hColX += colWidths.netQty;
                 doc.text("Net", hColX, currentY + 7, { width: colWidths.netTotal, align: "right" });
-                hColX += colWidths.netTotal;
-                doc.text("Profit", hColX, currentY + 7, { width: colWidths.profit, align: "right" });
                 currentY += 24;
             };
 
@@ -742,9 +740,6 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
                 doc.font("BanglaRegular");
                 colX += colWidths.netQty;
                 doc.fillColor(black).font("BanglaBold").text(formatCurrencyShort(item.netTotal), colX, currentY + 3, { width: colWidths.netTotal, align: "right" });
-                colX += colWidths.netTotal;
-                const itemProfit = (item as any).itemProfit || 0;
-                doc.fillColor(itemProfit >= 0 ? "#2563eb" : "#dc3545").text(formatCurrencyShort(itemProfit), colX, currentY + 3, { width: colWidths.profit, align: "right" });
                 doc.font("BanglaRegular");
 
                 currentY += 18;
@@ -1010,11 +1005,6 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             if (srDues > 0) {
                 renderLine("SR Due", `-${formatCurrency(srDues)}`, { color: "#4f46e5" });
             }
-
-            // Profit
-            const profit = summaryData.totalProfit || 0;
-            rightY += 4;
-            renderLine("Total Profit", formatCurrency(profit), { bold: true, color: profit >= 0 ? "#2563eb" : "#dc3545" });
 
             // Due amount (highlighted)
             rightY += 5;

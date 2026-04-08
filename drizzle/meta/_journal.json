@@ -57,6 +57,13 @@
       "when": 1775189802594,
       "tag": "0007_spotty_sentry",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775620845580,
+      "tag": "0008_abandoned_eddie_brock",
+      "breakpoints": true
     }
   ]
 }

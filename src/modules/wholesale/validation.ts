@@ -130,6 +130,7 @@ export const adjustmentDamageReturnSchema = z.object({
 // DSR due schema for adjustments
 export const adjustmentDsrDueSchema = z.object({
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
+    customerId: z.coerce.number().int().positive().optional(),
     note: z.string().optional(),
 });
 
