@@ -74,6 +74,7 @@ export interface CollectionRecord {
     entityId: number | null;
     orderId: number | null;
     orderNumber: string | null;
+    orderDate: string | null;
     amount: string;
     collectionDate: string;
     paymentMethod: string | null;
@@ -583,6 +584,7 @@ export const getCollectionHistory = async (
                 customerName: customer.name,
                 orderId: dueCollections.orderId,
                 orderNumber: wholesaleOrders.orderNumber,
+                orderDate: wholesaleOrders.orderDate,
                 routeId: wholesaleOrders.routeId,
                 routeName: route.name,
                 amount: dueCollections.amount,
@@ -609,6 +611,7 @@ export const getCollectionHistory = async (
                 entityId: row.customerId,
                 orderId: row.orderId,
                 orderNumber: row.orderNumber || null,
+                orderDate: row.orderDate || null,
                 amount: row.amount,
                 collectionDate: row.collectionDate,
                 paymentMethod: row.paymentMethod,
@@ -636,6 +639,7 @@ export const getCollectionHistory = async (
                 dsrName: dsr.name,
                 orderId: dsrDueCollections.orderId,
                 orderNumber: wholesaleOrders.orderNumber,
+                orderDate: wholesaleOrders.orderDate,
                 routeId: wholesaleOrders.routeId,
                 routeName: route.name,
                 customerName: customer.name,
@@ -666,6 +670,7 @@ export const getCollectionHistory = async (
                 entityId: row.dsrId,
                 orderId: row.orderId,
                 orderNumber: row.orderNumber || null,
+                orderDate: row.orderDate || null,
                 amount: row.amount,
                 collectionDate: row.collectionDate,
                 paymentMethod: row.paymentMethod,
@@ -693,6 +698,7 @@ export const getCollectionHistory = async (
                 srName: sr.name,
                 orderId: srDueCollections.orderId,
                 orderNumber: wholesaleOrders.orderNumber,
+                orderDate: wholesaleOrders.orderDate,
                 routeId: wholesaleOrders.routeId,
                 routeName: route.name,
                 customerName: customer.name,
@@ -719,6 +725,7 @@ export const getCollectionHistory = async (
                 entityId: row.srId,
                 orderId: row.orderId,
                 orderNumber: row.orderNumber || null,
+                orderDate: row.orderDate || null,
                 amount: row.amount,
                 collectionDate: row.collectionDate,
                 paymentMethod: row.paymentMethod,
