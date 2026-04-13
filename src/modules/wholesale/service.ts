@@ -845,7 +845,7 @@ export const saveOrderAdjustment = async (
         // Get the order with items (need batchId for stock updates)
         const order = await tx.query.wholesaleOrders.findFirst({
             where: (orders, { eq }) => eq(orders.id, orderId),
-            with: { items: true },
+            with: { items: { with: { product: true } } },
         }) as any;
 
         if (!order) {
@@ -866,6 +866,50 @@ export const saveOrderAdjustment = async (
                 throw new Error(
                     `Invalid order item ID ${itemReturn.itemId} - it does not belong to order #${orderId}. ` +
                     `This can happen if the order was recently edited. Please reload the page and try again.`
+                );
+            }
+        }
+
+        // Validate that return quantities do not exceed ordered quantities
+        for (const itemReturn of data.itemReturns) {
+            const orderItem = order.items.find((i: any) => i.id === itemReturn.itemId);
+            if (!orderItem) continue; // Already validated above
+
+            const unitMultiplier = await getUnitMultiplier(orderItem.unit);
+            const paidQtyInBase = orderItem.totalQuantity - orderItem.freeQuantity;
+
+            // Check fixed-unit return quantity
+            if (itemReturn.returnQuantity > orderItem.quantity) {
+                throw new Error(
+                    `Return quantity (${itemReturn.returnQuantity}) exceeds ordered quantity (${orderItem.quantity}) ` +
+                    `for item "${orderItem.product?.name || orderItem.productId}". Cannot return more than ordered.`
+                );
+            }
+
+            // Check extra pieces return quantity
+            const itemExtraPieces = orderItem.extraPieces ?? 0;
+            const returnExtraPieces = itemReturn.returnExtraPieces ?? 0;
+            if (returnExtraPieces > itemExtraPieces) {
+                throw new Error(
+                    `Return extra pieces (${returnExtraPieces}) exceeds ordered extra pieces (${itemExtraPieces}) ` +
+                    `for item "${orderItem.product?.name || orderItem.productId}". Cannot return more than ordered.`
+                );
+            }
+
+            // Check free quantity return
+            if (itemReturn.returnFreeQuantity > orderItem.freeQuantity) {
+                throw new Error(
+                    `Return free quantity (${itemReturn.returnFreeQuantity}) exceeds ordered free quantity (${orderItem.freeQuantity}) ` +
+                    `for item "${orderItem.product?.name || orderItem.productId}". Cannot return more than ordered.`
+                );
+            }
+
+            // Check combined total return doesn't exceed paid quantity
+            const combinedReturnPcs = (itemReturn.returnQuantity * unitMultiplier) + returnExtraPieces;
+            if (combinedReturnPcs > paidQtyInBase) {
+                throw new Error(
+                    `Total return (${combinedReturnPcs} PCS) exceeds ordered paid quantity (${paidQtyInBase} PCS) ` +
+                    `for item "${orderItem.product?.name || orderItem.productId}". Cannot return more than ordered.`
                 );
             }
         }
