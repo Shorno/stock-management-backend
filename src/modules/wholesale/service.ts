@@ -877,21 +877,12 @@ export const saveOrderAdjustment = async (
 
             const unitMultiplier = await getUnitMultiplier(orderItem.unit);
             const paidQtyInBase = orderItem.totalQuantity - orderItem.freeQuantity;
+            const returnExtraPieces = itemReturn.returnExtraPieces ?? 0;
 
             // Check fixed-unit return quantity
             if (itemReturn.returnQuantity > orderItem.quantity) {
                 throw new Error(
                     `Return quantity (${itemReturn.returnQuantity}) exceeds ordered quantity (${orderItem.quantity}) ` +
-                    `for item "${orderItem.product?.name || orderItem.productId}". Cannot return more than ordered.`
-                );
-            }
-
-            // Check extra pieces return quantity
-            const itemExtraPieces = orderItem.extraPieces ?? 0;
-            const returnExtraPieces = itemReturn.returnExtraPieces ?? 0;
-            if (returnExtraPieces > itemExtraPieces) {
-                throw new Error(
-                    `Return extra pieces (${returnExtraPieces}) exceeds ordered extra pieces (${itemExtraPieces}) ` +
                     `for item "${orderItem.product?.name || orderItem.productId}". Cannot return more than ordered.`
                 );
             }
@@ -905,6 +896,8 @@ export const saveOrderAdjustment = async (
             }
 
             // Check combined total return doesn't exceed paid quantity
+            // Note: returnExtraPieces is NOT capped to item.extraPieces — customers can
+            // return loose PCS from opened fixed units (e.g., 5 PCS from an opened carton)
             const combinedReturnPcs = (itemReturn.returnQuantity * unitMultiplier) + returnExtraPieces;
             if (combinedReturnPcs > paidQtyInBase) {
                 throw new Error(
