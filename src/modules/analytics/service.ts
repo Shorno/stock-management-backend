@@ -1,8 +1,7 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, orderSrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections, dsrDueCollections, srDueCollections, plAdjustments } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, orderSrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections, dsrDueCollections, srDueCollections, plAdjustments, unit } from "../../db/schema";
 import { product, productVariant, stockAdjustments, cashWithdrawals } from "../../db/schema";
-import { eq, and, gte, lte, desc, sum, count, ne, sql } from "drizzle-orm";
-import { getUnitMultiplier } from "../unit/service";
+import { eq, and, gte, lte, desc, sum, count, ne, sql, inArray } from "drizzle-orm";
 
 export interface DateRange {
     startDate?: string;
@@ -81,6 +80,35 @@ function getPreviousPeriodDates(startDate?: string, endDate?: string): { prevSta
         prevStart: prevStart.toISOString().split('T')[0] as string,
         prevEnd: prevEnd.toISOString().split('T')[0] as string
     };
+}
+
+async function getUnitMultipliersMap(abbreviations: (string | null | undefined)[]): Promise<Map<string, number>> {
+    const normalized = Array.from(
+        new Set(
+            abbreviations
+                .map((abbr) => (abbr || "PCS").toUpperCase())
+                .filter(Boolean)
+        )
+    );
+
+    const multiplierMap = new Map<string, number>();
+    if (normalized.length === 0) {
+        return multiplierMap;
+    }
+
+    const units = await db
+        .select({
+            abbreviation: unit.abbreviation,
+            multiplier: unit.multiplier,
+        })
+        .from(unit)
+        .where(inArray(unit.abbreviation, normalized));
+
+    for (const row of units) {
+        multiplierMap.set((row.abbreviation || "PCS").toUpperCase(), Number(row.multiplier || 1));
+    }
+
+    return multiplierMap;
 }
 
 async function calculateSalesMetrics(dateFilters: ReturnType<typeof getDateFilter>) {
@@ -594,6 +622,23 @@ export interface DashboardStats {
  * Optionally filtered by date range
  */
 export async function getDashboardStats(dateRange?: DateRange): Promise<DashboardStats> {
+    // #region agent log
+    const __dashT0 = Date.now();
+    fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
+        body: JSON.stringify({
+            sessionId: "9701ce",
+            runId: "pre-fix",
+            hypothesisId: "H3",
+            location: "analytics/service.ts:getDashboardStats",
+            message: "getDashboardStats start",
+            data: {},
+            timestamp: Date.now(),
+        }),
+    }).catch(() => {});
+    // #endregion
+
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
 
     // ----- NET SALES -----
@@ -621,6 +666,22 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         .where(salesFilters);
 
     const orderIds = orderIdsResult.map(o => o.id);
+
+    // #region agent log
+    fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
+        body: JSON.stringify({
+            sessionId: "9701ce",
+            runId: "pre-fix",
+            hypothesisId: "H2",
+            location: "analytics/service.ts:getDashboardStats",
+            message: "orderIds loaded for salesFilters",
+            data: { orderIdCount: orderIds.length, elapsedMs: Date.now() - __dashT0 },
+            timestamp: Date.now(),
+        }),
+    }).catch(() => {});
+    // #endregion
 
     let totalReturns = 0;
     let totalAdjustmentDiscounts = 0;
@@ -745,15 +806,54 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
             .from(orderItemReturns)
             .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
 
+        // #region agent log
+        const __cogsLoopStart = Date.now();
+        fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
+            body: JSON.stringify({
+                sessionId: "9701ce",
+                runId: "pre-fix",
+                hypothesisId: "H1",
+                location: "analytics/service.ts:getDashboardStats",
+                message: "before COGS returnQuantityMap loop",
+                data: {
+                    returnRowCount: returnsResult.length,
+                    orderItemRows: orderItemsResult.length,
+                    elapsedMs: Date.now() - __dashT0,
+                },
+                timestamp: Date.now(),
+            }),
+        }).catch(() => {});
+        // #endregion
+
         // Create a map of order item ID to return quantity in base pieces
+        const multiplierByUnit = await getUnitMultipliersMap(returnsResult.map((ret) => ret.returnUnit));
+
         const returnQuantityMap = new Map<number, number>();
         for (const ret of returnsResult) {
-            // Get unit multiplier from database lookup
-            const unitMultiplier = await getUnitMultiplier(ret.returnUnit || 'PCS');
+            const unitCode = (ret.returnUnit || 'PCS').toUpperCase();
+            const unitMultiplier = multiplierByUnit.get(unitCode) || 1;
             // Calculate total return in base pieces: (returnQuantity × multiplier) + extraPieces
-            const returnInBasePieces = (ret.returnQuantity * unitMultiplier) + (ret.returnExtraPieces || 0);
+            const returnInBasePieces = (Number(ret.returnQuantity || 0) * unitMultiplier) + Number(ret.returnExtraPieces || 0);
             returnQuantityMap.set(ret.orderItemId, returnInBasePieces);
         }
+
+        // #region agent log
+        fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
+            body: JSON.stringify({
+                sessionId: "9701ce",
+                runId: "pre-fix",
+                hypothesisId: "H1",
+                location: "analytics/service.ts:getDashboardStats",
+                message: "after COGS returnQuantityMap loop",
+                data: { loopMs: Date.now() - __cogsLoopStart, elapsedMs: Date.now() - __dashT0 },
+                timestamp: Date.now(),
+            }),
+        }).catch(() => {});
+        // #endregion
 
         costOfGoodsSold = orderItemsResult.reduce((sum, row) => {
             const supplierPrice = Number(row.batch.supplierPrice || 0);
@@ -1044,6 +1144,22 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     //   - The margin gap is inherently reflected in the difference
     // All values include opening balances
     const netAssets = currentStock + adjustedCashBalance + adjustedCustomerDues + adjustedDsrDue + adjustedSrDue + adjustedSupplierDue + damageReturnsValue + pendingOrdersValue;
+
+    // #region agent log
+    fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
+        body: JSON.stringify({
+            sessionId: "9701ce",
+            runId: "pre-fix",
+            hypothesisId: "H3",
+            location: "analytics/service.ts:getDashboardStats",
+            message: "getDashboardStats complete",
+            data: { totalMs: Date.now() - __dashT0 },
+            timestamp: Date.now(),
+        }),
+    }).catch(() => {});
+    // #endregion
 
     return {
         netSales: Math.round(netSales * 100) / 100,
@@ -1510,10 +1626,13 @@ export async function getMoneyFlowDetails(): Promise<MoneyFlowDetails> {
             .from(orderItemReturns)
             .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
 
+        const multiplierByUnit = await getUnitMultipliersMap(returnsForCogs.map((ret) => ret.returnUnit));
+
         const returnQtyMap = new Map<number, number>();
         for (const ret of returnsForCogs) {
-            const unitMultiplier = await getUnitMultiplier(ret.returnUnit || 'PCS');
-            const returnInBase = (ret.returnQuantity * unitMultiplier) + (ret.returnExtraPieces || 0);
+            const unitCode = (ret.returnUnit || 'PCS').toUpperCase();
+            const unitMultiplier = multiplierByUnit.get(unitCode) || 1;
+            const returnInBase = (Number(ret.returnQuantity || 0) * unitMultiplier) + Number(ret.returnExtraPieces || 0);
             returnQtyMap.set(ret.orderItemId, returnInBase);
         }
 

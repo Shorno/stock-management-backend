@@ -178,7 +178,40 @@ export const handleGetDashboardStats = async (c: AppContext): Promise<Response> 
         const startDate = c.req.query("startDate");
         const endDate = c.req.query("endDate");
 
+        // #region agent log
+        const __dbgT0 = Date.now();
+        fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
+            body: JSON.stringify({
+                sessionId: "9701ce",
+                runId: "pre-fix",
+                hypothesisId: "H4",
+                location: "analytics/controller.ts:handleGetDashboardStats",
+                message: "dashboard-stats handler entered",
+                data: { hasStart: !!startDate, hasEnd: !!endDate },
+                timestamp: Date.now(),
+            }),
+        }).catch(() => {});
+        // #endregion
+
         const result = await analyticsService.getDashboardStats({ startDate, endDate });
+
+        // #region agent log
+        fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
+            body: JSON.stringify({
+                sessionId: "9701ce",
+                runId: "pre-fix",
+                hypothesisId: "H4",
+                location: "analytics/controller.ts:handleGetDashboardStats",
+                message: "getDashboardStats resolved",
+                data: { handlerMs: Date.now() - __dbgT0 },
+                timestamp: Date.now(),
+            }),
+        }).catch(() => {});
+        // #endregion
 
         return c.json({
             success: true,

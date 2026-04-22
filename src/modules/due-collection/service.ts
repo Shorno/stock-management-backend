@@ -218,7 +218,7 @@ export const getCustomersWithDues = async (
                 0
             )
         )
-        .orderBy(desc(sql`SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL))`));
+        .orderBy(desc(sql`MAX(${wholesaleOrders.orderDate})`));
 
     const results = await baseQuery;
 
@@ -600,7 +600,7 @@ export const getCategorizedCustomerDues = async (customerId: number) => {
 export const collectDue = async (
     input: CollectDueInput
 ): Promise<{ success: boolean; message: string; collectionId?: number }> => {
-    const { customerId, amount, collectionDate, paymentMethod, collectedByDsrId, note, dueId } = input;
+    const { customerId, amount, collectionDate, paymentMethod, collectedByDsrId, note, dueId, openingDueOnly } = input;
 
     // If specific dueId provided, apply to that due only
     if (dueId) {
@@ -646,6 +646,59 @@ export const collectDue = async (
             .where(eq(orderCustomerDues.id, dueId));
 
         return { success: true, message: "Collection recorded", collectionId: collection?.id };
+    }
+
+    // If openingDueOnly, only apply to opening due balance
+    if (openingDueOnly) {
+        const openingDueResult = await db
+            .select({ id: openingBalances.id, amount: openingBalances.amount })
+            .from(openingBalances)
+            .where(and(
+                eq(openingBalances.type, 'customer_due'),
+                eq(openingBalances.entityId, customerId)
+            ));
+
+        if (!openingDueResult.length || parseFloat(openingDueResult[0]!.amount) <= 0) {
+            return { success: false, message: "No opening due balance for this customer" };
+        }
+
+        const openingRecord = openingDueResult[0]!;
+        const openingAmount = parseFloat(openingRecord.amount);
+
+        if (amount > openingAmount) {
+            return { success: false, message: `Amount exceeds opening due of ৳${openingAmount.toFixed(2)}` };
+        }
+
+        const newBalance = openingAmount - amount;
+
+        if (newBalance <= 0) {
+            await db.delete(openingBalances).where(eq(openingBalances.id, openingRecord.id));
+        } else {
+            await db.update(openingBalances)
+                .set({ amount: newBalance.toFixed(2) })
+                .where(eq(openingBalances.id, openingRecord.id));
+        }
+
+        // Insert collection record for opening due
+        const collResult = await db
+            .insert(dueCollections)
+            .values({
+                customerDueId: null as any,
+                customerId,
+                orderId: null as any,
+                amount: amount.toFixed(2),
+                collectionDate,
+                paymentMethod,
+                collectedByDsrId,
+                note: note ? `[Opening Due] ${note}` : "[Opening Due Collection]",
+            })
+            .returning({ id: dueCollections.id });
+
+        return {
+            success: true,
+            message: `Opening due collection of ৳${amount.toFixed(2)} recorded successfully`,
+            collectionId: collResult[0]?.id,
+        };
     }
 
     // Auto-apply: opening due first (oldest), then order-based dues (FIFO)
@@ -774,15 +827,17 @@ export const getCollectionHistory = async (
     const allRecords: CollectionRecord[] = [];
 
     // Only fetch types that match the filter (or all if no type filter)
+    // When filtering by customerId, only fetch customer-type collections
     const fetchCustomer = !query.type || query.type === "customer";
-    const fetchDsr = !query.type || query.type === "dsr";
-    const fetchSr = !query.type || query.type === "sr";
+    const fetchDsr = (!query.type || query.type === "dsr") && !query.customerId;
+    const fetchSr = (!query.type || query.type === "sr") && !query.customerId;
 
     // 1. Customer collections
     if (fetchCustomer) {
         const custConditions = [];
         if (query.startDate) custConditions.push(gte(dueCollections.collectionDate, query.startDate));
         if (query.endDate) custConditions.push(lte(dueCollections.collectionDate, query.endDate));
+        if (query.customerId) custConditions.push(eq(dueCollections.customerId, query.customerId));
 
         const custResults = await db
             .select({

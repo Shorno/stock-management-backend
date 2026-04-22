@@ -18,6 +18,7 @@ export const collectDueInputSchema = z.object({
     collectedByDsrId: z.number().optional(),
     note: z.string().optional(),
     dueId: z.number().optional(), // Optional: specify a specific due to collect
+    openingDueOnly: z.boolean().optional(), // Optional: only apply to opening due balance
 });
 
 export type CollectDueInput = z.infer<typeof collectDueInputSchema>;
@@ -27,6 +28,7 @@ export const getCollectionHistoryQuerySchema = z.object({
     startDate: z.string().optional(),
     endDate: z.string().optional(),
     type: z.enum(["customer", "dsr", "sr"]).optional(),
+    customerId: z.coerce.number().optional(), // Optional: filter by specific customer
 });
 
 export type GetCollectionHistoryQuery = z.infer<typeof getCollectionHistoryQuerySchema>;
