@@ -145,26 +145,36 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
         // Generate order number
         const orderNumber = await generateOrderNumber();
 
-        // Validate batches and get batch data
-        const itemsWithBatchData = await Promise.all(
+        // Aggregate requested quantities per batch to prevent over-committing the same batch
+        const batchDemand = new Map<number, { totalPaidQty: number; totalFreeQty: number; productId: number }>();
+        const itemsWithCalculations = await Promise.all(
             data.items.map(async (item) => {
-                // Calculate paid quantity for validation (quantity × multiplier + extraPieces)
                 const multiplier = await getUnitMultiplier(item.unit);
                 const extraPieces = item.extraPieces || 0;
                 const paidQuantity = (item.quantity * multiplier) + extraPieces;
 
-                // Validate batch exists and has sufficient quantity (using calculated paidQuantity)
-                await validateAndGetBatch(
-                    item.batchId,
-                    item.productId,
-                    paidQuantity,
-                    item.freeQuantity,
-                    tx
-                );
-                // Use the salePrice provided from frontend (which defaults to batch sellPrice but can be edited)
+                // Accumulate demand per batch
+                const existing = batchDemand.get(item.batchId) || { totalPaidQty: 0, totalFreeQty: 0, productId: item.productId };
+                existing.totalPaidQty += paidQuantity;
+                existing.totalFreeQty += item.freeQuantity;
+                batchDemand.set(item.batchId, existing);
+
                 return item;
             })
         );
+
+        // Validate aggregated demand against each batch's actual stock
+        for (const [batchId, demand] of batchDemand.entries()) {
+            await validateAndGetBatch(
+                batchId,
+                demand.productId,
+                demand.totalPaidQty,
+                demand.totalFreeQty,
+                tx
+            );
+        }
+
+        const itemsWithBatchData = itemsWithCalculations;
 
         // Calculate order totals
         const totals = await calculateOrderTotals(itemsWithBatchData);
@@ -219,11 +229,12 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
             });
 
             // Update batch quantities - use paidQuantity (with multiplier + extraPieces) for stock deduction
+            // GREATEST(0, ...) prevents negative values as a safety net
             await tx
                 .update(stockBatch)
                 .set({
-                    remainingQuantity: sql`${stockBatch.remainingQuantity} - ${paidQuantity}`,
-                    remainingFreeQty: sql`${stockBatch.remainingFreeQty} - ${item.freeQuantity}`,
+                    remainingQuantity: sql`GREATEST(0, ${stockBatch.remainingQuantity} - ${paidQuantity})`,
+                    remainingFreeQty: sql`GREATEST(0, ${stockBatch.remainingFreeQty} - ${item.freeQuantity})`,
                 })
                 .where(eq(stockBatch.id, item.batchId));
         }
@@ -486,25 +497,34 @@ export const updateOrder = async (
         }
 
         // Step 2: Validate batches and get batch data (now with restored stock)
+        // Aggregate requested quantities per batch to prevent over-committing the same batch
+        const batchDemand = new Map<number, { totalPaidQty: number; totalFreeQty: number; productId: number }>();
         const itemsWithBatchData = await Promise.all(
             data.items.map(async (item) => {
-                // Calculate paid quantity for validation (quantity × multiplier + extraPieces)
                 const multiplier = await getUnitMultiplier(item.unit);
                 const extraPieces = item.extraPieces || 0;
                 const paidQuantity = (item.quantity * multiplier) + extraPieces;
 
-                // Validate batch exists and has sufficient quantity (using calculated paidQuantity)
-                await validateAndGetBatch(
-                    item.batchId,
-                    item.productId,
-                    paidQuantity,
-                    item.freeQuantity,
-                    tx
-                );
-                // Use the salePrice provided from frontend (which defaults to batch sellPrice but can be edited)
+                // Accumulate demand per batch
+                const existing = batchDemand.get(item.batchId) || { totalPaidQty: 0, totalFreeQty: 0, productId: item.productId };
+                existing.totalPaidQty += paidQuantity;
+                existing.totalFreeQty += item.freeQuantity;
+                batchDemand.set(item.batchId, existing);
+
                 return item;
             })
         );
+
+        // Validate aggregated demand against each batch's actual stock
+        for (const [batchId, demand] of batchDemand.entries()) {
+            await validateAndGetBatch(
+                batchId,
+                demand.productId,
+                demand.totalPaidQty,
+                demand.totalFreeQty,
+                tx
+            );
+        }
 
         // Calculate new totals
         const totals = await calculateOrderTotals(itemsWithBatchData);
@@ -560,11 +580,12 @@ export const updateOrder = async (
             });
 
             // Deduct stock for new items (same as createOrder)
+            // GREATEST(0, ...) prevents negative values as a safety net
             await tx
                 .update(stockBatch)
                 .set({
-                    remainingQuantity: sql`${stockBatch.remainingQuantity} - ${paidQuantity}`,
-                    remainingFreeQty: sql`${stockBatch.remainingFreeQty} - ${item.freeQuantity}`,
+                    remainingQuantity: sql`GREATEST(0, ${stockBatch.remainingQuantity} - ${paidQuantity})`,
+                    remainingFreeQty: sql`GREATEST(0, ${stockBatch.remainingFreeQty} - ${item.freeQuantity})`,
                 })
                 .where(eq(stockBatch.id, item.batchId));
         }
@@ -925,11 +946,12 @@ export const saveOrderAdjustment = async (
                     const returnFreeQtyInBase = existingReturn.returnFreeQuantity;
 
                     // Subtract from stock (undo the previous return's stock increase)
+                    // GREATEST(0, ...) prevents negative values as a safety net
                     await tx
                         .update(stockBatch)
                         .set({
-                            remainingQuantity: sql`${stockBatch.remainingQuantity} - ${returnQtyInBase}`,
-                            remainingFreeQty: sql`${stockBatch.remainingFreeQty} - ${returnFreeQtyInBase}`,
+                            remainingQuantity: sql`GREATEST(0, ${stockBatch.remainingQuantity} - ${returnQtyInBase})`,
+                            remainingFreeQty: sql`GREATEST(0, ${stockBatch.remainingFreeQty} - ${returnFreeQtyInBase})`,
                         })
                         .where(eq(stockBatch.id, orderItem.batchId));
                 }
