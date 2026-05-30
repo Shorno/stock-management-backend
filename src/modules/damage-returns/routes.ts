@@ -181,7 +181,8 @@ app.patch(
 // Delete damage return (only pending) - Admin only
 app.delete("/:id", requireRole(["admin"]), async (ctx) => {
     try {
-        const id = parseInt(ctx.req.param("id"));
+        const idParam = ctx.req.param("id");
+        const id = idParam ? parseInt(idParam, 10) : NaN;
         if (isNaN(id)) {
             return ctx.json({ success: false, message: "Invalid ID" }, 400);
         }
