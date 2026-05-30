@@ -154,7 +154,8 @@ app.delete(
     requireRole(["admin", "super_admin"]),
     async (ctx) => {
         try {
-            const claimId = parseInt(ctx.req.param("claimId"));
+            const claimIdParam = ctx.req.param("claimId");
+            const claimId = claimIdParam ? parseInt(claimIdParam, 10) : NaN;
             if (isNaN(claimId)) return ctx.json({ success: false, message: "Invalid claim ID" }, 400);
 
             await damageClaimsService.deleteClaim(claimId);
