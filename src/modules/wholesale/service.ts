@@ -1010,19 +1010,41 @@ export const saveOrderAdjustment = async (
                     customerId: customerDue.customerId || null,
                     customerName: customerDue.customerName,
                     amount: customerDue.amount.toFixed(2),
+                    entrySource: "customer_due",
                 });
                 totalCustomerDuesAmount += customerDue.amount;
             }
         }
 
-        // Insert new DSR dues
+        // Insert new DSR dues. If a customer is selected in the DSR Due UI,
+        // it is a customer due, not a DSR's own liability.
         for (const dsrDue of data.dsrDues || []) {
             if (dsrDue.amount > 0) {
+                if (dsrDue.customerId) {
+                    const dueCustomer = await tx.query.customer.findFirst({
+                        where: (customers, { eq }) => eq(customers.id, dsrDue.customerId!),
+                    });
+
+                    if (!dueCustomer) {
+                        throw new Error(`Customer #${dsrDue.customerId} not found for DSR due conversion`);
+                    }
+
+                    await tx.insert(orderCustomerDues).values({
+                        orderId,
+                        customerId: dsrDue.customerId,
+                        customerName: dueCustomer.name,
+                        amount: dsrDue.amount.toFixed(2),
+                        entrySource: "dsr_due",
+                        note: dsrDue.note || null,
+                    });
+                    totalCustomerDuesAmount += dsrDue.amount;
+                    continue;
+                }
+
                 await tx.insert(orderDsrDues).values({
                     orderId,
                     dsrId: order.dsrId, // Use the DSR assigned to this order
                     amount: dsrDue.amount.toFixed(2),
-                    customerId: dsrDue.customerId || null,
                     note: dsrDue.note || null,
                 });
                 totalDsrDuesAmount += dsrDue.amount;
@@ -1188,6 +1210,8 @@ export const getOrderAdjustment = async (orderId: number) => {
     const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const totalReturns = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount), 0);
     // Use original amount for invoice (frozen at adjustment time), not remaining after collection
+    const directCustomerDuesData = customerDuesData.filter(d => d.entrySource !== "dsr_due");
+    const dsrCustomerDuesData = customerDuesData.filter(d => d.entrySource === "dsr_due");
     const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
     // Track remaining dues separately for collection tracking
     const remainingCustomerDues = customerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0);
@@ -1292,20 +1316,30 @@ export const getOrderAdjustment = async (orderId: number) => {
             type: e.expenseType,
             note: e.note || undefined,
         })),
-        customerDues: customerDuesData.map(d => ({
+        customerDues: directCustomerDuesData.map(d => ({
             id: d.id,
             customerId: d.customerId || undefined,
             customerName: d.customerName,
             amount: parseFloat(d.amount),
         })),
-        dsrDues: dsrDuesData.map(d => ({
-            id: d.id,
-            dsrId: d.dsrId,
-            amount: parseFloat(d.amount),
-            customerId: d.customerId || undefined,
-            customerName: (d as any).customer?.name || undefined,
-            note: d.note || undefined,
-        })),
+        dsrDues: [
+            ...dsrCustomerDuesData.map(d => ({
+                id: 1000000 + d.id,
+                dsrId: order.dsrId,
+                amount: parseFloat(d.amount),
+                customerId: d.customerId || undefined,
+                customerName: d.customerName,
+                note: d.note || undefined,
+            })),
+            ...dsrDuesData.filter(d => parseFloat(d.amount) > 0).map(d => ({
+                id: d.id,
+                dsrId: d.dsrId,
+                amount: parseFloat(d.amount),
+                customerId: d.customerId || undefined,
+                customerName: (d as any).customer?.name || undefined,
+                note: d.note || undefined,
+            })),
+        ],
         srDues: srDuesData.map(d => ({
             id: d.id,
             srId: d.srId,
