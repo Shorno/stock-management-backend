@@ -619,8 +619,14 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
         const userInfo = getUserInfoFromContext(c);
         const totalPayments = validatedData.payments.reduce((s, p) => s + p.amount, 0);
         const totalExpenses = validatedData.expenses.reduce((s, e) => s + e.amount, 0);
-        const totalCustomerDues = validatedData.customerDues.reduce((s, d) => s + d.amount, 0);
-        const totalDsrDues = validatedData.dsrDues.reduce((s, d) => s + d.amount, 0);
+        const directCustomerDues = validatedData.customerDues.reduce((s, d) => s + d.amount, 0);
+        const customerSelectedDsrDues = validatedData.dsrDues
+            .filter(d => d.customerId)
+            .reduce((s, d) => s + d.amount, 0);
+        const totalCustomerDues = directCustomerDues + customerSelectedDsrDues;
+        const totalDsrDues = validatedData.dsrDues
+            .filter(d => !d.customerId)
+            .reduce((s, d) => s + d.amount, 0);
         const totalItemReturns = validatedData.itemReturns.reduce((s, r) => s + (r.returnAmount || 0), 0);
 
         const totalDamageReturns = validatedData.damageReturns.reduce((s, d) => s + (d.quantity * d.sellingPrice), 0);
@@ -644,8 +650,12 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
             payments: { count: validatedData.payments.filter(p => p.amount > 0).length, total: totalPayments },
             expenses: { count: validatedData.expenses.filter(e => e.amount > 0).length, total: totalExpenses },
             itemReturns: { count: validatedData.itemReturns.filter(r => r.returnQuantity > 0).length, total: totalItemReturns },
-            customerDues: { count: validatedData.customerDues.filter(d => d.amount > 0).length, total: totalCustomerDues },
-            dsrDues: { count: validatedData.dsrDues.filter(d => d.amount > 0).length, total: totalDsrDues },
+            customerDues: {
+                count: validatedData.customerDues.filter(d => d.amount > 0).length
+                    + validatedData.dsrDues.filter(d => d.amount > 0 && d.customerId).length,
+                total: totalCustomerDues,
+            },
+            dsrDues: { count: validatedData.dsrDues.filter(d => d.amount > 0 && !d.customerId).length, total: totalDsrDues },
             damageReturns: { count: validatedData.damageReturns.filter(d => d.quantity > 0).length, total: totalDamageReturns },
             settlement: result.summary,
         };

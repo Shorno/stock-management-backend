@@ -338,10 +338,13 @@ export const orderCustomerDues = pgTable("order_customer_dues", {
     customerName: varchar("customer_name", { length: 150 }).notNull(),  // Keep for display/fallback
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     collectedAmount: decimal("collected_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+    entrySource: varchar("entry_source", { length: 20 }).notNull().default("customer_due"),
+    note: text("note"),
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_customer_dues_order").on(table.orderId),
     customerIdx: index("idx_order_customer_dues_customer").on(table.customerId),
+    entrySourceIdx: index("idx_order_customer_dues_entry_source").on(table.entrySource),
 }));
 
 // Order customer dues relations
@@ -731,4 +734,4 @@ export const srCommissionsRelations = relations(srCommissions, ({ one }) => ({
         fields: [srCommissions.srId],
         references: [sr.id],
     }),
-}));
+}));

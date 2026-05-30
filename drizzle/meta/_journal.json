@@ -71,6 +71,13 @@
       "when": 1779811200000,
       "tag": "0009_prevent_negative_inventory",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780132800000,
+      "tag": "0010_customer_due_entry_source",
+      "breakpoints": true
     }
   ]
 }
