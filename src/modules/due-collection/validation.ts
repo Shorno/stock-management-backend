@@ -18,6 +18,7 @@ export const collectDueInputSchema = z.object({
     collectedByDsrId: z.number().optional(),
     note: z.string().optional(),
     dueId: z.number().optional(), // Optional: specify a specific due to collect
+    source: z.enum(["customer", "dsr"]).optional(), // Source table for selected due
     openingDueOnly: z.boolean().optional(), // Optional: only apply to opening due balance
 });
 

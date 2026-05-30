@@ -1,6 +1,6 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDsrDues, orderSrDues, orderDamageItems } from "../../db/schema";
-import { eq, and, or, ilike, count, gte, lte, sql, ne } from "drizzle-orm";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDsrDues, orderSrDues, orderDamageItems, customer } from "../../db/schema";
+import { eq, and, or, ilike, count, gte, lte, sql, ne, isNull, isNotNull } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 
@@ -794,16 +794,34 @@ export const getDsrTotalDue = async (dsrId: number) => {
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
     });
 
-    const salesDue = customerDuesResult.reduce(
+    const directSalesDue = customerDuesResult.reduce(
         (sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)),
         0
     );
+
+    // Customer-tagged DSR due rows are customer dues, not DSR own dues.
+    // They are included here for legacy rows that still live in order_dsr_dues.
+    const dsrTaggedCustomerDuesResult = await db.query.orderDsrDues.findMany({
+        where: (d, { and, eq, inArray }) => and(
+            inArray(d.orderId, orderIds),
+            eq(d.dsrId, dsrId),
+            isNotNull(d.customerId)
+        ),
+    });
+
+    const taggedSalesDue = dsrTaggedCustomerDuesResult.reduce(
+        (sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)),
+        0
+    );
+
+    const salesDue = directSalesDue + taggedSalesDue;
 
     // Calculate own due (DSR dues - what DSR owes to the business)
     const dsrDuesResult = await db.query.orderDsrDues.findMany({
         where: (d, { and, eq, inArray }) => and(
             inArray(d.orderId, orderIds),
-            eq(d.dsrId, dsrId)
+            eq(d.dsrId, dsrId),
+            isNull(d.customerId)
         ),
     });
 
@@ -1015,17 +1033,34 @@ export const saveOrderAdjustment = async (
             }
         }
 
-        // Insert new DSR dues
+        // Insert new DSR dues. If a customer is selected, this is a customer due
+        // and must not be duplicated as DSR own due.
         for (const dsrDue of data.dsrDues || []) {
             if (dsrDue.amount > 0) {
-                await tx.insert(orderDsrDues).values({
-                    orderId,
-                    dsrId: order.dsrId, // Use the DSR assigned to this order
-                    amount: dsrDue.amount.toFixed(2),
-                    customerId: dsrDue.customerId || null,
-                    note: dsrDue.note || null,
-                });
-                totalDsrDuesAmount += dsrDue.amount;
+                if (dsrDue.customerId) {
+                    const selectedCustomer = await tx
+                        .select({ name: customer.name })
+                        .from(customer)
+                        .where(eq(customer.id, dsrDue.customerId))
+                        .limit(1);
+
+                    await tx.insert(orderCustomerDues).values({
+                        orderId,
+                        customerId: dsrDue.customerId,
+                        customerName: dsrDue.customerName || selectedCustomer[0]?.name || `Customer #${dsrDue.customerId}`,
+                        amount: dsrDue.amount.toFixed(2),
+                    });
+                    totalCustomerDuesAmount += dsrDue.amount;
+                } else {
+                    await tx.insert(orderDsrDues).values({
+                        orderId,
+                        dsrId: order.dsrId, // Use the DSR assigned to this order
+                        amount: dsrDue.amount.toFixed(2),
+                        customerId: null,
+                        note: dsrDue.note || null,
+                    });
+                    totalDsrDuesAmount += dsrDue.amount;
+                }
             }
         }
 
@@ -1176,6 +1211,8 @@ export const getOrderAdjustment = async (orderId: number) => {
         where: (d, { eq }) => eq(d.orderId, orderId),
         with: { customer: true },
     });
+    const dsrCustomerDuesData = dsrDuesData.filter((d) => d.customerId !== null && d.customerId !== undefined);
+    const dsrOwnDuesData = dsrDuesData.filter((d) => d.customerId === null || d.customerId === undefined);
 
     // Get SR dues (with SR name, brand/company name, and customer name)
     const srDuesData = await db.query.orderSrDues.findMany({
@@ -1188,10 +1225,12 @@ export const getOrderAdjustment = async (orderId: number) => {
     const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const totalReturns = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.returnAmount), 0);
     // Use original amount for invoice (frozen at adjustment time), not remaining after collection
-    const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+    const totalCustomerDues = customerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0)
+        + dsrCustomerDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
     // Track remaining dues separately for collection tracking
-    const remainingCustomerDues = customerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0);
-    const totalDsrDues = dsrDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+    const remainingCustomerDues = customerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0)
+        + dsrCustomerDuesData.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.collectedAmount)), 0);
+    const totalDsrDues = dsrOwnDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
     const totalSrDues = srDuesData.reduce((sum, d) => sum + parseFloat(d.amount), 0);
     const totalAdjustmentDiscount = itemReturnsData.reduce((sum, r) => sum + parseFloat(r.adjustmentDiscount || "0"), 0);
 
@@ -1292,18 +1331,24 @@ export const getOrderAdjustment = async (orderId: number) => {
             type: e.expenseType,
             note: e.note || undefined,
         })),
-        customerDues: customerDuesData.map(d => ({
-            id: d.id,
-            customerId: d.customerId || undefined,
-            customerName: d.customerName,
-            amount: parseFloat(d.amount),
-        })),
-        dsrDues: dsrDuesData.map(d => ({
+        customerDues: [
+            ...customerDuesData.map(d => ({
+                id: d.id,
+                customerId: d.customerId || undefined,
+                customerName: d.customerName,
+                amount: parseFloat(d.amount),
+            })),
+            ...dsrCustomerDuesData.map(d => ({
+                id: d.id,
+                customerId: d.customerId || undefined,
+                customerName: (d as any).customer?.name || (d.customerId ? `Customer #${d.customerId}` : "Customer"),
+                amount: parseFloat(d.amount),
+            })),
+        ],
+        dsrDues: dsrOwnDuesData.map(d => ({
             id: d.id,
             dsrId: d.dsrId,
             amount: parseFloat(d.amount),
-            customerId: d.customerId || undefined,
-            customerName: (d as any).customer?.name || undefined,
             note: d.note || undefined,
         })),
         srDues: srDuesData.map(d => ({
