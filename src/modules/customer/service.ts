@@ -1,6 +1,7 @@
 import { db } from "../../db/config";
-import { customer, route, orderCustomerDues } from "../../db/schema";
-import { eq, ilike, and, or, sql } from "drizzle-orm";
+import { customer, route } from "../../db/schema";
+import { eq, ilike, and, or } from "drizzle-orm";
+import { getCustomerDueSummary } from "../due-collection/service";
 import type { CreateCustomerInput, UpdateCustomerInput, GetCustomersQuery } from "./validation";
 import type { Customer, NewCustomer } from "./types";
 
@@ -70,45 +71,13 @@ export const getCustomers = async (
         .where(whereClause)
         .orderBy(customer.name);
 
-    // Get customer IDs to fetch dues
     const customerIds = customersResult.map(c => c.id);
-
-    // Fetch total dues for these customers using inArray
-    const duesResult = customerIds.length > 0 ? await db
-        .select({
-            customerId: orderCustomerDues.customerId,
-            totalDue: sql<string>`SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL))`,
-        })
-        .from(orderCustomerDues)
-        .where(sql`${orderCustomerDues.customerId} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`)
-        .groupBy(orderCustomerDues.customerId) : [];
-
-    // Also fetch opening balances for customer_due type
-    const { openingBalances } = await import("../../db/schema");
-    const openingDuesResult = customerIds.length > 0 ? await db
-        .select({
-            entityId: openingBalances.entityId,
-            amount: openingBalances.amount,
-        })
-        .from(openingBalances)
-        .where(and(
-            eq(openingBalances.type, 'customer_due'),
-            sql`${openingBalances.entityId} IN (${sql.join(customerIds.map(id => sql`${id}`), sql`, `)})`
-        )) : [];
-
-    // Create a map of customer dues (order-based + opening)
-    const duesMap = new Map(duesResult.map(d => [d.customerId, Number(d.totalDue || 0)]));
-    for (const ob of openingDuesResult) {
-        if (ob.entityId) {
-            const existing = duesMap.get(ob.entityId) || 0;
-            duesMap.set(ob.entityId, existing + Number(ob.amount || 0));
-        }
-    }
+    const dueSummary = await getCustomerDueSummary(customerIds);
 
     // Merge dues with customers
     const customers = customersResult.map(c => ({
         ...c,
-        totalDue: (duesMap.get(c.id) || 0).toFixed(2),
+        totalDue: (dueSummary[c.id] || 0).toFixed(2),
     }));
 
     return {
