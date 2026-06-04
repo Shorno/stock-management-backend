@@ -13,7 +13,7 @@ import {
     sr,
     openingBalances
 } from "../../db/schema";
-import { eq, and, gte, lte, sql, desc, gt } from "drizzle-orm";
+import { eq, and, gte, lte, sql, desc, gt, inArray } from "drizzle-orm";
 import type {
     GetCustomersWithDuesQuery,
     CollectDueInput,
@@ -302,25 +302,30 @@ export const getCustomersWithDues = async (
 };
 
 /**
- * Get total outstanding dues for ALL customers (direct + SR-tagged + DSR-tagged).
- * Returns a simple map of customerId → totalDue for display in customer selection dropdowns.
+ * Get total outstanding dues for customers (direct + SR-tagged + DSR-tagged).
+ * Returns a simple map of customerId → totalDue for display surfaces.
  */
-export const getAllCustomerDueSummary = async (): Promise<Record<number, number>> => {
+export const getCustomerDueSummary = async (customerIds?: number[]): Promise<Record<number, number>> => {
+    if (customerIds && customerIds.length === 0) {
+        return {};
+    }
+
     const dueMap: Record<number, number> = {};
+    const hasCustomerFilter = Boolean(customerIds);
 
     // 1. Direct customer dues (from orderCustomerDues)
+    const directDueCondition = gt(
+        sql`CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL)`,
+        0
+    );
+
     const directDues = await db
         .select({
             customerId: orderCustomerDues.customerId,
             totalDue: sql<string>`SUM(CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL))`,
         })
         .from(orderCustomerDues)
-        .where(
-            gt(
-                sql`CAST(${orderCustomerDues.amount} AS DECIMAL) - CAST(${orderCustomerDues.collectedAmount} AS DECIMAL)`,
-                0
-            )
-        )
+        .where(hasCustomerFilter ? and(directDueCondition, inArray(orderCustomerDues.customerId, customerIds!)) : directDueCondition)
         .groupBy(orderCustomerDues.customerId);
 
     for (const row of directDues) {
@@ -330,21 +335,21 @@ export const getAllCustomerDueSummary = async (): Promise<Record<number, number>
     }
 
     // 2. SR-tagged customer dues (from orderSrDues where customerId is set)
+    const srTaggedDueCondition = and(
+        sql`${orderSrDues.customerId} IS NOT NULL`,
+        gt(
+            sql`CAST(${orderSrDues.amount} AS DECIMAL) - CAST(${orderSrDues.collectedAmount} AS DECIMAL)`,
+            0
+        )
+    );
+
     const srTaggedDues = await db
         .select({
             customerId: orderSrDues.customerId,
             totalDue: sql<string>`SUM(CAST(${orderSrDues.amount} AS DECIMAL) - CAST(${orderSrDues.collectedAmount} AS DECIMAL))`,
         })
         .from(orderSrDues)
-        .where(
-            and(
-                sql`${orderSrDues.customerId} IS NOT NULL`,
-                gt(
-                    sql`CAST(${orderSrDues.amount} AS DECIMAL) - CAST(${orderSrDues.collectedAmount} AS DECIMAL)`,
-                    0
-                )
-            )
-        )
+        .where(hasCustomerFilter ? and(srTaggedDueCondition, inArray(orderSrDues.customerId, customerIds!)) : srTaggedDueCondition)
         .groupBy(orderSrDues.customerId);
 
     for (const row of srTaggedDues) {
@@ -354,21 +359,21 @@ export const getAllCustomerDueSummary = async (): Promise<Record<number, number>
     }
 
     // 3. DSR-tagged customer dues (from orderDsrDues where customerId is set)
+    const dsrTaggedDueCondition = and(
+        sql`${orderDsrDues.customerId} IS NOT NULL`,
+        gt(
+            sql`CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(${orderDsrDues.collectedAmount} AS DECIMAL)`,
+            0
+        )
+    );
+
     const dsrTaggedDues = await db
         .select({
             customerId: orderDsrDues.customerId,
             totalDue: sql<string>`SUM(CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(${orderDsrDues.collectedAmount} AS DECIMAL))`,
         })
         .from(orderDsrDues)
-        .where(
-            and(
-                sql`${orderDsrDues.customerId} IS NOT NULL`,
-                gt(
-                    sql`CAST(${orderDsrDues.amount} AS DECIMAL) - CAST(${orderDsrDues.collectedAmount} AS DECIMAL)`,
-                    0
-                )
-            )
-        )
+        .where(hasCustomerFilter ? and(dsrTaggedDueCondition, inArray(orderDsrDues.customerId, customerIds!)) : dsrTaggedDueCondition)
         .groupBy(orderDsrDues.customerId);
 
     for (const row of dsrTaggedDues) {
@@ -384,7 +389,7 @@ export const getAllCustomerDueSummary = async (): Promise<Record<number, number>
             amount: openingBalances.amount,
         })
         .from(openingBalances)
-        .where(eq(openingBalances.type, 'customer_due'));
+        .where(hasCustomerFilter ? and(eq(openingBalances.type, 'customer_due'), inArray(openingBalances.entityId, customerIds!)) : eq(openingBalances.type, 'customer_due'));
 
     for (const row of openingDues) {
         if (row.entityId) {
@@ -396,6 +401,13 @@ export const getAllCustomerDueSummary = async (): Promise<Record<number, number>
     }
 
     return dueMap;
+};
+
+/**
+ * Get total outstanding dues for ALL customers.
+ */
+export const getAllCustomerDueSummary = async (): Promise<Record<number, number>> => {
+    return getCustomerDueSummary();
 };
 
 /**

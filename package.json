@@ -2,7 +2,7 @@
   "name": "stock-management-backend",
   "type": "module",
   "scripts": {
-    "dev": "bun run --hot src/index.ts",
+    "server": "bun run --hot src/index.ts",
     "build": "tsc && tsc-alias",
     "start": "bun run dist/index.js",
     "db:generate": "drizzle-kit generate",
