@@ -63,6 +63,12 @@ srCommissionRoutes.delete("/:id", async (c) => {
         const result = await srCommissionService.deleteCommission(id);
 
         if (!result.success) {
+            if (result.status === 400) {
+                return c.json({ success: false, error: result.message }, 400);
+            }
+            if (result.status === 500) {
+                return c.json({ success: false, error: result.message }, 500);
+            }
             return c.json({ success: false, error: result.message }, 404);
         }
 

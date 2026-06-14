@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDsrDues, orderSrDues, orderDamageItems } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDsrDues, orderSrDues, orderDamageItems, srCommissions } from "../../db/schema";
 import { eq, and, or, ilike, count, gte, lte, sql, ne } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
@@ -873,10 +873,14 @@ export const saveOrderAdjustment = async (
             throw new Error("Order not found");
         }
 
-        // Create a map of order items for quick lookup
-        const orderItemsMap = new Map<number, { batchId: number; unit: string }>();
+        // Create maps of order items and assigned SRs for quick validation.
+        const orderItemsMap = new Map<number, { batchId: number; unit: string; srId?: number | null }>();
+        const allowedOrderSrIds = new Set<number>();
         for (const item of order.items) {
-            orderItemsMap.set(item.id, { batchId: item.batchId, unit: item.unit });
+            orderItemsMap.set(item.id, { batchId: item.batchId, unit: item.unit, srId: item.srId });
+            if (item.srId) {
+                allowedOrderSrIds.add(item.srId);
+            }
         }
 
         // Validate that all item return IDs actually belong to this order's current items
@@ -887,6 +891,20 @@ export const saveOrderAdjustment = async (
                 throw new Error(
                     `Invalid order item ID ${itemReturn.itemId} - it does not belong to order #${orderId}. ` +
                     `This can happen if the order was recently edited. Please reload the page and try again.`
+                );
+            }
+        }
+
+        for (const expense of data.expenses || []) {
+            if (!expense.srId) continue;
+
+            if (expense.type !== "commission") {
+                throw new Error("SR can only be selected for commission expenses.");
+            }
+
+            if (!allowedOrderSrIds.has(expense.srId)) {
+                throw new Error(
+                    `Invalid SR ID ${expense.srId} - only SRs assigned to this order can receive order adjustment commission.`
                 );
             }
         }
@@ -958,6 +976,14 @@ export const saveOrderAdjustment = async (
             }
         }
 
+        // Delete existing adjustment-generated commissions before rewriting adjustment rows.
+        await tx
+            .delete(srCommissions)
+            .where(and(
+                eq(srCommissions.orderId, orderId),
+                eq(srCommissions.sourceType, "order_adjustment")
+            ));
+
         // Delete existing payments, expenses, item returns, customer dues, DSR dues, and damage items for this order
         await tx.delete(orderPayments).where(eq(orderPayments.orderId, orderId));
         await tx.delete(orderExpenses).where(eq(orderExpenses.orderId, orderId));
@@ -992,12 +1018,27 @@ export const saveOrderAdjustment = async (
         // Insert new expenses
         for (const expense of data.expenses) {
             if (expense.amount > 0) {
-                await tx.insert(orderExpenses).values({
+                const shouldCreateSrCommission = expense.type === "commission" && !!expense.srId;
+                const [createdExpense] = await tx.insert(orderExpenses).values({
                     orderId,
+                    srId: shouldCreateSrCommission ? expense.srId! : null,
                     amount: expense.amount.toFixed(2),
                     expenseType: expense.type,
                     note: expense.note || null,
-                });
+                }).returning({ id: orderExpenses.id });
+
+                if (shouldCreateSrCommission && createdExpense) {
+                    await tx.insert(srCommissions).values({
+                        srId: expense.srId!,
+                        amount: expense.amount.toFixed(2),
+                        commissionDate: data.paymentDate,
+                        sourceType: "order_adjustment",
+                        orderId,
+                        orderExpenseId: createdExpense.id,
+                        note: `From order adjustment for wholesale order ${order.orderNumber}`,
+                    });
+                }
+
                 totalExpensesAmount += expense.amount;
             }
         }
@@ -1176,6 +1217,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Get expenses
     const expenses = await db.query.orderExpenses.findMany({
         where: (e, { eq }) => eq(e.orderId, orderId),
+        with: { sr: true },
     });
 
     // Get item returns
@@ -1314,6 +1356,8 @@ export const getOrderAdjustment = async (orderId: number) => {
             id: e.id,
             amount: parseFloat(e.amount),
             type: e.expenseType,
+            srId: e.srId || undefined,
+            srName: (e as any).sr?.name || undefined,
             note: e.note || undefined,
         })),
         customerDues: directCustomerDuesData.map(d => ({

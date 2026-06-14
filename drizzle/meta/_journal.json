@@ -78,6 +78,13 @@
       "when": 1780132800000,
       "tag": "0010_customer_due_entry_source",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1781424000000,
+      "tag": "0011_order_adjustment_sr_commissions",
+      "breakpoints": true
     }
   ]
 }
