@@ -268,12 +268,15 @@ export const orderExpenses = pgTable("order_expenses", {
     orderId: integer("order_id")
         .notNull()
         .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+    srId: integer("sr_id")
+        .references(() => sr.id, { onDelete: "set null" }),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     expenseType: varchar("expense_type", { length: 50 }).notNull(), // transport, food, commission, other
     note: text("note"),
     ...timestamps
 }, (table) => ({
     orderIdx: index("idx_order_expenses_order").on(table.orderId),
+    srIdx: index("idx_order_expenses_sr").on(table.srId),
 }));
 
 // Order expenses relations
@@ -281,6 +284,10 @@ export const orderExpensesRelations = relations(orderExpenses, ({ one }) => ({
     order: one(wholesaleOrders, {
         fields: [orderExpenses.orderId],
         references: [wholesaleOrders.id],
+    }),
+    sr: one(sr, {
+        fields: [orderExpenses.srId],
+        references: [sr.id],
     }),
 }));
 
@@ -721,11 +728,19 @@ export const srCommissions = pgTable("sr_commissions", {
         .references(() => sr.id, { onDelete: "cascade" }),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     commissionDate: date("commission_date").notNull(),
+    sourceType: varchar("source_type", { length: 30 }).notNull().default("manual"),
+    orderId: integer("order_id")
+        .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
+    orderExpenseId: integer("order_expense_id")
+        .references(() => orderExpenses.id, { onDelete: "cascade" }),
     note: text("note"),
     ...timestamps
 }, (table) => ({
     srIdx: index("idx_sr_commissions_sr").on(table.srId),
     dateIdx: index("idx_sr_commissions_date").on(table.commissionDate),
+    sourceIdx: index("idx_sr_commissions_source").on(table.sourceType),
+    orderIdx: index("idx_sr_commissions_order").on(table.orderId),
+    orderExpenseIdx: index("idx_sr_commissions_order_expense").on(table.orderExpenseId),
 }));
 
 // SR commissions relations
@@ -733,5 +748,13 @@ export const srCommissionsRelations = relations(srCommissions, ({ one }) => ({
     sr: one(sr, {
         fields: [srCommissions.srId],
         references: [sr.id],
+    }),
+    order: one(wholesaleOrders, {
+        fields: [srCommissions.orderId],
+        references: [wholesaleOrders.id],
+    }),
+    orderExpense: one(orderExpenses, {
+        fields: [srCommissions.orderExpenseId],
+        references: [orderExpenses.id],
     }),
 }));

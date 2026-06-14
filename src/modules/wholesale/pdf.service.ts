@@ -256,6 +256,7 @@ interface AdjustmentExpense {
     id?: number;
     amount: number;
     type: string;
+    srName?: string;
 }
 
 interface AdjustmentCustomerDue {
@@ -809,7 +810,10 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             doc.fontSize(8).font("BanglaRegular");
             if (adjustment?.expenses && adjustment.expenses.length > 0) {
                 adjustment.expenses.forEach(expense => {
-                    doc.fillColor(mediumGray).text(expense.type.replace("_", " "), leftCol, leftY);
+                    const expenseLabel = expense.type === "commission" && expense.srName
+                        ? `${expense.type.replace("_", " ")} - ${expense.srName}`
+                        : expense.type.replace("_", " ");
+                    doc.fillColor(mediumGray).text(truncateText(expenseLabel, 22), leftCol, leftY);
                     doc.fillColor(darkGray).text(formatCurrency(expense.amount), leftCol + 100, leftY);
                     leftY += 12;
                 });
