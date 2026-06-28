@@ -333,6 +333,8 @@ export const getOrders = async (
                 items: {
                     with: {
                         batch: true,  // Include batch to access supplierPrice for profit calculation
+                        brand: true,
+                        sr: true,
                     },
                 },
                 itemReturns: true,  // Include item returns for calculating net sale
@@ -403,6 +405,25 @@ export const getOrders = async (
             }
         }
 
+        const srMap = new Map<number, { id: number; name: string; brandNames: Set<string> }>();
+        if (order.items && order.items.length > 0) {
+            for (const item of order.items) {
+                if (item.srId && item.sr?.name) {
+                    const current = srMap.get(item.srId) ?? {
+                        id: item.srId,
+                        name: item.sr.name.trim(),
+                        brandNames: new Set<string>(),
+                    };
+
+                    if (item.brand?.name) {
+                        current.brandNames.add(item.brand.name);
+                    }
+
+                    srMap.set(item.srId, current);
+                }
+            }
+        }
+
         return {
             id: order.id,
             orderNumber: order.orderNumber,
@@ -427,6 +448,11 @@ export const getOrders = async (
             paymentStatus: order.paymentStatus,
             status: order.status,
             itemCount: order.items?.length || 0,
+            srList: Array.from(srMap.values()).map((sr) => ({
+                id: sr.id,
+                name: sr.name,
+                brandNames: Array.from(sr.brandNames),
+            })),
             createdAt: order.createdAt,
             updatedAt: order.updatedAt,
         };
@@ -601,6 +627,7 @@ export const updateOrder = async (
                         product: true,
                         brand: true,
                         batch: true,
+                        sr: true,
                     },
                 },
                 dsr: true,
@@ -1198,6 +1225,7 @@ export const getOrderAdjustment = async (orderId: number) => {
                     product: true,
                     brand: true,
                     batch: true,
+                    sr: true,
                 },
             },
             dsr: true,
