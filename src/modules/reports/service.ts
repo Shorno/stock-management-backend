@@ -966,7 +966,7 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
 };
 
 // Import additional schemas for product-wise-sales
-import { wholesaleOrderItems, category, brand, product } from "../../db/schema";
+import { wholesaleOrderItems, category, brand, product, orderDamageItems } from "../../db/schema";
 import type { ProductWiseSalesQuery } from "./validation";
 
 export interface ProductWiseSalesItem {
@@ -2326,8 +2326,9 @@ export interface SrSalesBatchItem {
     quantity: number;          // Net qty sold from this batch (after returns)
     freeQuantity: number;
     returnQuantity: number;
+    damageTotal: string;       // Linked order adjustment damage at selling price
     dbPriceTotal: string;      // qty * supplierPrice
-    salesPriceTotal: string;   // net sales amount for items from this batch
+    salesPriceTotal: string;   // net sales amount after returns and linked damage
 }
 
 export interface SrSalesProductItem {
@@ -2340,8 +2341,9 @@ export interface SrSalesProductItem {
     totalQuantity: number;     // Net quantity after returns
     freeQuantity: number;
     returnQuantity: number;
+    damageTotal: string;       // Linked order adjustment damage at selling price
     dbPriceTotal: string;      // Total at supplier/DB price
-    salesPriceTotal: string;   // Total at sales price
+    salesPriceTotal: string;   // Total at sales price after linked damage
     orderCount: number;
     batchCount: number;
     batches: SrSalesBatchItem[];
@@ -2380,6 +2382,110 @@ export interface SrSalesDetailResponse {
     products: SrSalesProductItem[];
     summary: SrSalesSummary;
 }
+
+interface SrDamageOrderItem {
+    itemId: number;
+    orderId: number;
+    productId: number;
+    variantId: number | null;
+    srId: number | null;
+}
+
+const getResolvedDamageByOrderItem = async (orderIds: number[]) => {
+    if (orderIds.length === 0) return new Map<number, number>();
+
+    const uniqueOrderIds = Array.from(new Set(orderIds));
+
+    const allOrderItems: SrDamageOrderItem[] = await db
+        .select({
+            itemId: wholesaleOrderItems.id,
+            orderId: wholesaleOrderItems.orderId,
+            productId: wholesaleOrderItems.productId,
+            variantId: stockBatch.variantId,
+            srId: wholesaleOrderItems.srId,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+        .where(inArray(wholesaleOrderItems.orderId, uniqueOrderIds));
+
+    const orderItemIds = new Set(allOrderItems.map((item) => item.itemId));
+    const itemsByOrder = new Map<number, SrDamageOrderItem[]>();
+    for (const item of allOrderItems) {
+        const existing = itemsByOrder.get(item.orderId) ?? [];
+        existing.push(item);
+        itemsByOrder.set(item.orderId, existing);
+    }
+
+    const damageData = await db
+        .select({
+            orderId: orderDamageItems.orderId,
+            orderItemId: orderDamageItems.orderItemId,
+            productId: orderDamageItems.productId,
+            variantId: orderDamageItems.variantId,
+            totalDamage: sql<string>`
+                CAST(${orderDamageItems.sellingPrice} AS DECIMAL) * ${orderDamageItems.quantity}
+            `,
+        })
+        .from(orderDamageItems)
+        .where(and(
+            inArray(orderDamageItems.orderId, uniqueOrderIds),
+            eq(orderDamageItems.isOther, false)
+        ));
+
+    const damageMap = new Map<number, number>();
+    const addDamage = (itemId: number, amount: number) => {
+        damageMap.set(itemId, (damageMap.get(itemId) || 0) + amount);
+    };
+
+    const getMatchingItems = (
+        damage: { productId: number | null; variantId: number | null },
+        orderItems: SrDamageOrderItem[]
+    ) => {
+        return orderItems
+            .filter((item) => {
+                if (damage.productId !== null && item.productId !== damage.productId) return false;
+                if (damage.variantId !== null && item.variantId !== damage.variantId) return false;
+                return true;
+            })
+            .sort((a, b) => a.itemId - b.itemId);
+    };
+
+    for (const damage of damageData) {
+        const damageAmount = parseFloat(damage.totalDamage ?? "0") || 0;
+        if (damageAmount <= 0) continue;
+
+        if (damage.orderItemId !== null && orderItemIds.has(damage.orderItemId)) {
+            addDamage(damage.orderItemId, damageAmount);
+            continue;
+        }
+
+        const orderItems = itemsByOrder.get(damage.orderId) ?? [];
+        if (orderItems.length === 0) continue;
+
+        const matchingItems = getMatchingItems(damage, orderItems);
+        const nonNullSrIds = new Set(
+            orderItems
+                .map((item) => item.srId)
+                .filter((srId): srId is number => srId !== null)
+        );
+
+        if (nonNullSrIds.size === 1) {
+            const [singleSrId] = Array.from(nonNullSrIds);
+            const targetItem =
+                matchingItems.find((item) => item.srId === singleSrId) ||
+                orderItems.find((item) => item.srId === singleSrId);
+
+            if (targetItem) addDamage(targetItem.itemId, damageAmount);
+            continue;
+        }
+
+        if (matchingItems.length === 1) {
+            addDamage(matchingItems[0]!.itemId, damageAmount);
+        }
+    }
+
+    return damageMap;
+};
 
 /**
  * Get SR-wise sales report (overview - all SRs)
@@ -2470,6 +2576,8 @@ export const getSrWiseSales = async (
         });
     }
 
+    const damageMap = await getResolvedDamageByOrderItem(items.map((item) => item.orderId));
+
     // Step 3: Aggregate by SR
     const srMap = new Map<number | null, {
         srName: string;
@@ -2496,7 +2604,8 @@ export const getSrWiseSales = async (
         const netQty = Math.max(0, paidQty - totalReturnPcs);
         const netFreeQty = Math.max(0, Number(item.deliveredFreeQty) - ret.returnFreeQty);
         const dbPrice = netQty * parseFloat(item.supplierPrice);
-        const salesPrice = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
+        const salesBeforeDamage = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
+        const salesPrice = salesBeforeDamage - (damageMap.get(item.itemId) || 0);
 
         const existing = srMap.get(key);
         if (existing) {
@@ -2679,6 +2788,8 @@ export const getSrSalesDetails = async (
         });
     }
 
+    const damageMap = await getResolvedDamageByOrderItem(items.map((item) => item.orderId));
+
     // Step 3: Aggregate by product → variant → batch
     const productMap = new Map<number, {
         productName: string;
@@ -2689,6 +2800,7 @@ export const getSrSalesDetails = async (
         totalQty: number;
         totalFreeQty: number;
         totalReturnQty: number;
+        damageTotal: number;
         dbPriceTotal: number;
         salesPriceTotal: number;
         orderIds: Set<number>;
@@ -2697,6 +2809,7 @@ export const getSrSalesDetails = async (
             totalQty: number;
             totalFreeQty: number;
             totalReturnQty: number;
+            damageTotal: number;
             dbPriceTotal: number;
             salesPriceTotal: number;
             batchMap: Map<number, {
@@ -2708,6 +2821,7 @@ export const getSrSalesDetails = async (
                 totalQty: number;
                 totalFreeQty: number;
                 totalReturnQty: number;
+                damageTotal: number;
                 dbPriceTotal: number;
                 salesPriceTotal: number;
             }>;
@@ -2723,7 +2837,9 @@ export const getSrSalesDetails = async (
         const netQty = Math.max(0, paidQty - totalReturnPcs);
         const netFreeQty = Math.max(0, Number(item.deliveredFreeQty) - ret.returnFreeQty);
         const dbPrice = netQty * parseFloat(item.supplierPrice);
-        const salesPrice = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
+        const salesBeforeDamage = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
+        const damageTotal = damageMap.get(item.itemId) || 0;
+        const salesPrice = salesBeforeDamage - damageTotal;
 
         // Product level
         const existing = productMap.get(item.productId);
@@ -2731,6 +2847,7 @@ export const getSrSalesDetails = async (
             existing.totalQty += netQty;
             existing.totalFreeQty += netFreeQty;
             existing.totalReturnQty += totalReturnPcs;
+            existing.damageTotal += damageTotal;
             existing.dbPriceTotal += dbPrice;
             existing.salesPriceTotal += salesPrice;
             existing.orderIds.add(item.orderId);
@@ -2744,6 +2861,7 @@ export const getSrSalesDetails = async (
                 totalQty: netQty,
                 totalFreeQty: netFreeQty,
                 totalReturnQty: totalReturnPcs,
+                damageTotal,
                 dbPriceTotal: dbPrice,
                 salesPriceTotal: salesPrice,
                 orderIds: new Set([item.orderId]),
@@ -2759,6 +2877,7 @@ export const getSrSalesDetails = async (
             variantExisting.totalQty += netQty;
             variantExisting.totalFreeQty += netFreeQty;
             variantExisting.totalReturnQty += totalReturnPcs;
+            variantExisting.damageTotal += damageTotal;
             variantExisting.dbPriceTotal += dbPrice;
             variantExisting.salesPriceTotal += salesPrice;
         } else {
@@ -2767,6 +2886,7 @@ export const getSrSalesDetails = async (
                 totalQty: netQty,
                 totalFreeQty: netFreeQty,
                 totalReturnQty: totalReturnPcs,
+                damageTotal,
                 dbPriceTotal: dbPrice,
                 salesPriceTotal: salesPrice,
                 batchMap: new Map(),
@@ -2780,6 +2900,7 @@ export const getSrSalesDetails = async (
             batchExisting.totalQty += netQty;
             batchExisting.totalFreeQty += netFreeQty;
             batchExisting.totalReturnQty += totalReturnPcs;
+            batchExisting.damageTotal += damageTotal;
             batchExisting.dbPriceTotal += dbPrice;
             batchExisting.salesPriceTotal += salesPrice;
         } else {
@@ -2792,6 +2913,7 @@ export const getSrSalesDetails = async (
                 totalQty: netQty,
                 totalFreeQty: netFreeQty,
                 totalReturnQty: totalReturnPcs,
+                damageTotal,
                 dbPriceTotal: dbPrice,
                 salesPriceTotal: salesPrice,
             });
@@ -2826,6 +2948,7 @@ export const getSrSalesDetails = async (
                     quantity: batchData.totalQty,
                     freeQuantity: batchData.totalFreeQty,
                     returnQuantity: batchData.totalReturnQty,
+                    damageTotal: batchData.damageTotal.toFixed(2),
                     dbPriceTotal: batchData.dbPriceTotal.toFixed(2),
                     salesPriceTotal: batchData.salesPriceTotal.toFixed(2),
                 });
@@ -2838,6 +2961,7 @@ export const getSrSalesDetails = async (
                 totalQuantity: variantData.totalQty,
                 freeQuantity: variantData.totalFreeQty,
                 returnQuantity: variantData.totalReturnQty,
+                damageTotal: variantData.damageTotal.toFixed(2),
                 dbPriceTotal: variantData.dbPriceTotal.toFixed(2),
                 salesPriceTotal: variantData.salesPriceTotal.toFixed(2),
                 batches,
@@ -2854,6 +2978,7 @@ export const getSrSalesDetails = async (
             totalQuantity: data.totalQty,
             freeQuantity: data.totalFreeQty,
             returnQuantity: data.totalReturnQty,
+            damageTotal: data.damageTotal.toFixed(2),
             dbPriceTotal: data.dbPriceTotal.toFixed(2),
             salesPriceTotal: data.salesPriceTotal.toFixed(2),
             orderCount: data.orderIds.size,
