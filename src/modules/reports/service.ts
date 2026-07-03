@@ -2363,6 +2363,18 @@ export interface SrSalesItem {
     productCount: number;
 }
 
+export interface SrSalesDailyItem {
+    date: string;
+    totalQuantity: number;
+    freeQuantity: number;
+    returnQuantity: number;
+    damageTotal: string;
+    dbPriceTotal: string;
+    salesPriceTotal: string;
+    orderCount: number;
+    productCount: number;
+}
+
 export interface SrSalesSummary {
     totalSRs: number;          // Including Distributor's Point
     totalQuantitySold: number;
@@ -2373,6 +2385,13 @@ export interface SrSalesSummary {
 
 export interface SrSalesResponse {
     items: SrSalesItem[];
+    summary: SrSalesSummary;
+}
+
+export interface SrSalesDailyResponse {
+    srId: number | null;
+    srName: string;
+    items: SrSalesDailyItem[];
     summary: SrSalesSummary;
 }
 
@@ -2667,6 +2686,197 @@ export const getSrWiseSales = async (
         items: srItems,
         summary: {
             totalSRs: srItems.length,
+            totalQuantitySold,
+            totalFreeQuantity,
+            grandDbPriceTotal: grandDbPriceTotal.toFixed(2),
+            grandSalesPriceTotal: grandSalesPriceTotal.toFixed(2),
+        },
+    };
+};
+
+/**
+ * Get date-wise sales details for a single SR.
+ * srId = 0 means "Distributor's Point" (null srId items)
+ */
+export const getSrSalesDaily = async (
+    srId: number,
+    query: SrSalesQuery
+): Promise<SrSalesDailyResponse> => {
+    const isDistributor = srId === 0;
+
+    let srName = "পরিবেশকের পয়েন্ট";
+    if (!isDistributor) {
+        const srInfo = await db.query.sr.findFirst({
+            where: (s, { eq }) => eq(s.id, srId),
+        });
+        if (!srInfo) {
+            throw new Error(`SR with ID ${srId} not found`);
+        }
+        srName = srInfo.name;
+    }
+
+    const orderConditions = [
+        ne(wholesaleOrders.status, "cancelled"),
+        ne(wholesaleOrders.status, "pending"),
+        ne(wholesaleOrders.status, "return"),
+    ];
+
+    if (query.startDate) {
+        orderConditions.push(gte(wholesaleOrders.orderDate, query.startDate));
+    }
+    if (query.endDate) {
+        orderConditions.push(lte(wholesaleOrders.orderDate, query.endDate));
+    }
+    if (query.routeId) {
+        orderConditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    const itemConditions: any[] = [];
+    if (isDistributor) {
+        itemConditions.push(isNull(wholesaleOrderItems.srId));
+    } else {
+        itemConditions.push(eq(wholesaleOrderItems.srId, srId));
+    }
+
+    const items = await db
+        .select({
+            itemId: wholesaleOrderItems.id,
+            orderId: wholesaleOrderItems.orderId,
+            orderDate: wholesaleOrders.orderDate,
+            productId: wholesaleOrderItems.productId,
+            totalQuantity: wholesaleOrderItems.totalQuantity,
+            freeQuantity: wholesaleOrderItems.freeQuantity,
+            deliveredFreeQty: sql<number>`COALESCE(${wholesaleOrderItems.deliveredFreeQty}, ${wholesaleOrderItems.freeQuantity})`,
+            supplierPrice: stockBatch.supplierPrice,
+            salePrice: wholesaleOrderItems.salePrice,
+            unitMultiplier: unit.multiplier,
+        })
+        .from(wholesaleOrderItems)
+        .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
+        .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
+        .where(and(...orderConditions, ...itemConditions));
+
+    if (items.length === 0) {
+        return {
+            srId: isDistributor ? null : srId,
+            srName,
+            items: [],
+            summary: { totalSRs: 1, totalQuantitySold: 0, totalFreeQuantity: 0, grandDbPriceTotal: "0.00", grandSalesPriceTotal: "0.00" },
+        };
+    }
+
+    const itemIds = items.map(i => i.itemId);
+    const returnsData = await db
+        .select({
+            orderItemId: orderItemReturns.orderItemId,
+            totalReturnQty: sql<number>`SUM(${orderItemReturns.returnQuantity})`,
+            totalReturnExtraPcs: sql<number>`SUM(${orderItemReturns.returnExtraPieces})`,
+            totalReturnFreeQty: sql<number>`SUM(${orderItemReturns.returnFreeQuantity})`,
+            totalReturnAmount: sql<string>`SUM(CAST(${orderItemReturns.returnAmount} AS DECIMAL))`,
+            totalAdjDiscount: sql<string>`SUM(CAST(COALESCE(${orderItemReturns.adjustmentDiscount}, '0') AS DECIMAL))`,
+        })
+        .from(orderItemReturns)
+        .where(sql`${orderItemReturns.orderItemId} IN (${sql.join(itemIds.map(id => sql`${id}`), sql`, `)})`)
+        .groupBy(orderItemReturns.orderItemId);
+
+    const returnsMap = new Map<number, { returnQty: number; returnExtraPcs: number; returnFreeQty: number; returnAmount: number; adjDiscount: number }>();
+    for (const r of returnsData) {
+        returnsMap.set(r.orderItemId, {
+            returnQty: Number(r.totalReturnQty) || 0,
+            returnExtraPcs: Number(r.totalReturnExtraPcs) || 0,
+            returnFreeQty: Number(r.totalReturnFreeQty) || 0,
+            returnAmount: parseFloat(r.totalReturnAmount ?? "0") || 0,
+            adjDiscount: parseFloat(r.totalAdjDiscount ?? "0") || 0,
+        });
+    }
+
+    const damageMap = await getResolvedDamageByOrderItem(items.map((item) => item.orderId));
+
+    const dateMap = new Map<string, {
+        totalQty: number;
+        totalFreeQty: number;
+        totalReturnQty: number;
+        damageTotal: number;
+        dbPriceTotal: number;
+        salesPriceTotal: number;
+        orderIds: Set<number>;
+        productIds: Set<number>;
+    }>();
+
+    for (const item of items) {
+        const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnExtraPcs: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
+        const paidQty = Number(item.totalQuantity) - Number(item.freeQuantity);
+        const unitMult = Number(item.unitMultiplier) || 1;
+        const totalReturnPcs = ret.returnQty * unitMult + ret.returnExtraPcs;
+        const netQty = Math.max(0, paidQty - totalReturnPcs);
+        const netFreeQty = Math.max(0, Number(item.deliveredFreeQty) - ret.returnFreeQty);
+        const dbPrice = netQty * parseFloat(item.supplierPrice);
+        const salesBeforeDamage = Math.max(0, (netQty * parseFloat(item.salePrice)) - ret.adjDiscount);
+        const damageTotal = damageMap.get(item.itemId) || 0;
+        const salesPrice = salesBeforeDamage - damageTotal;
+        const orderDateValue = item.orderDate as string | Date;
+        const orderDate = orderDateValue instanceof Date
+            ? orderDateValue.toISOString().split("T")[0]!
+            : String(orderDateValue);
+
+        const existing = dateMap.get(orderDate);
+        if (existing) {
+            existing.totalQty += netQty;
+            existing.totalFreeQty += netFreeQty;
+            existing.totalReturnQty += totalReturnPcs;
+            existing.damageTotal += damageTotal;
+            existing.dbPriceTotal += dbPrice;
+            existing.salesPriceTotal += salesPrice;
+            existing.orderIds.add(item.orderId);
+            existing.productIds.add(item.productId);
+        } else {
+            dateMap.set(orderDate, {
+                totalQty: netQty,
+                totalFreeQty: netFreeQty,
+                totalReturnQty: totalReturnPcs,
+                damageTotal,
+                dbPriceTotal: dbPrice,
+                salesPriceTotal: salesPrice,
+                orderIds: new Set([item.orderId]),
+                productIds: new Set([item.productId]),
+            });
+        }
+    }
+
+    let totalQuantitySold = 0;
+    let totalFreeQuantity = 0;
+    let grandDbPriceTotal = 0;
+    let grandSalesPriceTotal = 0;
+
+    const dailyItems: SrSalesDailyItem[] = [];
+    for (const [date, data] of dateMap) {
+        totalQuantitySold += data.totalQty;
+        totalFreeQuantity += data.totalFreeQty;
+        grandDbPriceTotal += data.dbPriceTotal;
+        grandSalesPriceTotal += data.salesPriceTotal;
+
+        dailyItems.push({
+            date,
+            totalQuantity: data.totalQty,
+            freeQuantity: data.totalFreeQty,
+            returnQuantity: data.totalReturnQty,
+            damageTotal: data.damageTotal.toFixed(2),
+            dbPriceTotal: data.dbPriceTotal.toFixed(2),
+            salesPriceTotal: data.salesPriceTotal.toFixed(2),
+            orderCount: data.orderIds.size,
+            productCount: data.productIds.size,
+        });
+    }
+
+    dailyItems.sort((a, b) => b.date.localeCompare(a.date));
+
+    return {
+        srId: isDistributor ? null : srId,
+        srName,
+        items: dailyItems,
+        summary: {
+            totalSRs: 1,
             totalQuantitySold,
             totalFreeQuantity,
             grandDbPriceTotal: grandDbPriceTotal.toFixed(2),

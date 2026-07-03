@@ -438,6 +438,51 @@ app.get(
     }
 );
 
+// Get SR Sales Daily Details (date-level for a specific SR)
+app.get(
+    "/sr-sales/:srId/daily",
+    zValidator("query", srSalesQuerySchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json(
+                {
+                    success: false,
+                    message: "Invalid query parameters",
+                    errors: result.error.issues.map((issue) => ({
+                        path: issue.path.join("."),
+                        message: issue.message,
+                    })),
+                },
+                400
+            );
+        }
+    }),
+    async (ctx) => {
+        try {
+            const srId = Number(ctx.req.param("srId"));
+            if (isNaN(srId)) {
+                return ctx.json({ success: false, message: "Invalid SR ID" }, 400);
+            }
+
+            const query = ctx.req.valid("query");
+            const data = await reportsService.getSrSalesDaily(srId, query);
+
+            return ctx.json({
+                success: true,
+                data,
+            });
+        } catch (error) {
+            logError("Error fetching SR sales daily details:", error);
+            return ctx.json(
+                {
+                    success: false,
+                    message: error instanceof Error ? error.message : "Failed to fetch SR sales daily details",
+                },
+                500
+            );
+        }
+    }
+);
+
 // Get SR Sales Details (product-level for a specific SR)
 app.get(
     "/sr-sales/:srId",
