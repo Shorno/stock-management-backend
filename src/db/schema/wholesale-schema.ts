@@ -416,6 +416,8 @@ export const orderDamageItems = pgTable("order_damage_items", {
         .references(() => product.id, { onDelete: "set null" }), // Product ID for any product
     variantId: integer("variant_id")
         .references(() => productVariant.id, { onDelete: "set null" }), // Variant ID for variant info
+    srId: integer("sr_id")
+        .references(() => sr.id, { onDelete: "set null" }), // Optional SR attribution for SR sales reporting
     customerId: integer("customer_id")
         .references(() => customer.id, { onDelete: "set null" }), // Customer who returned the damage
     customerName: varchar("customer_name", { length: 150 }), // Keep for display/fallback
@@ -434,6 +436,7 @@ export const orderDamageItems = pgTable("order_damage_items", {
     orderIdx: index("idx_order_damage_items_order").on(table.orderId),
     itemIdx: index("idx_order_damage_items_item").on(table.orderItemId),
     productIdx: index("idx_order_damage_items_product").on(table.productId),
+    srIdx: index("idx_order_damage_items_sr").on(table.srId),
     customerIdx: index("idx_order_damage_items_customer").on(table.customerId),
 }));
 
@@ -446,6 +449,10 @@ export const orderDamageItemsRelations = relations(orderDamageItems, ({ one }) =
     orderItem: one(wholesaleOrderItems, {
         fields: [orderDamageItems.orderItemId],
         references: [wholesaleOrderItems.id],
+    }),
+    sr: one(sr, {
+        fields: [orderDamageItems.srId],
+        references: [sr.id],
     }),
     customer: one(customer, {
         fields: [orderDamageItems.customerId],
