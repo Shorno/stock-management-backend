@@ -936,6 +936,20 @@ export const saveOrderAdjustment = async (
             }
         }
 
+        for (const damageItem of data.damageReturns || []) {
+            if (!damageItem.srId) continue;
+
+            if (damageItem.isOther) {
+                throw new Error("SR cannot be selected for other damage.");
+            }
+
+            if (!allowedOrderSrIds.has(damageItem.srId)) {
+                throw new Error(
+                    `Invalid SR ID ${damageItem.srId} - only SRs assigned to this order can receive damage attribution.`
+                );
+            }
+        }
+
         // Validate that return quantities do not exceed ordered quantities
         for (const itemReturn of data.itemReturns) {
             const orderItem = order.items.find((i: any) => i.id === itemReturn.itemId);
@@ -1186,6 +1200,7 @@ export const saveOrderAdjustment = async (
                     orderItemId: damageItem.orderItemId || null,
                     productId: damageItem.productId || null,
                     variantId: damageItem.variantId || null,
+                    srId: damageItem.isOther ? null : damageItem.srId || null,
                     customerId: damageItem.customerId || null,
                     customerName: damageItem.customerName || null,
                     productName: damageItem.productName,
@@ -1261,6 +1276,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Get damage items
     const damageItemsData = await db.query.orderDamageItems.findMany({
         where: (d, { eq }) => eq(d.orderId, orderId),
+        with: { sr: true },
     });
 
     // Get DSR dues (with customer name)
@@ -1437,6 +1453,8 @@ export const getOrderAdjustment = async (orderId: number) => {
             orderItemId: d.orderItemId || undefined,
             productId: d.productId || undefined,
             variantId: d.variantId || undefined,
+            srId: d.srId || undefined,
+            srName: (d as any).sr?.name || undefined,
             customerId: d.customerId || undefined,
             customerName: d.customerName || undefined,
             productName: d.productName,

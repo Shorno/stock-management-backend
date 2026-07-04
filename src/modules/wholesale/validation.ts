@@ -117,6 +117,7 @@ export const adjustmentDamageReturnSchema = z.object({
     orderItemId: z.coerce.number().int().positive().optional(), // Optional - only if from order item
     productId: z.coerce.number().int().positive().optional(),   // Product ID for any product
     variantId: z.coerce.number().int().positive().optional(),   // Variant ID
+    srId: z.coerce.number().int().positive().optional(),         // Optional SR attribution from order SRs only
     customerId: z.coerce.number().int().positive().optional(),  // Customer who returned
     customerName: z.string().optional(),                         // Customer name for display
     productName: z.string().min(1, "Product name is required"),
