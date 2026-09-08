@@ -59,6 +59,7 @@ export interface LedgerQuery {
     page?: number;
     limit?: number;
     transactionType?: string;
+    sortBy?: "transactionDate" | "createdAt";
 }
 
 export interface LedgerEntryResult {
@@ -95,6 +96,9 @@ export async function getLedger(query: LedgerQuery = {}): Promise<LedgerResponse
     const page = query.page || 1;
     const limit = query.limit || 50;
     const offset = (page - 1) * limit;
+    const sortColumn = query.sortBy === "createdAt"
+        ? netAssetLedger.createdAt
+        : netAssetLedger.transactionDate;
 
     // Build filters
     const filters = [];
@@ -136,7 +140,7 @@ export async function getLedger(query: LedgerQuery = {}): Promise<LedgerResponse
             })
             .from(netAssetLedger)
             .where(whereClause)
-            .orderBy(desc(netAssetLedger.transactionDate), desc(netAssetLedger.id))
+            .orderBy(desc(sortColumn), desc(netAssetLedger.id))
             .limit(limit)
             .offset(offset);
     }

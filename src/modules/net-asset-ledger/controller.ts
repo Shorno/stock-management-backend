@@ -8,12 +8,18 @@ import { logError } from "../../lib/error-handler";
 export async function handleGetLedger(c: Context): Promise<Response> {
     try {
         const query = c.req.query();
+        const sortBy = query.sortBy ?? "transactionDate";
+        if (sortBy !== "transactionDate" && sortBy !== "createdAt") {
+            return c.json({ success: false, error: "Invalid ledger sort date" }, 400);
+        }
+
         const result = await ledgerService.getLedger({
             startDate: query.startDate,
             endDate: query.endDate,
             page: query.page ? Number(query.page) : undefined,
             limit: query.limit ? Number(query.limit) : undefined,
             transactionType: query.transactionType,
+            sortBy,
         });
         return c.json({ success: true, data: result });
     } catch (error) {
