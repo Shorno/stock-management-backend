@@ -1,8 +1,9 @@
 import { db } from "../../db/config";
 import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDsrDues, orderSrDues, orderDamageItems, srCommissions } from "../../db/schema";
-import { eq, and, or, ilike, count, gte, lte, sql, ne } from "drizzle-orm";
+import { eq, and, count, gte, lte, sql, ne } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
+import { buildOrderFilters } from "./order-filters";
 
 // Fallback unit multipliers (used if unit not found in database)
 const FALLBACK_UNIT_MULTIPLIERS: Record<string, number> = {
@@ -272,51 +273,7 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
 export const getOrders = async (
     query: GetOrdersQuery
 ): Promise<{ orders: any[]; total: number }> => {
-    const conditions = [];
-
-    // Search by order number or DSR name
-    if (query.search) {
-        conditions.push(
-            or(
-                ilike(wholesaleOrders.orderNumber, `%${query.search}%`)
-            )
-        );
-    }
-
-    // Filter by DSR
-    if (query.dsrId) {
-        conditions.push(eq(wholesaleOrders.dsrId, query.dsrId));
-    }
-
-    // Filter by route
-    if (query.routeId) {
-        conditions.push(eq(wholesaleOrders.routeId, query.routeId));
-    }
-
-    // Filter by category
-    if (query.categoryId) {
-        conditions.push(eq(wholesaleOrders.categoryId, query.categoryId));
-    }
-
-    // Filter by brand
-    if (query.brandId) {
-        conditions.push(eq(wholesaleOrders.brandId, query.brandId));
-    }
-
-    // Filter by status
-    if (query.status) {
-        conditions.push(eq(wholesaleOrders.status, query.status));
-    }
-
-    // Filter by date range
-    if (query.startDate) {
-        conditions.push(gte(wholesaleOrders.orderDate, query.startDate));
-    }
-    if (query.endDate) {
-        conditions.push(lte(wholesaleOrders.orderDate, query.endDate));
-    }
-
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const whereClause = buildOrderFilters(query);
 
     // Fetch orders with relations
     const [orders, totalResult] = await Promise.all([
@@ -324,7 +281,7 @@ export const getOrders = async (
             where: whereClause,
             limit: query.limit,
             offset: query.offset,
-            orderBy: (orders, { desc }) => [desc(orders.createdAt)],
+            orderBy: (orders, { desc }) => [desc(orders.createdAt), desc(orders.id)],
             with: {
                 dsr: true,
                 route: true,

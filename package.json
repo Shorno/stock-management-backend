@@ -2,6 +2,7 @@
   "name": "stock-management-backend",
   "type": "module",
   "scripts": {
+    "test": "bun test",
     "server": "bun run --hot src/index.ts",
     "build": "tsc && tsc-alias",
     "start": "bun run dist/index.js",
@@ -28,6 +29,7 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/bun": "latest",
     "@types/node-cron": "^3.0.11",
     "@types/pdfkit": "^0.17.4",
