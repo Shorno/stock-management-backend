@@ -42,7 +42,7 @@ export const getSrs = async (
       },
       limit: query.limit,
       offset: query.offset,
-      orderBy: (sr, { asc }) => [asc(sr.name)],
+      orderBy: (sr, { asc }) => [asc(sr.name), asc(sr.id)],
     }),
     db
       .select({ count: count() })

@@ -44,9 +44,17 @@ export const updateStatusSchema = z.object({
 
 
 // Query parameters schema
+const peopleIdsSchema = z.string()
+    .regex(/^$|^[1-9]\d*(,[1-9]\d*)*$/, "Use comma-separated positive IDs")
+    .transform(value => value ? [...new Set(value.split(",").map(Number))] : [])
+    .pipe(z.array(z.number().int().positive().max(2147483647)))
+    .optional();
+
 export const getOrdersQuerySchema = z.object({
     search: z.string().optional(),
     dsrId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
+    dsrIds: peopleIdsSchema,
+    srIds: peopleIdsSchema,
     routeId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
     categoryId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
     brandId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),

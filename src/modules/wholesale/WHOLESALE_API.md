@@ -110,6 +110,8 @@ All endpoints are prefixed with `/api/wholesale-orders`
 **Query Parameters:**
 - `search` (optional): Search by order number
 - `dsrId` (optional): Filter by DSR ID
+- `dsrIds` (optional): Comma-separated DSR IDs, for example `10,20`. Matches any selected DSR.
+- `srIds` (optional): Comma-separated SR IDs, for example `101,102`. Matches orders containing an item assigned to any selected SR.
 - `routeId` (optional): Filter by route ID
 - `categoryId` (optional): Filter by category ID
 - `brandId` (optional): Filter by brand ID
@@ -120,6 +122,12 @@ All endpoints are prefixed with `/api/wholesale-orders`
 - `offset` (optional): Number of results to skip (default: 0)
 
 **Example:** `/api/wholesale-orders?dsrId=1&status=pending&limit=10&offset=0`
+
+**Multiple people:** `/api/wholesale-orders?srIds=101,102&dsrIds=10,20&startDate=2026-09-01&endDate=2026-09-19`
+
+SR and DSR selections are combined with AND, along with date, status and search filters. Empty selections do not constrain the result. IDs must be positive integers; malformed lists return HTTP 400. The existing `dsrId` remains supported and, if supplied together with `dsrIds`, both restrictions apply.
+
+Each matching order appears once, even when multiple items or SRs match. Amounts and the SR list describe the complete order. The `total` count covers all matching orders before pagination, and ordering is stable across API pages.
 
 **Response:** (200 OK)
 ```json

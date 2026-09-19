@@ -28,7 +28,7 @@ export const getDsrs = async (
       where: whereClause,
       limit: query.limit,
       offset: query.offset,
-      orderBy: (dsr, { asc }) => [asc(dsr.name)],
+      orderBy: (dsr, { asc }) => [asc(dsr.name), asc(dsr.id)],
     }),
     db
       .select({ count: count() })
