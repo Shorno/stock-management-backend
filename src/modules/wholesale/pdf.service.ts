@@ -3,6 +3,7 @@ import path from "path";
 import type { OrderWithItems } from "./types";
 import { db } from "../../db/config";
 import { unit as unitTable } from "../../db/schema/unit-schema";
+import { drawCompanySalesSummary } from "./company-sales-pdf";
 
 // Font paths for Bangla support
 const FONTS_DIR = path.join(process.cwd(), "src/assets/fonts");
@@ -267,6 +268,7 @@ interface AdjustmentCustomerDue {
 
 interface DamageReturn {
     id?: number;
+    orderItemId?: number;
     productName: string;
     variantName?: string;
     brandName: string;
@@ -274,6 +276,7 @@ interface DamageReturn {
     unitPrice: number;
     sellingPrice: number;
     reason?: string;
+    isOther?: boolean;
 }
 
 interface AdjustmentItemWithCalculations {
@@ -745,7 +748,9 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
 
                 currentY += 18;
             });
-            // === FINANCIAL SUMMARY ===
+            currentY = drawCompanySalesSummary(doc, order.items, adjustment, getMultiplier, currentY, pageBottom);
+
+            // === FINANCIAL SUMMARY ===
             // Force a new page for summary section if not enough space for two-column layout
             const spaceRemaining = pageBottom - currentY;
             if (spaceRemaining < 350) {
