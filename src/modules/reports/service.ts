@@ -2350,7 +2350,7 @@ export interface SrSalesProductItem {
 }
 
 export interface SrSalesItem {
-    srId: number | null;       // null = Distributor's Point
+    srId: number | null;       // null = DB Point
     srName: string;
     brandId: number | null;
     brandName: string | null;
@@ -2377,7 +2377,7 @@ export interface SrSalesDailyItem {
 }
 
 export interface SrSalesSummary {
-    totalSRs: number;          // Including Distributor's Point
+    totalSRs: number;          // Including DB Point
     totalQuantitySold: number;
     totalFreeQuantity: number;
     grandDbPriceTotal: string;
@@ -2481,7 +2481,7 @@ const getDirectSrDamageEntries = async (orderIds: number[], srId?: number): Prom
 
 /**
  * Get SR-wise sales report (overview - all SRs)
- * Groups by SR, null srId = "পরিবেশকের পয়েন্ট"
+ * Groups by SR, null srId = "DB Point"
  * Uses application-level return aggregation to avoid LEFT JOIN duplicate counting
  */
 export const getSrWiseSales = async (
@@ -2611,7 +2611,7 @@ export const getSrWiseSales = async (
             existing.productIds.add(item.productId);
         } else {
             srMap.set(key, {
-                srName: item.srId ? (item.srName ?? "Unknown SR") : "পরিবেশকের পয়েন্ট",
+                srName: item.srId ? (item.srName ?? "Unknown SR") : "DB Point",
                 srBrandId: item.srBrandId,
                 srBrandName: item.srBrandName,
                 totalQty: netQty,
@@ -2679,7 +2679,7 @@ export const getSrWiseSales = async (
 
 /**
  * Get date-wise sales details for a single SR.
- * srId = 0 means "Distributor's Point" (null srId items)
+ * srId = 0 means "DB Point" (null srId items)
  */
 export const getSrSalesDaily = async (
     srId: number,
@@ -2687,7 +2687,7 @@ export const getSrSalesDaily = async (
 ): Promise<SrSalesDailyResponse> => {
     const isDistributor = srId === 0;
 
-    let srName = "পরিবেশকের পয়েন্ট";
+    let srName = "DB Point";
     if (!isDistributor) {
         const srInfo = await db.query.sr.findFirst({
             where: (s, { eq }) => eq(s.id, srId),
@@ -2877,7 +2877,7 @@ export const getSrSalesDaily = async (
 
 /**
  * Get SR sales details for a single SR (product-level breakdown)
- * srId = 0 means "Distributor's Point" (null srId items)
+ * srId = 0 means "DB Point" (null srId items)
  * Uses application-level return aggregation to avoid LEFT JOIN duplicate counting
  */
 export const getSrSalesDetails = async (
@@ -2887,7 +2887,7 @@ export const getSrSalesDetails = async (
     const isDistributor = srId === 0;
 
     // Get SR info
-    let srName = "পরিবেশকের পয়েন্ট";
+    let srName = "DB Point";
     if (!isDistributor) {
         const srInfo = await db.query.sr.findFirst({
             where: (s, { eq }) => eq(s.id, srId),

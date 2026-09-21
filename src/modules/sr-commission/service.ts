@@ -1,8 +1,9 @@
 import { db } from "../../db/config";
-import { sr, srCommissions, wholesaleOrders } from "../../db/schema";
+import { orderExpenses, sr, srCommissions, wholesaleOrders } from "../../db/schema";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { logError } from "../../lib/error-handler";
 import type { CreateCommissionInput, GetCommissionsQuery } from "./validation";
+import { buildDbPointCommissionFilter } from "./commission-filters";
 
 /**
  * Create a new commission entry for an SR
@@ -46,6 +47,45 @@ export async function createCommission(input: CreateCommissionInput) {
  * Get commissions for an SR with optional date filtering
  */
 export async function getCommissions(srId: number, query: GetCommissionsQuery) {
+    if (srId === 0) {
+        const expenses = await db
+            .select({
+                id: orderExpenses.id,
+                amount: orderExpenses.amount,
+                expenseType: orderExpenses.expenseType,
+                orderId: orderExpenses.orderId,
+                orderNumber: wholesaleOrders.orderNumber,
+                note: orderExpenses.note,
+                createdAt: orderExpenses.createdAt,
+                commissionDate: sql<string>`to_char(${orderExpenses.createdAt} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dhaka', 'YYYY-MM-DD')`,
+            })
+            .from(orderExpenses)
+            .innerJoin(wholesaleOrders, eq(orderExpenses.orderId, wholesaleOrders.id))
+            .where(buildDbPointCommissionFilter(query))
+            .orderBy(desc(orderExpenses.createdAt));
+
+        const commissions = expenses.map((expense) => ({
+            id: expense.id,
+            srId: null,
+            amount: expense.amount,
+            commissionDate: expense.commissionDate,
+            sourceType: "order_adjustment" as const,
+            expenseType: expense.expenseType,
+            orderId: expense.orderId,
+            orderExpenseId: expense.id,
+            orderNumber: expense.orderNumber,
+            note: expense.note,
+            createdAt: expense.createdAt,
+        }));
+        const total = commissions.reduce((sum, commission) => sum + parseFloat(commission.amount), 0);
+
+        return {
+            commissions,
+            total: total.toFixed(2),
+            count: commissions.length,
+        };
+    }
+
     const conditions = [eq(srCommissions.srId, srId)];
 
     if (query.startDate) {
@@ -65,11 +105,13 @@ export async function getCommissions(srId: number, query: GetCommissionsQuery) {
             orderId: srCommissions.orderId,
             orderExpenseId: srCommissions.orderExpenseId,
             orderNumber: wholesaleOrders.orderNumber,
+            expenseType: orderExpenses.expenseType,
             note: srCommissions.note,
             createdAt: srCommissions.createdAt,
         })
         .from(srCommissions)
         .leftJoin(wholesaleOrders, eq(srCommissions.orderId, wholesaleOrders.id))
+        .leftJoin(orderExpenses, eq(srCommissions.orderExpenseId, orderExpenses.id))
         .where(and(...conditions))
         .orderBy(desc(srCommissions.commissionDate), desc(srCommissions.createdAt));
 
