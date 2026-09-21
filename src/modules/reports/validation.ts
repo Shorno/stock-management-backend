@@ -84,6 +84,24 @@ export const srSalesQuerySchema = z.object({
 
 export type SrSalesQuery = z.infer<typeof srSalesQuerySchema>;
 
+const commaSeparatedIds = z.string()
+    .regex(/^\d+(,\d+)*$/, "IDs must be comma-separated integers")
+    .transform((value) => Array.from(new Set(value.split(",").map(Number))));
+
+export const expenseCommissionQuerySchema = z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    srIds: commaSeparatedIds.optional(), // 0 represents DB Point
+    dsrIds: commaSeparatedIds
+        .refine((ids) => ids.every((id) => id > 0), "DSR IDs must be positive")
+        .optional(),
+}).refine(
+    ({ startDate, endDate }) => !startDate || !endDate || startDate <= endDate,
+    { message: "Start date must not be after end date", path: ["startDate"] }
+);
+
+export type ExpenseCommissionQuery = z.infer<typeof expenseCommissionQuerySchema>;
+
 // Query schema for Inventory Snapshot
 export const inventorySnapshotQuerySchema = z.object({
     date: z.string().optional(), // YYYY-MM-DD format, defaults to latest

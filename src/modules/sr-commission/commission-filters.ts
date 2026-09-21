@@ -1,6 +1,12 @@
-import { and, isNull, sql } from "drizzle-orm";
-import { orderExpenses } from "../../db/schema";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { orderExpenses, srCommissions, wholesaleOrders } from "../../db/schema";
 import type { GetCommissionsQuery } from "./validation";
+
+export const effectiveSrCommissionDate = sql<string>`CASE
+    WHEN ${srCommissions.sourceType} = 'order_adjustment' AND ${wholesaleOrders.orderDate} IS NOT NULL
+        THEN ${wholesaleOrders.orderDate}
+    ELSE ${srCommissions.commissionDate}
+END`;
 
 /**
  * DB Point is the virtual sales identity for work that is not assigned to an SR.
@@ -10,11 +16,33 @@ export function buildDbPointCommissionFilter(query: GetCommissionsQuery) {
     const conditions = [isNull(orderExpenses.srId)];
 
     if (query.startDate) {
-        conditions.push(sql`(${orderExpenses.createdAt} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dhaka')::date >= ${query.startDate}::date`);
+        conditions.push(sql`${wholesaleOrders.orderDate} >= ${query.startDate}::date`);
     }
     if (query.endDate) {
-        conditions.push(sql`(${orderExpenses.createdAt} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dhaka')::date <= ${query.endDate}::date`);
+        conditions.push(sql`${wholesaleOrders.orderDate} <= ${query.endDate}::date`);
+    }
+    if (query.routeId) {
+        conditions.push(eq(wholesaleOrders.routeId, query.routeId));
     }
 
     return and(...conditions);
+}
+
+export function buildSrCommissionFilter(srId: number | undefined, query: GetCommissionsQuery) {
+    const conditions = [];
+
+    if (srId !== undefined) {
+        conditions.push(eq(srCommissions.srId, srId));
+    }
+    if (query.startDate) {
+        conditions.push(sql`${effectiveSrCommissionDate} >= ${query.startDate}::date`);
+    }
+    if (query.endDate) {
+        conditions.push(sql`${effectiveSrCommissionDate} <= ${query.endDate}::date`);
+    }
+    if (query.routeId) {
+        conditions.push(eq(wholesaleOrders.routeId, query.routeId));
+    }
+
+    return conditions.length > 0 ? and(...conditions) : undefined;
 }

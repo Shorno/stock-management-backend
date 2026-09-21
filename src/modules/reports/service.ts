@@ -2,6 +2,7 @@ import { db } from "../../db/config";
 import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant, sr, unit } from "../../db/schema";
 import { eq, and, gte, lte, sql, ne, countDistinct, desc, inArray } from "drizzle-orm";
 import type { DailySalesCollectionQuery, DsrLedgerQuery, DailySettlementQuery } from "./validation";
+import { getCommissions, getCommissionTotals } from "../sr-commission/service";
 
 export interface DailySalesCollectionItem {
     orderId: number;
@@ -1036,8 +1037,10 @@ export const getProductWiseSales = async (
         itemConditions.push(eq(wholesaleOrderItems.productId, query.productId));
     }
 
-    if (query.srId) {
-        itemConditions.push(eq(wholesaleOrderItems.srId, query.srId));
+    if (query.srId !== undefined) {
+        itemConditions.push(query.srId === 0
+            ? isNull(wholesaleOrderItems.srId)
+            : eq(wholesaleOrderItems.srId, query.srId));
     }
 
     // Query order items grouped by product
@@ -2358,6 +2361,7 @@ export interface SrSalesItem {
     freeQuantity: number;
     returnQuantity: number;
     damageTotal: string;
+    commissionTotal: string;   // Commission attributed within the selected challan-date range
     dbPriceTotal: string;      // Total at DB/supplier price
     salesPriceTotal: string;   // Total at sales price
     orderCount: number;
@@ -2366,6 +2370,7 @@ export interface SrSalesItem {
 
 export interface SrSalesDailyItem {
     date: string;
+    routes: Array<{ id: number; name: string }>;
     totalQuantity: number;
     freeQuantity: number;
     returnQuantity: number;
@@ -2380,6 +2385,7 @@ export interface SrSalesSummary {
     totalSRs: number;          // Including DB Point
     totalQuantitySold: number;
     totalFreeQuantity: number;
+    grandCommissionTotal?: string;
     grandDbPriceTotal: string;
     grandSalesPriceTotal: string;
 }
@@ -2392,6 +2398,7 @@ export interface SrSalesResponse {
 export interface SrSalesDailyResponse {
     srId: number | null;
     srName: string;
+    totalCommission: string;
     items: SrSalesDailyItem[];
     summary: SrSalesSummary;
 }
@@ -2534,10 +2541,43 @@ export const getSrWiseSales = async (
         .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
         .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])));
 
+    const commissionTotals = await getCommissionTotals({
+        startDate: query.startDate,
+        endDate: query.endDate,
+        routeId: query.routeId,
+    }, query.srId);
+    const grandCommissionTotal = commissionTotals.reduce(
+        (sum, commission) => sum + parseFloat(commission.total),
+        0
+    );
+
     if (items.length === 0) {
+        const commissionItems: SrSalesItem[] = commissionTotals.map((commission) => ({
+            srId: commission.srId,
+            srName: commission.srName,
+            brandId: commission.brandId,
+            brandName: commission.brandName,
+            totalQuantity: 0,
+            freeQuantity: 0,
+            returnQuantity: 0,
+            damageTotal: "0.00",
+            commissionTotal: commission.total,
+            dbPriceTotal: "0.00",
+            salesPriceTotal: "0.00",
+            orderCount: 0,
+            productCount: 0,
+        })).sort((a, b) => parseFloat(b.commissionTotal) - parseFloat(a.commissionTotal));
+
         return {
-            items: [],
-            summary: { totalSRs: 0, totalQuantitySold: 0, totalFreeQuantity: 0, grandDbPriceTotal: "0.00", grandSalesPriceTotal: "0.00" },
+            items: commissionItems,
+            summary: {
+                totalSRs: commissionItems.length,
+                totalQuantitySold: 0,
+                totalFreeQuantity: 0,
+                grandCommissionTotal: grandCommissionTotal.toFixed(2),
+                grandDbPriceTotal: "0.00",
+                grandSalesPriceTotal: "0.00",
+            },
         };
     }
 
@@ -2633,6 +2673,28 @@ export const getSrWiseSales = async (
         existing.salesPriceTotal -= damage.amount;
     }
 
+    for (const commission of commissionTotals) {
+        if (!srMap.has(commission.srId)) {
+            srMap.set(commission.srId, {
+                srName: commission.srName,
+                srBrandId: commission.brandId,
+                srBrandName: commission.brandName,
+                totalQty: 0,
+                totalFreeQty: 0,
+                totalReturnQty: 0,
+                damageTotal: 0,
+                dbPriceTotal: 0,
+                salesPriceTotal: 0,
+                orderIds: new Set(),
+                productIds: new Set(),
+            });
+        }
+    }
+
+    const commissionBySr = new Map(
+        commissionTotals.map((commission) => [commission.srId, commission.total])
+    );
+
     // Step 4: Build response
     let totalQuantitySold = 0;
     let totalFreeQuantity = 0;
@@ -2655,6 +2717,7 @@ export const getSrWiseSales = async (
             freeQuantity: data.totalFreeQty,
             returnQuantity: data.totalReturnQty,
             damageTotal: data.damageTotal.toFixed(2),
+            commissionTotal: commissionBySr.get(srId) ?? "0.00",
             dbPriceTotal: data.dbPriceTotal.toFixed(2),
             salesPriceTotal: data.salesPriceTotal.toFixed(2),
             orderCount: data.orderIds.size,
@@ -2671,6 +2734,7 @@ export const getSrWiseSales = async (
             totalSRs: srItems.length,
             totalQuantitySold,
             totalFreeQuantity,
+            grandCommissionTotal: grandCommissionTotal.toFixed(2),
             grandDbPriceTotal: grandDbPriceTotal.toFixed(2),
             grandSalesPriceTotal: grandSalesPriceTotal.toFixed(2),
         },
@@ -2721,11 +2785,19 @@ export const getSrSalesDaily = async (
         itemConditions.push(eq(wholesaleOrderItems.srId, srId));
     }
 
+    const commissionData = await getCommissions(srId, {
+        startDate: query.startDate,
+        endDate: query.endDate,
+        routeId: query.routeId,
+    });
+
     const items = await db
         .select({
             itemId: wholesaleOrderItems.id,
             orderId: wholesaleOrderItems.orderId,
             orderDate: wholesaleOrders.orderDate,
+            routeId: route.id,
+            routeName: route.name,
             productId: wholesaleOrderItems.productId,
             totalQuantity: wholesaleOrderItems.totalQuantity,
             freeQuantity: wholesaleOrderItems.freeQuantity,
@@ -2736,6 +2808,7 @@ export const getSrSalesDaily = async (
         })
         .from(wholesaleOrderItems)
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
+        .innerJoin(route, eq(wholesaleOrders.routeId, route.id))
         .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
         .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
         .where(and(...orderConditions, ...itemConditions));
@@ -2744,6 +2817,7 @@ export const getSrSalesDaily = async (
         return {
             srId: isDistributor ? null : srId,
             srName,
+            totalCommission: commissionData.total,
             items: [],
             summary: { totalSRs: 1, totalQuantitySold: 0, totalFreeQuantity: 0, grandDbPriceTotal: "0.00", grandSalesPriceTotal: "0.00" },
         };
@@ -2787,6 +2861,7 @@ export const getSrSalesDaily = async (
         salesPriceTotal: number;
         orderIds: Set<number>;
         productIds: Set<number>;
+        routes: Map<number, string>;
     }>();
 
     for (const item of items) {
@@ -2813,6 +2888,7 @@ export const getSrSalesDaily = async (
             existing.salesPriceTotal += salesPrice;
             existing.orderIds.add(item.orderId);
             existing.productIds.add(item.productId);
+            existing.routes.set(item.routeId, item.routeName);
         } else {
             dateMap.set(orderDate, {
                 totalQty: netQty,
@@ -2823,6 +2899,7 @@ export const getSrSalesDaily = async (
                 salesPriceTotal: salesPrice,
                 orderIds: new Set([item.orderId]),
                 productIds: new Set([item.productId]),
+                routes: new Map([[item.routeId, item.routeName]]),
             });
         }
     }
@@ -2848,6 +2925,8 @@ export const getSrSalesDaily = async (
 
         dailyItems.push({
             date,
+            routes: Array.from(data.routes, ([id, name]) => ({ id, name }))
+                .sort((a, b) => a.name.localeCompare(b.name)),
             totalQuantity: data.totalQty,
             freeQuantity: data.totalFreeQty,
             returnQuantity: data.totalReturnQty,
@@ -2864,6 +2943,7 @@ export const getSrSalesDaily = async (
     return {
         srId: isDistributor ? null : srId,
         srName,
+        totalCommission: commissionData.total,
         items: dailyItems,
         summary: {
             totalSRs: 1,

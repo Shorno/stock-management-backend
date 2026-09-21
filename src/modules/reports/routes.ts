@@ -1,10 +1,39 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema, brandWiseSalesQuerySchema, dailySettlementQuerySchema, brandWisePurchaseQuerySchema, srSalesQuerySchema } from "./validation";
+import { dailySalesCollectionQuerySchema, dsrLedgerQuerySchema, dsrLedgerOverviewQuerySchema, productWiseSalesQuerySchema, brandWiseSalesQuerySchema, dailySettlementQuerySchema, brandWisePurchaseQuerySchema, srSalesQuerySchema, expenseCommissionQuerySchema } from "./validation";
 import * as reportsService from "./service";
 import { logError } from "../../lib/error-handler";
+import { getExpenseCommissionReport } from "./expense-commission-service";
 
 const app = new Hono();
+
+app.get(
+    "/expense-commissions",
+    zValidator("query", expenseCommissionQuerySchema, (result, ctx) => {
+        if (!result.success) {
+            return ctx.json({
+                success: false,
+                message: "Invalid query parameters",
+                errors: result.error.issues.map((issue) => ({
+                    path: issue.path.join("."),
+                    message: issue.message,
+                })),
+            }, 400);
+        }
+    }),
+    async (ctx) => {
+        try {
+            const data = await getExpenseCommissionReport(ctx.req.valid("query"));
+            return ctx.json({ success: true, data });
+        } catch (error) {
+            logError("Error fetching expense and commission report:", error);
+            return ctx.json({
+                success: false,
+                message: error instanceof Error ? error.message : "Failed to fetch expense and commission report",
+            }, 500);
+        }
+    }
+);
 
 // Get daily sales and collection report
 app.get(

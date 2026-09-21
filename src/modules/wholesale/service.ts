@@ -1029,7 +1029,7 @@ export const saveOrderAdjustment = async (
                     await tx.insert(srCommissions).values({
                         srId: expense.srId!,
                         amount: expense.amount.toFixed(2),
-                        commissionDate: data.paymentDate,
+                        commissionDate: order.orderDate,
                         sourceType: "order_adjustment",
                         orderId,
                         orderExpenseId: createdExpense.id,
