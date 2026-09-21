@@ -10,6 +10,7 @@ export const createCommissionSchema = z.object({
 export const getCommissionsQuerySchema = z.object({
     startDate: z.string().optional(),
     endDate: z.string().optional(),
+    routeId: z.coerce.number().int().positive().optional(),
 });
 
 export type CreateCommissionInput = z.infer<typeof createCommissionSchema>;
