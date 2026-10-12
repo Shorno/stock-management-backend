@@ -1,9 +1,10 @@
 import { db } from "../../db/config";
-import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderCustomerDues, orderDsrDues, orderSrDues, orderDamageItems, srCommissions } from "../../db/schema";
+import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderDamageItems, srCommissions, dueCollections, dsrDueCollections, srDueCollections } from "../../db/schema";
 import { eq, and, count, gte, lte, sql, ne } from "drizzle-orm";
 import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput, SaveAdjustmentInput } from "./validation";
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 import { buildOrderFilters } from "./order-filters";
+import { reconcileOrderDues } from "./order-dues";
 
 // Fallback unit multipliers (used if unit not found in database)
 const FALLBACK_UNIT_MULTIPLIERS: Record<string, number> = {
@@ -609,6 +610,22 @@ export const deleteOrder = async (id: number): Promise<boolean> => {
 
         if (!order) return false;
 
+        // Collected money must stay traceable to its order, so an order with due
+        // collections can't be deleted (the database also enforces this).
+        let collected = 0;
+        for (const table of [dueCollections, dsrDueCollections, srDueCollections]) {
+            const [row] = await tx
+                .select({ total: sql<string>`COALESCE(SUM(${table.amount}), 0)` })
+                .from(table)
+                .where(eq(table.orderId, id));
+            collected += parseFloat(row?.total ?? "0");
+        }
+        if (collected > 0) {
+            throw new Error(
+                `Order ${order.orderNumber} cannot be deleted because ৳${collected.toFixed(2)} has already been collected against its dues.`
+            );
+        }
+
         // Restore stock consumed by the order items
         for (const item of (order as any).items || []) {
             const paidQuantity = (item.totalQuantity ?? item.quantity) - (item.freeQuantity ?? 0);
@@ -982,13 +999,11 @@ export const saveOrderAdjustment = async (
                 eq(srCommissions.sourceType, "order_adjustment")
             ));
 
-        // Delete existing payments, expenses, item returns, customer dues, DSR dues, and damage items for this order
+        // Delete existing payments, expenses, item returns, and damage items for this order.
+        // Dues are reconciled in place below because they carry collection progress.
         await tx.delete(orderPayments).where(eq(orderPayments.orderId, orderId));
         await tx.delete(orderExpenses).where(eq(orderExpenses.orderId, orderId));
         await tx.delete(orderItemReturns).where(eq(orderItemReturns.orderId, orderId));
-        await tx.delete(orderCustomerDues).where(eq(orderCustomerDues.orderId, orderId));
-        await tx.delete(orderDsrDues).where(eq(orderDsrDues.orderId, orderId));
-        await tx.delete(orderSrDues).where(eq(orderSrDues.orderId, orderId));
         await tx.delete(orderDamageItems).where(eq(orderDamageItems.orderId, orderId));
 
         let totalPayments = 0;
@@ -1041,68 +1056,11 @@ export const saveOrderAdjustment = async (
             }
         }
 
-        // Insert new customer dues
-        for (const customerDue of data.customerDues) {
-            if (customerDue.amount > 0) {
-                await tx.insert(orderCustomerDues).values({
-                    orderId,
-                    customerId: customerDue.customerId || null,
-                    customerName: customerDue.customerName,
-                    amount: customerDue.amount.toFixed(2),
-                    entrySource: "customer_due",
-                });
-                totalCustomerDuesAmount += customerDue.amount;
-            }
-        }
-
-        // Insert new DSR dues. If a customer is selected in the DSR Due UI,
-        // it is a customer due, not a DSR's own liability.
-        for (const dsrDue of data.dsrDues || []) {
-            if (dsrDue.amount > 0) {
-                if (dsrDue.customerId) {
-                    const dueCustomer = await tx.query.customer.findFirst({
-                        where: (customers, { eq }) => eq(customers.id, dsrDue.customerId!),
-                    });
-
-                    if (!dueCustomer) {
-                        throw new Error(`Customer #${dsrDue.customerId} not found for DSR due conversion`);
-                    }
-
-                    await tx.insert(orderCustomerDues).values({
-                        orderId,
-                        customerId: dsrDue.customerId,
-                        customerName: dueCustomer.name,
-                        amount: dsrDue.amount.toFixed(2),
-                        entrySource: "dsr_due",
-                        note: dsrDue.note || null,
-                    });
-                    totalCustomerDuesAmount += dsrDue.amount;
-                    continue;
-                }
-
-                await tx.insert(orderDsrDues).values({
-                    orderId,
-                    dsrId: order.dsrId, // Use the DSR assigned to this order
-                    amount: dsrDue.amount.toFixed(2),
-                    note: dsrDue.note || null,
-                });
-                totalDsrDuesAmount += dsrDue.amount;
-            }
-        }
-
-        // Insert new SR dues
-        for (const srDue of data.srDues || []) {
-            if (srDue.amount > 0) {
-                await tx.insert(orderSrDues).values({
-                    orderId,
-                    srId: srDue.srId,
-                    amount: srDue.amount.toFixed(2),
-                    customerId: srDue.customerId || null,
-                    note: srDue.note || null,
-                });
-                totalSrDuesAmount += srDue.amount;
-            }
-        }
+        // Reconcile customer, DSR, and SR dues in place so collected amounts survive edits
+        const dueTotals = await reconcileOrderDues(tx, order, data);
+        totalCustomerDuesAmount += dueTotals.customerDues;
+        totalDsrDuesAmount += dueTotals.dsrDues;
+        totalSrDuesAmount += dueTotals.srDues;
 
         // Insert new item returns (also stores discount per item) and update stock
         for (const itemReturn of data.itemReturns) {
@@ -1363,23 +1321,31 @@ export const getOrderAdjustment = async (orderId: number) => {
         })),
         customerDues: directCustomerDuesData.map(d => ({
             id: d.id,
+            dueId: d.id,
             customerId: d.customerId || undefined,
             customerName: d.customerName,
             amount: parseFloat(d.amount),
+            collectedAmount: parseFloat(d.collectedAmount),
         })),
         dsrDues: [
             ...dsrCustomerDuesData.map(d => ({
                 id: 1000000 + d.id,
+                dueId: d.id,
+                dueSource: "customer_due" as const,
                 dsrId: order.dsrId,
                 amount: parseFloat(d.amount),
+                collectedAmount: parseFloat(d.collectedAmount),
                 customerId: d.customerId || undefined,
                 customerName: d.customerName,
                 note: d.note || undefined,
             })),
             ...dsrDuesData.filter(d => parseFloat(d.amount) > 0).map(d => ({
                 id: d.id,
+                dueId: d.id,
+                dueSource: "dsr_due" as const,
                 dsrId: d.dsrId,
                 amount: parseFloat(d.amount),
+                collectedAmount: parseFloat(d.collectedAmount || "0"),
                 customerId: d.customerId || undefined,
                 customerName: (d as any).customer?.name || undefined,
                 note: d.note || undefined,
@@ -1387,12 +1353,14 @@ export const getOrderAdjustment = async (orderId: number) => {
         ],
         srDues: srDuesData.map(d => ({
             id: d.id,
+            dueId: d.id,
             srId: d.srId,
             srName: (d as any).sr?.name || undefined,
             brandName: (d as any).sr?.brand?.name || undefined,
             customerId: d.customerId || undefined,
             customerName: (d as any).customer?.name || undefined,
             amount: parseFloat(d.amount),
+            collectedAmount: parseFloat(d.collectedAmount || "0"),
             note: d.note || undefined,
         })),
         itemReturns: itemReturnsData.map(r => ({
