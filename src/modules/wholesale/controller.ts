@@ -12,6 +12,7 @@ import type { AdjustmentData } from "./pdf.service";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 import { logError } from "../../lib/error-handler";
 import { recordEntry } from "../net-asset-ledger/service";
+import { buildAdjustmentLedgerEntries, summarizeAdjustment, EMPTY_ADJUSTMENT } from "./adjustment-ledger";
 
 type AppContext = Context<
     {
@@ -676,77 +677,18 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
             metadata: { financialImpact, adjustmentDetails: validatedData },
         });
 
-        // Record net asset ledger entries for each component
+        // Record only what changed since the previous save; the ledger is a running sum
         const orderNumber = result.order?.orderNumber || `#${id}`;
         const orderDate = result.order?.orderDate || new Date().toISOString().split("T")[0];
+        const ledgerEntries = buildAdjustmentLedgerEntries(
+            summarizeAdjustment(oldAdjustment ?? EMPTY_ADJUSTMENT),
+            summarizeAdjustment(validatedData),
+            orderNumber
+        );
 
-        if (totalPayments > 0) {
+        for (const entry of ledgerEntries) {
             await recordEntry({
-                transactionType: "order_payment",
-                description: `Payment received for Order ${orderNumber} — ৳${totalPayments.toLocaleString()}`,
-                amount: totalPayments,
-                netAssetChange: totalPayments,
-                affectedComponent: "cash",
-                entityType: "order",
-                entityId: id,
-                transactionDate: orderDate,
-            });
-        }
-        if (totalCustomerDues > 0) {
-            await recordEntry({
-                transactionType: "customer_due_created",
-                description: `Customer due for Order ${orderNumber} — ৳${totalCustomerDues.toLocaleString()}`,
-                amount: totalCustomerDues,
-                netAssetChange: totalCustomerDues,
-                affectedComponent: "customerDue",
-                entityType: "order",
-                entityId: id,
-                transactionDate: orderDate,
-            });
-        }
-        if (totalDsrDues > 0) {
-            await recordEntry({
-                transactionType: "dsr_due_created",
-                description: `DSR due for Order ${orderNumber} — ৳${totalDsrDues.toLocaleString()}`,
-                amount: totalDsrDues,
-                netAssetChange: totalDsrDues,
-                affectedComponent: "dsrDue",
-                entityType: "order",
-                entityId: id,
-                transactionDate: orderDate,
-            });
-        }
-        if (totalExpenses > 0) {
-            await recordEntry({
-                transactionType: "order_expense",
-                description: `Expense for Order ${orderNumber} — ৳${totalExpenses.toLocaleString()}`,
-                amount: totalExpenses,
-                netAssetChange: -totalExpenses,
-                affectedComponent: "cash",
-                entityType: "order",
-                entityId: id,
-                transactionDate: orderDate,
-            });
-        }
-        if (totalItemReturns > 0) {
-            await recordEntry({
-                transactionType: "item_return",
-                description: `Item returns for Order ${orderNumber} — ৳${totalItemReturns.toLocaleString()}`,
-                amount: totalItemReturns,
-                netAssetChange: -totalItemReturns,
-                affectedComponent: "cash",
-                entityType: "order",
-                entityId: id,
-                transactionDate: orderDate,
-            });
-        }
-        if (totalDamageReturns > 0) {
-            await recordEntry({
-                transactionType: "damage_item",
-                description: `Damage returns for Order ${orderNumber} — ৳${totalDamageReturns.toLocaleString()}`,
-                amount: totalDamageReturns,
-                netAssetChange: totalDamageReturns,
-                affectedComponent: "damageReturns",
+                ...entry,
                 entityType: "order",
                 entityId: id,
                 transactionDate: orderDate,
