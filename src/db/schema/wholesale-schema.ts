@@ -532,8 +532,9 @@ export const damageReturnItemsRelations = relations(damageReturnItems, ({ one })
 
 export const dueCollections = pgTable("due_collections", {
     id: serial("id").primaryKey(),
+    // Restrict: a due that has collections must never be deleted (it would orphan the cash)
     customerDueId: integer("customer_due_id")
-        .references(() => orderCustomerDues.id, { onDelete: "set null" }),
+        .references(() => orderCustomerDues.id, { onDelete: "restrict" }),
     customerId: integer("customer_id")
         .references(() => customer.id, { onDelete: "set null" }),
     orderId: integer("order_id")
@@ -578,7 +579,7 @@ export const dueCollectionsRelations = relations(dueCollections, ({ one }) => ({
 export const dsrDueCollections = pgTable("dsr_due_collections", {
     id: serial("id").primaryKey(),
     dsrDueId: integer("dsr_due_id")
-        .references(() => orderDsrDues.id, { onDelete: "set null" }),
+        .references(() => orderDsrDues.id, { onDelete: "restrict" }),
     dsrId: integer("dsr_id")
         .references(() => dsr.id, { onDelete: "set null" }),
     orderId: integer("order_id")
@@ -653,7 +654,7 @@ export const orderSrDuesRelations = relations(orderSrDues, ({ one }) => ({
 export const srDueCollections = pgTable("sr_due_collections", {
     id: serial("id").primaryKey(),
     srDueId: integer("sr_due_id")
-        .references(() => orderSrDues.id, { onDelete: "set null" }),
+        .references(() => orderSrDues.id, { onDelete: "restrict" }),
     srId: integer("sr_id")
         .references(() => sr.id, { onDelete: "set null" }),
     orderId: integer("order_id")

@@ -85,6 +85,13 @@
       "when": 1781424000000,
       "tag": "0011_order_adjustment_sr_commissions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791878400000,
+      "tag": "0012_restrict_collected_due_deletes",
+      "breakpoints": true
     }
   ]
 }

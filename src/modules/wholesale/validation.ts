@@ -115,6 +115,7 @@ export const adjustmentItemReturnSchema = z.object({
 
 // Customer due schema for adjustments
 export const adjustmentCustomerDueSchema = z.object({
+    dueId: z.coerce.number().int().positive().optional(), // Existing order_customer_dues row being edited
     customerId: z.coerce.number().int().positive("Customer ID must be positive").optional(),
     customerName: z.string().min(1, "Customer name is required"),
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
@@ -139,6 +140,9 @@ export const adjustmentDamageReturnSchema = z.object({
 
 // DSR due schema for adjustments
 export const adjustmentDsrDueSchema = z.object({
+    // Existing row being edited; a DSR due with a customer is stored as a customer due
+    dueId: z.coerce.number().int().positive().optional(),
+    dueSource: z.enum(["customer_due", "dsr_due"]).optional(),
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
     customerId: z.coerce.number().int().positive().optional(),
     note: z.string().optional(),
@@ -146,6 +150,7 @@ export const adjustmentDsrDueSchema = z.object({
 
 // SR due schema for adjustments (includes srId since SR is not on the order)
 export const adjustmentSrDueSchema = z.object({
+    dueId: z.coerce.number().int().positive().optional(), // Existing order_sr_dues row being edited
     srId: z.coerce.number().int().positive("SR ID must be positive"),
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
     customerId: z.coerce.number().int().positive().optional(),
