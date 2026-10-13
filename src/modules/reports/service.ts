@@ -2186,6 +2186,7 @@ export const getDailySettlement = async (
 // ==================== BRAND WISE PURCHASES ====================
 
 import type { BrandWisePurchaseQuery } from "./validation";
+import { purchaseDateFilter, stockPurchaseReceipts } from "../stock-batch/purchase-history";
 
 export interface BrandWisePurchaseProductItem {
     productId: number;
@@ -2223,39 +2224,29 @@ export interface BrandWisePurchaseResponse {
  * Groups by brand → product showing quantities and costs
  */
 export const getBrandWisePurchases = async (
-    query: BrandWisePurchaseQuery
+    query: BrandWisePurchaseQuery,
+    database = db,
 ): Promise<BrandWisePurchaseResponse> => {
-    const conditions: any[] = [];
+    const receipts = stockPurchaseReceipts(database);
 
-    if (query.startDate) {
-        conditions.push(gte(stockBatch.createdAt, new Date(query.startDate)));
-    }
-    if (query.endDate) {
-        // Add a day to include the entire end date
-        const endDatePlusOne = new Date(query.endDate);
-        endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
-        conditions.push(lte(stockBatch.createdAt, endDatePlusOne));
-    }
-
-    // Query stock_batch joined with productVariant → product → brand
-    const results = await db
+    const results = await database
         .select({
             brandId: product.brandId,
             brandName: brand.name,
             productId: product.id,
             productName: product.name,
-            totalQuantity: sql<number>`SUM(${stockBatch.initialQuantity})::int`,
-            totalFreeQty: sql<number>`SUM(${stockBatch.initialFreeQty})::int`,
-            totalCost: sql<string>`SUM(CAST(${stockBatch.supplierPrice} AS DECIMAL(12,6)) * ${stockBatch.initialQuantity})`,
-            batchCount: sql<number>`COUNT(*)::int`,
+            totalQuantity: sql<number>`SUM(${receipts.quantity})::int`,
+            totalFreeQty: sql<number>`SUM(${receipts.freeQuantity})::int`,
+            totalCost: sql<string>`SUM(${receipts.supplierPrice} * ${receipts.quantity})`,
+            batchCount: sql<number>`COUNT(DISTINCT ${receipts.batchId})::int`,
         })
-        .from(stockBatch)
-        .innerJoin(productVariant, eq(stockBatch.variantId, productVariant.id))
+        .from(receipts)
+        .innerJoin(productVariant, eq(receipts.variantId, productVariant.id))
         .innerJoin(product, eq(productVariant.productId, product.id))
         .innerJoin(brand, eq(product.brandId, brand.id))
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .where(purchaseDateFilter(receipts, query))
         .groupBy(product.brandId, brand.name, product.id, product.name)
-        .orderBy(brand.name, desc(sql`SUM(CAST(${stockBatch.supplierPrice} AS DECIMAL(12,2)) * ${stockBatch.initialQuantity})`));
+        .orderBy(brand.name, desc(sql`SUM(${receipts.supplierPrice} * ${receipts.quantity})`));
 
     // Group by brand
     const brandMap = new Map<number, BrandWisePurchaseItem>();

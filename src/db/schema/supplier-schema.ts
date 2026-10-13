@@ -1,7 +1,7 @@
 import { pgTable, serial, decimal, text, date, integer, index, varchar, boolean } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { timestamps } from "../column.helpers";
-import { brand } from "./product-schema";
+import { brand, stockBatch } from "./product-schema";
 
 // ==================== SUPPLIER PURCHASES ====================
 // Records purchases/invoices from companies/brands (increases due)
@@ -9,6 +9,8 @@ import { brand } from "./product-schema";
 
 export const supplierPurchases = pgTable("supplier_purchases", {
     id: serial("id").primaryKey(),
+    stockBatchId: integer("stock_batch_id")
+        .references(() => stockBatch.id, { onDelete: "cascade" }),
     brandId: integer("brand_id")
         .notNull()
         .references(() => brand.id, { onDelete: "cascade" }),
@@ -19,6 +21,7 @@ export const supplierPurchases = pgTable("supplier_purchases", {
 }, (table) => ({
     brandIdx: index("idx_supplier_purchases_brand").on(table.brandId),
     dateIdx: index("idx_supplier_purchases_date").on(table.purchaseDate),
+    batchIdx: index("idx_supplier_purchases_batch").on(table.stockBatchId),
 }));
 
 // ==================== SUPPLIER PAYMENTS ====================

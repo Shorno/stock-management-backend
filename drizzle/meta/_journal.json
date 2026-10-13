@@ -92,6 +92,13 @@
       "when": 1791878400000,
       "tag": "0012_restrict_collected_due_deletes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791892800000,
+      "tag": "0013_link_stock_batch_purchases",
+      "breakpoints": true
     }
   ]
 }

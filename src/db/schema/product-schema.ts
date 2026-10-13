@@ -69,7 +69,7 @@ export const stockAdjustments = pgTable("stock_adjustments", {
   variantId: integer("variant_id")
     .notNull()
     .references(() => productVariant.id, { onDelete: "cascade" }),
-  adjustmentType: varchar("adjustment_type", { length: 50 }).notNull(), // 'return_restock' | 'damage' | 'manual'
+  adjustmentType: varchar("adjustment_type", { length: 50 }).notNull(), // 'restock' | 'return_restock' | 'damage' | 'manual'
   quantity: integer("quantity").notNull(),         // +/- adjustment amount
   freeQuantity: integer("free_quantity").notNull().default(0),
   orderId: integer("order_id"),                    // Link to original order (optional)
