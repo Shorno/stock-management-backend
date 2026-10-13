@@ -33,6 +33,13 @@ export const dsrDueSummaryQuerySchema = z.object({});
 
 export type DsrDueSummaryQuery = z.infer<typeof dsrDueSummaryQuerySchema>;
 
+// Comma-separated ids, e.g. "3,7". SR lists may include 0 for DB Point.
+const idListSchema = (minId: 0 | 1) => z.string()
+    .regex(minId === 0 ? /^$|^\d+(,\d+)*$/ : /^$|^[1-9]\d*(,[1-9]\d*)*$/, "Use comma-separated IDs")
+    .transform((value) => (value ? [...new Set(value.split(",").map(Number))] : []))
+    .pipe(z.array(z.number().int().min(minId).max(2147483647)))
+    .optional();
+
 export const productWiseSalesQuerySchema = z.object({
     startDate: z.string(), // YYYY-MM-DD format, required
     endDate: z.string(),   // YYYY-MM-DD format, required
@@ -42,6 +49,8 @@ export const productWiseSalesQuerySchema = z.object({
     categoryId: z.coerce.number().int().positive().optional(),
     brandId: z.coerce.number().int().positive().optional(),
     productId: z.coerce.number().int().positive().optional(),
+    brandIds: idListSchema(1),
+    srIds: idListSchema(0),
 });
 
 export type ProductWiseSalesQuery = z.infer<typeof productWiseSalesQuerySchema>;
