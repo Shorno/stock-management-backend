@@ -2,6 +2,7 @@ import { db } from "../../db/config";
 import { wholesaleOrders, wholesaleOrderItems, dsr, route, stockBatch, orderExpenses, orderItemReturns, orderPayments, orderCustomerDues, orderDsrDues, orderSrDues, damageReturns, damageReturnItems, bills, orderDamageItems, dueCollections, dsrDueCollections, srDueCollections, plAdjustments, unit } from "../../db/schema";
 import { product, productVariant, stockAdjustments, cashWithdrawals } from "../../db/schema";
 import { eq, and, gte, lte, desc, sum, count, ne, sql, inArray } from "drizzle-orm";
+import { getStockPurchaseValue } from "../stock-batch/purchase-history";
 
 export interface DateRange {
     startDate?: string;
@@ -743,27 +744,8 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     const netSalesForPL = totalSales - totalReturns - totalAdjustmentDiscounts - totalOrderDamageMargin - totalExpenses;
 
     // ----- NET PURCHASE -----
-    // Sum of supplier price × initial quantity for all batches (optionally filtered by date)
-    let purchaseFilters = undefined;
-    if (dateRange?.startDate) {
-        purchaseFilters = and(
-            gte(stockBatch.createdAt, new Date(dateRange.startDate)),
-            dateRange.endDate ? lte(stockBatch.createdAt, new Date(dateRange.endDate + 'T23:59:59')) : undefined
-        );
-    }
-
-    const purchaseResult = await db
-        .select({
-            batch: stockBatch,
-        })
-        .from(stockBatch)
-        .where(purchaseFilters);
-
-    const netPurchase = purchaseResult.reduce((sum, row) => {
-        const supplierPrice = Number(row.batch.supplierPrice || 0);
-        const quantity = row.batch.initialQuantity || 0;
-        return sum + (supplierPrice * quantity);
-    }, 0);
+    // A restock belongs to its receipt date, not the original batch's creation date.
+    const netPurchase = await getStockPurchaseValue(db, dateRange);
 
     // ----- CURRENT STOCK -----
     // Sum of remaining quantity × supplier price (buying price) for all batches (not date filtered - current snapshot)

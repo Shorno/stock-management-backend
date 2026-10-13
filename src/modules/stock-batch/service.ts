@@ -1,13 +1,14 @@
 import { db } from "../../db/config";
-import { stockBatch, supplierPurchases } from "../../db/schema";
-import { eq, count, and, sql } from "drizzle-orm";
+import { stockBatch, stockAdjustments, supplierPurchases } from "../../db/schema";
+import { eq, count, and, sql, isNull } from "drizzle-orm";
 import type { CreateStockBatchInput, UpdateStockBatchInput, GetStockBatchesQuery } from "./validation";
 import type { StockBatch, NewStockBatch } from "./types";
-import { format } from "date-fns";
+import { recordStockPurchase } from "./purchase";
 
 export const createStockBatch = async (
     variantId: number,
-    data: CreateStockBatchInput
+    data: CreateStockBatchInput,
+    database = db,
 ): Promise<StockBatch> => {
     const newBatch: NewStockBatch = {
         variantId,
@@ -21,41 +22,15 @@ export const createStockBatch = async (
         isOpeningStock: data.isOpeningStock || false,
     };
 
-    const [createdBatch] = await db.insert(stockBatch).values(newBatch).returning();
-    if (!createdBatch) {
-        throw new Error("Failed to create stock batch");
-    }
+    return database.transaction(async (tx) => {
+        const [createdBatch] = await tx.insert(stockBatch).values(newBatch).returning();
+        if (!createdBatch) throw new Error("Failed to create stock batch");
 
-    // Auto-create supplier purchase for the brand (skip for opening stock)
-    if (!data.isOpeningStock) {
-        // Get variant → product → brand chain
-        const variant = await db.query.productVariant.findFirst({
-            where: (v, { eq }) => eq(v.id, variantId),
-            with: {
-                product: {
-                    with: {
-                        brand: true,
-                    },
-                },
-            },
-        });
-
-        if (variant?.product?.brand?.id) {
-            const purchaseAmount = data.supplierPrice * data.quantity;
-            const productName = variant.product.name;
-            const variantLabel = variant.label;
-
-            // Create supplier purchase entry
-            await db.insert(supplierPurchases).values({
-                brandId: variant.product.brand.id,
-                amount: purchaseAmount.toString(),
-                purchaseDate: format(new Date(), "yyyy-MM-dd"),
-                description: `Stock batch: ${productName} (${variantLabel}) - ${data.quantity} units @ ৳${data.supplierPrice}`,
-            });
+        if (!data.isOpeningStock) {
+            await recordStockPurchase(tx, createdBatch, data.quantity);
         }
-    }
-
-    return createdBatch;
+        return createdBatch;
+    });
 };
 
 export const getStockBatchesByVariantId = async (
@@ -122,53 +97,68 @@ export const updateStockBatch = async (
     return updatedBatch;
 };
 
-export const deleteStockBatch = async (id: number): Promise<boolean> => {
-    // Fetch the batch before deleting so we can reverse the supplier purchase
-    const batch = await db.query.stockBatch.findFirst({
-        where: (b, { eq }) => eq(b.id, id),
-        with: {
-            variant: {
-                with: {
-                    product: {
-                        with: {
-                            brand: true,
+export const deleteStockBatch = async (id: number, database = db): Promise<boolean> => {
+    return database.transaction(async (tx) => {
+        // Serialize deletion with restocking so supplier charges cannot be left behind.
+        const [lockedBatch] = await tx.select({ id: stockBatch.id }).from(stockBatch)
+            .where(eq(stockBatch.id, id)).for("update");
+        if (!lockedBatch) return false;
+        // Fetch the batch before deleting so we can reverse the supplier purchase
+        const batch = await tx.query.stockBatch.findFirst({
+            where: (b, { eq }) => eq(b.id, id),
+            with: {
+                variant: {
+                    with: {
+                        product: {
+                            with: {
+                                brand: true,
+                            },
                         },
                     },
                 },
             },
-        },
-    });
+        });
 
-    if (!batch) return false;
+        if (!batch) return false;
 
-    const result = await db.delete(stockBatch).where(eq(stockBatch.id, id)).returning();
-    if (result.length === 0) return false;
+        const linkedPurchases = await tx.select({ description: supplierPurchases.description })
+            .from(supplierPurchases).where(eq(supplierPurchases.stockBatchId, id));
+        const hasLinkedOriginalPurchase = linkedPurchases.some(p => p.description?.startsWith("Stock batch:"));
 
-    // Reverse the auto-created supplier purchase (skip for opening stock batches)
-    if (!batch.isOpeningStock && batch.variant?.product?.brand?.id) {
-        const purchaseAmount = (Number(batch.supplierPrice) * batch.initialQuantity).toFixed(2);
-        const brandId = batch.variant.product.brand.id;
+        // Older batches predate the explicit purchase link. Their original purchase excludes later restocks.
+        if (!batch.isOpeningStock && !hasLinkedOriginalPurchase && batch.variant?.product?.brand?.id) {
+            const [restocks] = await tx.select({ quantity: sql<number>`COALESCE(SUM(${stockAdjustments.quantity}), 0)` })
+                .from(stockAdjustments)
+                .where(and(eq(stockAdjustments.batchId, id), eq(stockAdjustments.adjustmentType, "restock")));
+            const originalQuantity = batch.initialQuantity - Number(restocks?.quantity || 0);
+            const purchaseAmount = (Number(batch.supplierPrice) * originalQuantity).toFixed(2);
+            const brandId = batch.variant.product.brand.id;
+            const description = `Stock batch: ${batch.variant.product.name} (${batch.variant.label}) - ${originalQuantity} units @ ৳${Number(batch.supplierPrice)}`;
 
-        // Find and delete the matching supplier purchase entry
-        // Match by brandId and amount, with description pattern from batch creation
-        const matchingPurchases = await db
-            .select({ id: supplierPurchases.id })
-            .from(supplierPurchases)
-            .where(
-                and(
-                    eq(supplierPurchases.brandId, brandId),
-                    eq(supplierPurchases.amount, purchaseAmount),
-                    sql`${supplierPurchases.description} LIKE ${'Stock batch:%'}`
+            // Find and delete the matching supplier purchase entry
+            // Match by brandId and amount, with description pattern from batch creation
+            const matchingPurchases = await tx
+                .select({ id: supplierPurchases.id })
+                .from(supplierPurchases)
+                .where(
+                    and(
+                        eq(supplierPurchases.brandId, brandId),
+                        eq(supplierPurchases.amount, purchaseAmount),
+                        isNull(supplierPurchases.stockBatchId),
+                        eq(supplierPurchases.description, description),
+                    )
                 )
-            )
-            .limit(1);
+                .limit(1);
 
-        if (matchingPurchases.length > 0) {
-            await db.delete(supplierPurchases).where(eq(supplierPurchases.id, matchingPurchases[0]!.id));
+            if (matchingPurchases.length > 0) {
+                await tx.delete(supplierPurchases).where(eq(supplierPurchases.id, matchingPurchases[0]!.id));
+            }
         }
-    }
 
-    return true;
+        // Linked purchases (including restocks of opening batches) are removed by the foreign key.
+        const result = await tx.delete(stockBatch).where(eq(stockBatch.id, id)).returning();
+        return result.length > 0;
+    });
 };
 
 // Computed totals for a variant

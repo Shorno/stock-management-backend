@@ -33,44 +33,38 @@ stockAdjustmentRoutes.post(
                 ...userInfo,
                 action: "CREATE",
                 entityType: "stock_adjustment",
-                entityId: (result as any).adjustmentId || "new",
+                entityId: result.adjustmentId,
                 entityName: `Stock Adjustment (${input.adjustmentType})`,
                 newValue: input,
                 metadata: {
                     description: `Stock ${input.adjustmentType} adjustment`,
                     financialImpact: {
-                        amount: 0,
+                        amount: Math.abs(result.stockValueChange),
                         description: `Stock ${input.adjustmentType} for variant #${input.variantId}`,
                         affectedMetrics: [
-                            { metric: "currentStock", label: "Current Stock", direction: input.adjustmentType === "damage" ? "decrease" : "increase", amount: input.quantity },
+                            { metric: "currentStock", label: "Current Stock", direction: result.stockValueChange < 0 ? "decrease" : "increase", amount: Math.abs(result.stockValueChange) },
+                            ...(input.adjustmentType === "restock" ? [
+                                { metric: "netPurchase", label: "Net Purchase", direction: "increase" as const, amount: result.purchaseAmount },
+                                { metric: "supplierDue", label: "Supplier Balance", direction: "decrease" as const, amount: result.purchaseAmount },
+                            ] : []),
                         ],
                     } as FinancialImpact,
                 },
             });
 
-            // Record net asset ledger entry
-            // Fetch batch cost for accurate net asset change
+            // Use the same prices and purchase effect as the committed stock transaction.
             try {
-                if (input.batchId) {
-                    const { db } = await import("../../db/config");
-                    const { stockBatch } = await import("../../db/schema/product-schema");
-                    const { eq } = await import("drizzle-orm");
-                    const [batch] = await db.select({ supplierPrice: stockBatch.supplierPrice }).from(stockBatch).where(eq(stockBatch.id, input.batchId)).limit(1);
-                    const costPerUnit = Number(batch?.supplierPrice || 0);
-                    const totalCost = costPerUnit * input.quantity;
-                    const isDamage = input.adjustmentType === "damage";
-                    const today = new Date().toISOString().split("T")[0] as string;
-                    await recordEntry({
-                        transactionType: "stock_adjustment",
-                        description: `Stock ${input.adjustmentType}: ${input.quantity} units — ৳${totalCost.toLocaleString()}${input.note ? ` (${input.note})` : ""}`,
-                        amount: totalCost,
-                        netAssetChange: isDamage ? -totalCost : totalCost,
-                        affectedComponent: "stock",
-                        entityType: "stock_adjustment",
-                        entityId: (result as any).adjustmentId || 0,
-                        transactionDate: today,
-                    });
-                }
+                const today = new Date().toISOString().split("T")[0] as string;
+                await recordEntry({
+                    transactionType: "stock_adjustment",
+                    description: `Stock ${input.adjustmentType}: ${input.quantity} units — ৳${result.stockValueChange.toLocaleString()}${input.note ? ` (${input.note})` : ""}`,
+                    amount: result.stockValueChange,
+                    netAssetChange: result.netAssetChange,
+                    affectedComponent: "stock",
+                    entityType: "stock_adjustment",
+                    entityId: result.adjustmentId,
+                    transactionDate: today,
+                });
             } catch (ledgerErr) {
                 console.error("[Ledger] Failed to record stock adjustment:", ledgerErr);
             }

@@ -549,13 +549,12 @@ export async function backfillLedger(): Promise<{ entriesCreated: number }> {
         const costPerUnit = Number(supplierPrice || 0);
         const qty = adj.quantity;
         const totalCost = costPerUnit * qty;
-        const isDamage = adj.adjustmentType === "damage";
 
         allEntries.push({
             transactionType: "stock_adjustment",
             description: `Stock ${adj.adjustmentType}: ${qty} units${adj.note ? ` — ${adj.note}` : ""}`,
             amount: totalCost.toFixed(2),
-            netAssetChange: isDamage ? (-totalCost).toFixed(2) : totalCost.toFixed(2),
+            netAssetChange: adj.adjustmentType === "restock" ? "0" : totalCost.toFixed(2),
             affectedComponent: "stock",
             entityType: "stock_adjustment",
             entityId: adj.id,

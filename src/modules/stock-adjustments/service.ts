@@ -2,6 +2,8 @@ import { db } from "../../db/config";
 import { stockAdjustments, stockBatch, productVariant, product } from "../../db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 import type { CreateStockAdjustmentInput, GetStockAdjustmentsQuery, GetBatchesQuery } from "./validation";
+import { createStockAdjustmentSchema } from "./validation";
+import { recordStockPurchase } from "../stock-batch/purchase";
 
 // Response types
 export interface StockAdjustmentRecord {
@@ -33,68 +35,58 @@ export interface BatchInfo {
 }
 
 /**
- * Create a stock adjustment (return restock, damage, or manual)
+ * Purchases add to both received and available quantities; returns only restore availability.
  */
 export const createStockAdjustment = async (
     input: CreateStockAdjustmentInput,
-    createdBy?: number
-): Promise<{ success: boolean; message: string; adjustmentId?: number }> => {
-    const { batchId, variantId, adjustmentType, quantity, freeQuantity, orderId, returnId, note } = input;
-
-    // Validate variant exists
-    const variantExists = await db
-        .select({ id: productVariant.id })
-        .from(productVariant)
-        .where(eq(productVariant.id, variantId))
-        .limit(1);
-
-    if (!variantExists.length) {
-        return { success: false, message: "Product variant not found" };
+    createdBy?: number,
+    database = db,
+): Promise<
+    | { success: false; message: string }
+    | { success: true; message: string; adjustmentId: number; stockValueChange: number; purchaseAmount: number; netAssetChange: number }
+> => {
+    const parsed = createStockAdjustmentSchema.safeParse(input);
+    if (!parsed.success) {
+        return { success: false, message: parsed.error.issues[0]?.message || "Invalid stock adjustment" };
     }
+    const { batchId, variantId, adjustmentType, quantity, freeQuantity, orderId, returnId, note } = parsed.data;
+    const isPurchase = adjustmentType === "restock";
 
-    // If batchId provided, validate it exists and belongs to this variant
-    if (batchId) {
-        const batchExists = await db
-            .select({ id: stockBatch.id, variantId: stockBatch.variantId, remainingQuantity: stockBatch.remainingQuantity })
+    return database.transaction(async (tx) => {
+        // Lock the chosen batch so prices and quantities remain consistent throughout the purchase.
+        const [batch] = await tx
+            .select()
             .from(stockBatch)
             .where(eq(stockBatch.id, batchId))
-            .limit(1);
+            .for("update");
 
-        if (!batchExists.length) {
-            return { success: false, message: "Stock batch not found" };
+        if (!batch) {
+            return { success: false as const, message: "Stock batch not found" };
+        }
+        if (batch.variantId !== variantId) {
+            return { success: false as const, message: "Batch does not belong to this variant" };
+        }
+        if (batch.remainingQuantity + quantity < 0 || batch.remainingFreeQty + freeQuantity < 0) {
+            return { success: false as const, message: "Insufficient stock for this adjustment" };
         }
 
-        if (batchExists[0]!.variantId !== variantId) {
-            return { success: false, message: "Batch does not belong to this variant" };
-        }
+        await tx.update(stockBatch).set({
+            remainingQuantity: sql`${stockBatch.remainingQuantity} + ${quantity}`,
+            remainingFreeQty: sql`${stockBatch.remainingFreeQty} + ${freeQuantity}`,
+            ...(isPurchase ? {
+                initialQuantity: sql`${stockBatch.initialQuantity} + ${quantity}`,
+                initialFreeQty: sql`${stockBatch.initialFreeQty} + ${freeQuantity}`,
+            } : {}),
+        }).where(eq(stockBatch.id, batchId));
 
-        // For negative adjustments, ensure we have enough stock
-        if (quantity < 0) {
-            const currentQty = batchExists[0]!.remainingQuantity;
-            if (currentQty + quantity < 0) {
-                return { success: false, message: `Insufficient stock. Current: ${currentQty}, Adjustment: ${quantity}` };
-            }
-        }
-    }
-
-    // Use transaction to ensure atomicity
-    const result = await db.transaction(async (tx) => {
-        // If batch is specified, update its quantity
-        if (batchId) {
-            await tx
-                .update(stockBatch)
-                .set({
-                    remainingQuantity: sql`${stockBatch.remainingQuantity} + ${quantity}`,
-                    remainingFreeQty: sql`${stockBatch.remainingFreeQty} + ${freeQuantity}`,
-                })
-                .where(eq(stockBatch.id, batchId));
-        }
+        // Even an opening batch can receive a new purchase later. Its original opening stock stays intact.
+        const purchaseAmount = isPurchase ? await recordStockPurchase(tx, batch, quantity, true) : 0;
 
         // Create adjustment record
         const [adjustment] = await tx
             .insert(stockAdjustments)
             .values({
-                batchId: batchId || null,
+                batchId,
                 variantId,
                 adjustmentType,
                 quantity,
@@ -106,14 +98,18 @@ export const createStockAdjustment = async (
             })
             .returning({ id: stockAdjustments.id });
 
-        return adjustment;
+        if (!adjustment) throw new Error("Failed to record stock adjustment");
+        const stockValueChange = Number(batch.supplierPrice) * quantity;
+        return {
+            success: true as const,
+            message: `${isPurchase ? "Stock purchased" : "Stock adjustment recorded"} successfully. ${quantity >= 0 ? "Added" : "Removed"} ${Math.abs(quantity)} units.`,
+            adjustmentId: adjustment.id,
+            stockValueChange,
+            purchaseAmount,
+            // A purchase adds matching stock and supplier debt; a return adds only stock.
+            netAssetChange: isPurchase ? 0 : stockValueChange,
+        };
     });
-
-    return {
-        success: true,
-        message: `Stock adjustment recorded successfully. ${quantity >= 0 ? "Added" : "Removed"} ${Math.abs(quantity)} units.`,
-        adjustmentId: result?.id,
-    };
 };
 
 /**
