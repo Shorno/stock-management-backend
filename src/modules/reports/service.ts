@@ -969,6 +969,7 @@ export const getDsrDueSummary = async (): Promise<DsrDueSummaryResponse> => {
 // Import additional schemas for product-wise-sales
 import { wholesaleOrderItems, category, brand, product, orderDamageItems } from "../../db/schema";
 import type { ProductWiseSalesQuery } from "./validation";
+import { buildProductSalesItemFilters } from "./product-sales-filters";
 
 export interface ProductWiseSalesItem {
     productId: number;
@@ -1042,6 +1043,8 @@ export const getProductWiseSales = async (
             ? isNull(wholesaleOrderItems.srId)
             : eq(wholesaleOrderItems.srId, query.srId));
     }
+
+    itemConditions.push(...buildProductSalesItemFilters(query));
 
     // Query order items grouped by product
     // Join with returns to subtract returned quantities
