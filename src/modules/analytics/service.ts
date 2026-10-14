@@ -1116,16 +1116,22 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     const adjustedSupplierDue = supplierDue + openingSupplierBalance;
     const adjustedPL = profitLoss + openingPL;
 
+    // ----- P&L ADJUSTMENTS (net asset effect) -----
+    // Income adjustments add to net assets and expense adjustments subtract, all-time (a running balance).
+    // Adjustments recorded before this rule existed stay profit-only and are excluded.
+    const { getPlAdjustmentNetEffects } = await import("../pl-adjustments/service");
+    const plAdjustmentNetAssets = (await getPlAdjustmentNetEffects()).netAssets;
+
     // ----- NET ASSETS -----
     // Total business value = Assets - Liabilities
-    // Assets: Current Stock + Cash Balance + Receivables (Customer Due + DSR Own Due + SR Own Due + Pending Orders) + Damage Returns (at cost)
+    // Assets: Current Stock + Cash Balance + Receivables (Customer Due + DSR Own Due + SR Own Due + Pending Orders) + Damage Returns (at cost) + P&L Adjustments
     // Liabilities: Supplier Due (if negative, we owe them)
     // Note: Damage margin (selling - cost) is NOT deducted here because it's already naturally captured:
     //   - Settlement deducts damage at selling price → reduces cash/dues received
     //   - Damage asset is tracked at cost → lower than selling price
     //   - The margin gap is inherently reflected in the difference
     // All values include opening balances
-    const netAssets = currentStock + adjustedCashBalance + adjustedCustomerDues + adjustedDsrDue + adjustedSrDue + adjustedSupplierDue + damageReturnsValue + pendingOrdersValue;
+    const netAssets = currentStock + adjustedCashBalance + adjustedCustomerDues + adjustedDsrDue + adjustedSrDue + adjustedSupplierDue + damageReturnsValue + pendingOrdersValue + plAdjustmentNetAssets;
 
     // #region agent log
     fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {

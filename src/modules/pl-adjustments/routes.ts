@@ -54,6 +54,7 @@ plAdjustmentRoutes.post(
             const userInfo = getUserInfoFromContext(c);
             const amount = parseFloat(String(input.amount));
             const isIncome = input.type === "income";
+            const netAssetChange = plAdjustmentsService.plAdjustmentNetAssetChange(adjustment);
             const financialImpact: FinancialImpact = {
                 amount,
                 description: `P&L ${input.type}: "${input.title}" ৳${amount.toLocaleString()}`,
@@ -64,6 +65,12 @@ plAdjustmentRoutes.post(
                         direction: isIncome ? "increase" : "decrease",
                         amount,
                     },
+                    ...(netAssetChange !== 0 ? [{
+                        metric: "netAssets",
+                        label: "Net Assets",
+                        direction: netAssetChange > 0 ? "increase" as const : "decrease" as const,
+                        amount,
+                    }] : []),
                 ],
             };
             await auditLog({
@@ -82,7 +89,7 @@ plAdjustmentRoutes.post(
                 transactionType: "pl_adjustment",
                 description: `P&L ${input.type}: ${input.title} — ৳${amount.toLocaleString()}`,
                 amount,
-                netAssetChange: 0,
+                netAssetChange,
                 affectedComponent: "profitLoss",
                 entityType: "pl_adjustment",
                 entityId: (adjustment as any).id,
@@ -118,6 +125,8 @@ plAdjustmentRoutes.delete("/:id", requireRole(["admin", "super_admin"]), async (
             const userInfo = getUserInfoFromContext(c);
             const amount = parseFloat(String(adjustmentToDelete.amount || 0));
             const isIncome = adjustmentToDelete.type === "income";
+            // Deleting reverses whatever the adjustment did to net assets
+            const netAssetChange = -plAdjustmentsService.plAdjustmentNetAssetChange(adjustmentToDelete);
             const financialImpact: FinancialImpact = {
                 amount,
                 description: `Deleted P&L ${adjustmentToDelete.type}: "${adjustmentToDelete.title}" ৳${amount.toLocaleString()}`,
@@ -128,6 +137,12 @@ plAdjustmentRoutes.delete("/:id", requireRole(["admin", "super_admin"]), async (
                         direction: isIncome ? "decrease" : "increase",
                         amount,
                     },
+                    ...(netAssetChange !== 0 ? [{
+                        metric: "netAssets",
+                        label: "Net Assets",
+                        direction: netAssetChange > 0 ? "increase" as const : "decrease" as const,
+                        amount,
+                    }] : []),
                 ],
             };
             await auditLog({
@@ -146,7 +161,7 @@ plAdjustmentRoutes.delete("/:id", requireRole(["admin", "super_admin"]), async (
                 transactionType: "pl_adjustment_deleted",
                 description: `P&L ${adjustmentToDelete.type} deleted: ${adjustmentToDelete.title} — ৳${amount.toLocaleString()}`,
                 amount,
-                netAssetChange: 0,
+                netAssetChange,
                 affectedComponent: "profitLoss",
                 entityType: "pl_adjustment",
                 entityId: id,

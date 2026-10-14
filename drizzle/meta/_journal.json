@@ -99,6 +99,13 @@
       "when": 1791892800000,
       "tag": "0013_link_stock_batch_purchases",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791979200000,
+      "tag": "0014_pl_adjustment_net_assets",
+      "breakpoints": true
     }
   ]
 }

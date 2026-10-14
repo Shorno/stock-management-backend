@@ -564,6 +564,7 @@ export async function backfillLedger(): Promise<{ entriesCreated: number }> {
 
     // ----- 11. P&L Adjustments -----
     const { plAdjustments } = await import("../../db/schema/pl-adjustment-schema");
+    const { plAdjustmentNetAssetChange } = await import("../pl-adjustments/service");
     const plAdj = await db.select().from(plAdjustments);
     for (const adj of plAdj) {
         const amount = Number(adj.amount);
@@ -571,7 +572,8 @@ export async function backfillLedger(): Promise<{ entriesCreated: number }> {
             transactionType: "pl_adjustment",
             description: `P&L Adjustment (${adj.type}): ${adj.title} — ৳${amount.toLocaleString()}`,
             amount: amount.toFixed(2),
-            netAssetChange: "0", // P&L adjustments affect profit display but not net asset components directly
+            // Income adds and expense subtracts; older profit-only adjustments stay neutral
+            netAssetChange: plAdjustmentNetAssetChange(adj).toFixed(2),
             affectedComponent: "profitLoss",
             entityType: "pl_adjustment",
             entityId: adj.id,

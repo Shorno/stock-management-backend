@@ -208,6 +208,20 @@ investmentRoutes.get(
     }
 );
 
+// Get the difference between net assets and investment + profit (as of today)
+investmentRoutes.get(
+    "/difference",
+    async (c) => {
+        try {
+            const difference = await investmentService.getInvestmentDifference();
+            return c.json({ success: true, data: difference });
+        } catch (error) {
+            logError("Error fetching investment difference:", error);
+            return c.json({ success: false, error: "Failed to fetch difference" }, 500);
+        }
+    }
+);
+
 // Create a withdrawal
 investmentRoutes.post(
     "/withdrawals",

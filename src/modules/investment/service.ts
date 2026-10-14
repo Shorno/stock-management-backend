@@ -2,6 +2,8 @@ import { db } from "../../db/config";
 import { investments, investmentWithdrawals } from "../../db/schema";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
 import { logError } from "../../lib/error-handler";
+import { getOpeningBalanceTotals } from "../opening-balance/service";
+import { getPlAdjustmentNetEffects } from "../pl-adjustments/service";
 import type {
     GetInvestmentsQuery,
     CreateInvestmentInput,
@@ -228,11 +230,60 @@ export async function getTotalWithdrawals(startDate?: string, endDate?: string):
 }
 
 /**
- * Get current investment balance (total investments - total withdrawals)
+ * Get current investment balance (opening investment + total investments - total withdrawals)
  */
 export async function getInvestmentBalance(): Promise<number> {
     const totalInvestments = await getTotalInvestments();
     const totalWithdrawals = await getTotalWithdrawals();
+    const openingInvestment = (await getOpeningBalanceTotals()).get("investment") || 0;
 
-    return parseFloat(totalInvestments) - parseFloat(totalWithdrawals);
+    return openingInvestment + parseFloat(totalInvestments) - parseFloat(totalWithdrawals);
+}
+
+export interface InvestmentDifference {
+    netAssets: number;
+    investmentBalance: number;
+    profitLoss: number;
+    // Older profit-only P&L adjustments (income − expense), left out of the difference
+    profitOnlyAdjustments: number;
+    difference: number;
+}
+
+const roundMoney = (value: number) => Math.round(value * 100) / 100 || 0;
+
+/**
+ * Difference = Net Assets − (Investment Balance + Profit).
+ * Positive: more money came into the business than is recorded as investment.
+ * Negative: money was taken out (e.g. cash withdrawn) and not put back.
+ * Older profit-only P&L adjustments never reached net assets, so they are left out of
+ * the profit here; otherwise they would show as a gap no real transaction explains.
+ */
+export function calculateInvestmentDifference(input: Omit<InvestmentDifference, "difference">): InvestmentDifference {
+    const profit = input.profitLoss - input.profitOnlyAdjustments;
+    return {
+        netAssets: roundMoney(input.netAssets),
+        investmentBalance: roundMoney(input.investmentBalance),
+        profitLoss: roundMoney(input.profitLoss),
+        profitOnlyAdjustments: roundMoney(input.profitOnlyAdjustments),
+        difference: roundMoney(input.netAssets - (input.investmentBalance + profit)),
+    };
+}
+
+/**
+ * All-time investment difference as of today. Never date filtered: net assets are a
+ * running balance and cannot be rebuilt for a past date.
+ */
+export async function getInvestmentDifference(): Promise<InvestmentDifference> {
+    const { getDashboardStats } = await import("../analytics/service");
+    const [stats, investmentBalance, plEffects] = await Promise.all([
+        getDashboardStats(),
+        getInvestmentBalance(),
+        getPlAdjustmentNetEffects(),
+    ]);
+    return calculateInvestmentDifference({
+        netAssets: stats.netAssets,
+        investmentBalance,
+        profitLoss: stats.profitLoss,
+        profitOnlyAdjustments: plEffects.profitOnly,
+    });
 }
