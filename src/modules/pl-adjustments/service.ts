@@ -10,9 +10,27 @@ export interface PlAdjustment {
     amount: string;
     note: string | null;
     adjustmentDate: string;
+    affectsNetAssets: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
+
+export interface PlAdjustmentNetEffects {
+    // Net of adjustments that count in net assets (income − expense)
+    netAssets: number;
+    // Net of older adjustments that only ever changed profit (income − expense)
+    profitOnly: number;
+}
+
+/**
+ * Net asset change caused by one adjustment: income adds, expense subtracts,
+ * and profit-only adjustments change nothing.
+ */
+export const plAdjustmentNetAssetChange = (adjustment: Pick<PlAdjustment, "type" | "amount" | "affectsNetAssets">): number => {
+    if (!adjustment.affectsNetAssets) return 0;
+    const amount = parseFloat(adjustment.amount);
+    return adjustment.type === "income" ? amount : -amount;
+};
 
 export interface PlAdjustmentsSummary {
     totalIncome: string;
@@ -46,8 +64,8 @@ export const getPlAdjustments = async (query: GetPlAdjustmentsQuery): Promise<Pl
 /**
  * Create a new P&L adjustment
  */
-export const createPlAdjustment = async (input: CreatePlAdjustmentInput): Promise<PlAdjustment> => {
-    const [newAdjustment] = await db
+export const createPlAdjustment = async (input: CreatePlAdjustmentInput, database = db): Promise<PlAdjustment> => {
+    const [newAdjustment] = await database
         .insert(plAdjustments)
         .values({
             title: input.title,
@@ -55,10 +73,30 @@ export const createPlAdjustment = async (input: CreatePlAdjustmentInput): Promis
             amount: input.amount,
             note: input.note || null,
             adjustmentDate: input.adjustmentDate,
+            affectsNetAssets: true,
         })
         .returning();
 
     return newAdjustment!;
+};
+
+/**
+ * All-time net effect of adjustments, split by whether they count in net assets.
+ * Not date filtered: net assets are a running balance.
+ */
+export const getPlAdjustmentNetEffects = async (database = db): Promise<PlAdjustmentNetEffects> => {
+    const signedAmount = sql`CASE WHEN ${plAdjustments.type} = 'income' THEN CAST(${plAdjustments.amount} AS DECIMAL) ELSE -CAST(${plAdjustments.amount} AS DECIMAL) END`;
+    const [row] = await database
+        .select({
+            netAssets: sql<string>`COALESCE(SUM(CASE WHEN ${plAdjustments.affectsNetAssets} THEN ${signedAmount} ELSE 0 END), 0)`,
+            profitOnly: sql<string>`COALESCE(SUM(CASE WHEN ${plAdjustments.affectsNetAssets} THEN 0 ELSE ${signedAmount} END), 0)`,
+        })
+        .from(plAdjustments);
+
+    return {
+        netAssets: Number(row?.netAssets || 0),
+        profitOnly: Number(row?.profitOnly || 0),
+    };
 };
 
 /**
