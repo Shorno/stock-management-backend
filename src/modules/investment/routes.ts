@@ -5,7 +5,8 @@ import { logError } from "../../lib/error-handler";
 import {
     getInvestmentsQuerySchema,
     createInvestmentInputSchema,
-    createWithdrawalInputSchema
+    createWithdrawalInputSchema,
+    getDifferenceHistoryQuerySchema
 } from "./validation";
 import { requireRole } from "../../lib/auth-middleware";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
@@ -218,6 +219,21 @@ investmentRoutes.get(
         } catch (error) {
             logError("Error fetching investment difference:", error);
             return c.json({ success: false, error: "Failed to fetch difference" }, 500);
+        }
+    }
+);
+
+// Get the transactions that changed the difference, newest first
+investmentRoutes.get(
+    "/difference/history",
+    zValidator("query", getDifferenceHistoryQuerySchema),
+    async (c) => {
+        try {
+            const history = await investmentService.getDifferenceHistory(c.req.valid("query"));
+            return c.json({ success: true, data: history });
+        } catch (error) {
+            logError("Error fetching difference history:", error);
+            return c.json({ success: false, error: "Failed to fetch difference history" }, 500);
         }
     }
 );

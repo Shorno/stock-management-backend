@@ -8,6 +8,12 @@ export const getInvestmentsQuerySchema = z.object({
 
 export type GetInvestmentsQuery = z.infer<typeof getInvestmentsQuerySchema>;
 
+// Query schema for the difference history
+export const getDifferenceHistoryQuerySchema = z.object({
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(100).default(20),
+});
+
 // Input schema for creating an investment
 export const createInvestmentInputSchema = z.object({
     amount: z.number().positive("Amount must be greater than 0"),

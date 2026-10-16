@@ -3,7 +3,9 @@
 // not run the full migration chain or advance its journal past untracked changes.
 // Every existing P&L adjustment is marked profit-only (false); adjustments created
 // afterwards default to true and count in net assets. No amounts are changed.
-// Not yet applied to production. Apply it before deploying the code that reads the column.
+// Applied to production and verified on 2026-10-14 using this script (57 existing
+// adjustments marked profit-only). The code that reads the column was deployed first,
+// which broke every P&L adjustment query until this ran: apply before deploying.
 //
 // Usage:
 //   bun run apply-migration-0014.ts          # inspect the current schema
