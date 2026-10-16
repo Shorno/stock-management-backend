@@ -32,14 +32,20 @@ export async function recordEntry(input: RecordLedgerEntryInput): Promise<void> 
             transactionDate: input.transactionDate,
         }).returning({ id: netAssetLedger.id });
 
-        // Capture current net asset snapshot after the transaction
+        // Capture net assets, investment, profit and the investment difference after the
+        // transaction; the difference snapshots are what the difference history reads
         if (inserted) {
             try {
-                const { getDashboardStats } = await import("../analytics/service");
-                const analytics = await getDashboardStats();
+                const { getInvestmentDifference } = await import("../investment/service");
+                const snapshot = await getInvestmentDifference();
                 const { eq } = await import("drizzle-orm");
                 await db.update(netAssetLedger)
-                    .set({ netAssetAfter: analytics.netAssets.toFixed(2) })
+                    .set({
+                        netAssetAfter: snapshot.netAssets.toFixed(2),
+                        investmentBalanceAfter: snapshot.investmentBalance.toFixed(2),
+                        profitAfter: snapshot.profitLoss.toFixed(2),
+                        differenceAfter: snapshot.difference.toFixed(2),
+                    })
                     .where(eq(netAssetLedger.id, inserted.id));
             } catch (snapshotErr) {
                 console.error("[NetAssetLedger] Failed to capture net asset snapshot:", snapshotErr);

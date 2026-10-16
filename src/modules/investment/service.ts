@@ -1,9 +1,8 @@
 import { db } from "../../db/config";
 import { investments, investmentWithdrawals } from "../../db/schema";
-import { eq, desc, and, gte, lte } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 import { logError } from "../../lib/error-handler";
 import { getOpeningBalanceTotals } from "../opening-balance/service";
-import { getPlAdjustmentNetEffects } from "../pl-adjustments/service";
 import type {
     GetInvestmentsQuery,
     CreateInvestmentInput,
@@ -244,28 +243,23 @@ export interface InvestmentDifference {
     netAssets: number;
     investmentBalance: number;
     profitLoss: number;
-    // Older profit-only P&L adjustments (income − expense), left out of the difference
-    profitOnlyAdjustments: number;
     difference: number;
 }
 
 const roundMoney = (value: number) => Math.round(value * 100) / 100 || 0;
 
 /**
- * Difference = Net Assets − (Investment Balance + Profit).
+ * Difference = Net Assets − (Investment Balance + Profit), using the same all-time
+ * profit as the P&L card (older profit-only adjustments included).
  * Positive: more money came into the business than is recorded as investment.
  * Negative: money was taken out (e.g. cash withdrawn) and not put back.
- * Older profit-only P&L adjustments never reached net assets, so they are left out of
- * the profit here; otherwise they would show as a gap no real transaction explains.
  */
 export function calculateInvestmentDifference(input: Omit<InvestmentDifference, "difference">): InvestmentDifference {
-    const profit = input.profitLoss - input.profitOnlyAdjustments;
     return {
         netAssets: roundMoney(input.netAssets),
         investmentBalance: roundMoney(input.investmentBalance),
         profitLoss: roundMoney(input.profitLoss),
-        profitOnlyAdjustments: roundMoney(input.profitOnlyAdjustments),
-        difference: roundMoney(input.netAssets - (input.investmentBalance + profit)),
+        difference: roundMoney(input.netAssets - (input.investmentBalance + input.profitLoss)),
     };
 }
 
@@ -275,15 +269,75 @@ export function calculateInvestmentDifference(input: Omit<InvestmentDifference, 
  */
 export async function getInvestmentDifference(): Promise<InvestmentDifference> {
     const { getDashboardStats } = await import("../analytics/service");
-    const [stats, investmentBalance, plEffects] = await Promise.all([
+    const [stats, investmentBalance] = await Promise.all([
         getDashboardStats(),
         getInvestmentBalance(),
-        getPlAdjustmentNetEffects(),
     ]);
     return calculateInvestmentDifference({
         netAssets: stats.netAssets,
         investmentBalance,
         profitLoss: stats.profitLoss,
-        profitOnlyAdjustments: plEffects.profitOnly,
     });
+}
+
+export interface DifferenceHistoryEntry {
+    id: number;
+    transactionType: string;
+    description: string;
+    amount: number;
+    transactionDate: string;
+    netAssets: number;
+    investmentBalance: number;
+    profitLoss: number;
+    difference: number;
+    // Change from the previous snapshot; null for the first one (the starting point)
+    change: number | null;
+}
+
+export interface DifferenceHistoryResponse {
+    entries: DifferenceHistoryEntry[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+}
+
+/**
+ * Transactions that changed the investment difference, newest first. Built from the
+ * snapshots the net asset ledger records after every transaction, so each change is
+ * exact: transactions that leave the difference unchanged (e.g. a balanced sale) are
+ * skipped, and anything that does move it shows up, whatever its type.
+ */
+export async function getDifferenceHistory(query: { page?: number; limit?: number } = {}, database = db): Promise<DifferenceHistoryResponse> {
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const changes = sql`
+        SELECT id, transaction_type, description, amount, transaction_date::text AS transaction_date,
+               net_asset_after, investment_balance_after, profit_after, difference_after,
+               difference_after - LAG(difference_after) OVER (ORDER BY id) AS change
+        FROM net_asset_ledger
+        WHERE difference_after IS NOT NULL`;
+
+    const countResult = await database.execute(sql`
+        SELECT COUNT(*)::int AS total FROM (${changes}) h WHERE h.change IS NULL OR h.change <> 0`);
+    const total = Number((countResult.rows[0] as { total: number } | undefined)?.total ?? 0);
+
+    const rows = await database.execute(sql`
+        SELECT * FROM (${changes}) h WHERE h.change IS NULL OR h.change <> 0
+        ORDER BY h.id DESC LIMIT ${limit} OFFSET ${(page - 1) * limit}`);
+
+    const entries = (rows.rows as Record<string, unknown>[]).map((r) => ({
+        id: Number(r.id),
+        transactionType: String(r.transaction_type),
+        description: String(r.description),
+        amount: Number(r.amount),
+        transactionDate: String(r.transaction_date),
+        netAssets: Number(r.net_asset_after),
+        investmentBalance: Number(r.investment_balance_after),
+        profitLoss: Number(r.profit_after),
+        difference: Number(r.difference_after),
+        change: r.change === null ? null : Number(r.change),
+    }));
+
+    return { entries, total, page, limit, totalPages: Math.ceil(total / limit) };
 }

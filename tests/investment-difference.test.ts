@@ -8,7 +8,7 @@ import {
     getPlAdjustmentNetEffects,
     plAdjustmentNetAssetChange,
 } from "../src/modules/pl-adjustments/service";
-import { calculateInvestmentDifference } from "../src/modules/investment/service";
+import { calculateInvestmentDifference, getDifferenceHistory } from "../src/modules/investment/service";
 
 // Every service call is explicitly given this in-memory Postgres database.
 // No service in these tests queries the configured application database.
@@ -63,7 +63,7 @@ describe("P&L adjustments and net assets", () => {
 
 describe("investment difference", () => {
     // The client's walkthrough: 2,00,000 invested, 11,000 sale with 1,000 profit
-    const base = { investmentBalance: 200000, profitLoss: 1000, profitOnlyAdjustments: 0 };
+    const base = { investmentBalance: 200000, profitLoss: 1000 };
 
     test("matches when net assets equal investment + profit", () => {
         expect(calculateInvestmentDifference({ ...base, netAssets: 201000 }).difference).toBe(0);
@@ -77,13 +77,60 @@ describe("investment difference", () => {
         expect(calculateInvestmentDifference({ ...base, netAssets: 221000 }).difference).toBe(20000);
     });
 
-    test("older profit-only adjustments do not create a difference", () => {
-        // 7,500 of old adjustments are in profit but were never in net assets
-        expect(calculateInvestmentDifference({ ...base, profitLoss: 8500, profitOnlyAdjustments: 7500, netAssets: 201000 }).difference).toBe(0);
+    test("uses the same profit as the P&L card, older profit-only adjustments included", () => {
+        // Client's reset: investment set equal to net assets while the P&L card showed 0
+        expect(calculateInvestmentDifference({ netAssets: 1914554.42, investmentBalance: 1914554.42, profitLoss: 0 }).difference).toBe(0);
     });
 
     test("rounds to paisa without a negative zero", () => {
-        const result = calculateInvestmentDifference({ investmentBalance: 0.1, profitLoss: 0.2, profitOnlyAdjustments: 0, netAssets: 0.3 });
+        const result = calculateInvestmentDifference({ investmentBalance: 0.1, profitLoss: 0.2, netAssets: 0.3 });
         expect(Object.is(result.difference, 0)).toBe(true);
+    });
+});
+
+describe("difference history", () => {
+    beforeAll(async () => {
+        // The ledger as production has it before migration 0015
+        await client.exec(`
+            CREATE TABLE net_asset_ledger (id serial PRIMARY KEY, transaction_type varchar(50) NOT NULL, description text NOT NULL, amount numeric(12,2) DEFAULT '0' NOT NULL, net_asset_change numeric(12,2) DEFAULT '0' NOT NULL, affected_component varchar(50) NOT NULL, entity_type varchar(50), entity_id integer, transaction_date date NOT NULL, net_asset_after numeric(14,2), created_at timestamp DEFAULT now() NOT NULL, updated_at timestamp DEFAULT now() NOT NULL);
+            INSERT INTO net_asset_ledger (transaction_type, description, amount, affected_component, transaction_date, net_asset_after)
+            VALUES ('order_payment', 'Recorded before snapshots existed', 500, 'cash', '2026-10-15', 1900000);
+        `);
+        await client.exec(await Bun.file(new URL("../drizzle/0015_difference_history.sql", import.meta.url)).text());
+
+        // The client's demo on 16 Oct, as the ledger snapshots it after each step:
+        // [type, amount, net assets, investment, profit, difference]
+        const steps: [string, number, number, number, number, number][] = [
+            ["investment", 1914554.42, 1914554.42, 1914554.42, 0, 0],
+            ["pl_adjustment", 10000, 1924554.42, 1914554.42, 10000, 0],
+            ["cash_withdrawal", 10000, 1914554.42, 1914554.42, 10000, -10000],
+            ["order_payment", 3000, 1915554.42, 1914554.42, 11000, -10000],
+            ["supplier_payment", 20000, 1935554.42, 1914554.42, 11000, 10000],
+        ];
+        for (const [type, amount, netAssets, investment, profit, difference] of steps) {
+            await client.query(
+                `INSERT INTO net_asset_ledger (transaction_type, description, amount, affected_component, transaction_date, net_asset_after, investment_balance_after, profit_after, difference_after)
+                 VALUES ($1, $2, $3, 'test', '2026-10-16', $4, $5, $6, $7)`,
+                [type, type, amount, netAssets, investment, profit, difference],
+            );
+        }
+    });
+
+    test("lists only transactions that moved the difference, newest first, with exact changes", async () => {
+        const history = await getDifferenceHistory({}, database);
+
+        expect(history.total).toBe(3);
+        expect(history.entries.map((e) => [e.transactionType, e.change, e.difference])).toEqual([
+            ["supplier_payment", 20000, 10000],
+            ["cash_withdrawal", -10000, -10000],
+            ["investment", null, 0], // first snapshot: the starting point
+        ]);
+        expect(history.entries[0]).toMatchObject({ netAssets: 1935554.42, investmentBalance: 1914554.42, profitLoss: 11000, transactionDate: "2026-10-16" });
+    });
+
+    test("pages through the history", async () => {
+        const second = await getDifferenceHistory({ page: 2, limit: 2 }, database);
+        expect(second).toMatchObject({ total: 3, totalPages: 2, page: 2 });
+        expect(second.entries.map((e) => e.transactionType)).toEqual(["investment"]);
     });
 });

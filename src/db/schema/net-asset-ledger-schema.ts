@@ -34,6 +34,12 @@ export const netAssetLedger = pgTable("net_asset_ledger", {
     // Net asset value after this transaction was recorded (snapshot)
     netAssetAfter: decimal("net_asset_after", { precision: 14, scale: 2 }),
 
+    // Investment balance, all-time profit and the investment difference after this
+    // transaction (snapshots; null for entries recorded before these were tracked)
+    investmentBalanceAfter: decimal("investment_balance_after", { precision: 14, scale: 2 }),
+    profitAfter: decimal("profit_after", { precision: 14, scale: 2 }),
+    differenceAfter: decimal("difference_after", { precision: 14, scale: 2 }),
+
     ...timestamps,
 });
 
