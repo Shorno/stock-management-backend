@@ -13,6 +13,7 @@ import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../li
 import { logError } from "../../lib/error-handler";
 import { recordEntry } from "../net-asset-ledger/service";
 import { buildAdjustmentLedgerEntries, summarizeAdjustment, EMPTY_ADJUSTMENT } from "./adjustment-ledger";
+import { getOrderCustomerDueAmounts, notifySettlement } from "../sms/service";
 
 type AppContext = Context<
     {
@@ -604,6 +605,13 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
         // Fetch old adjustment state for audit diff
         const oldAdjustment = await wholesaleService.getOrderAdjustment(id);
 
+        // Customer dues on this order before saving, so only new/changed dues get an SMS.
+        // null = could not read them; skip SMS rather than risk re-sending to everyone.
+        const duesBeforeSave = await getOrderCustomerDueAmounts(id).catch((error) => {
+            logError("Failed to read order dues before settlement SMS:", error);
+            return null;
+        });
+
         const result = await wholesaleService.saveOrderAdjustment(id, validatedData);
 
         if (!result) {
@@ -693,6 +701,16 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
                 entityId: id,
                 transactionDate: orderDate,
             });
+        }
+
+        // SMS customers with a new/changed due in the background; never fails the save
+        if (duesBeforeSave) {
+            notifySettlement({
+                orderId: id,
+                before: duesBeforeSave,
+                sender: { id: userInfo.userId, name: userInfo.userName },
+                force: validatedData.notifyCustomers,
+            }).catch((error) => logError("Failed to send settlement SMS:", error));
         }
 
         return c.json({
