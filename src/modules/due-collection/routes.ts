@@ -15,6 +15,7 @@ import {
 } from "./validation";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 import { recordEntry } from "../net-asset-ledger/service";
+import { notifyCollection } from "../sms/service";
 
 const dueCollectionRoutes = new Hono();
 
@@ -127,6 +128,16 @@ dueCollectionRoutes.post(
                 entityId: result.collectionId!,
                 transactionDate: input.collectionDate,
             });
+
+            // SMS the customer in the background; a failed SMS never fails the collection
+            notifyCollection({
+                customerId: input.customerId,
+                amount,
+                collectionDate: input.collectionDate,
+                dueCollectionId: typeof result.collectionId === "number" ? result.collectionId : undefined,
+                sender: { id: userInfo.userId, name: userInfo.userName },
+                force: input.sendSms,
+            }).catch((error) => logError("Failed to send due collection SMS:", error));
 
             return c.json({
                 success: true,
