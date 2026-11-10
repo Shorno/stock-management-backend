@@ -623,23 +623,6 @@ export interface DashboardStats {
  * Optionally filtered by date range
  */
 export async function getDashboardStats(dateRange?: DateRange): Promise<DashboardStats> {
-    // #region agent log
-    const __dashT0 = Date.now();
-    fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
-        body: JSON.stringify({
-            sessionId: "9701ce",
-            runId: "pre-fix",
-            hypothesisId: "H3",
-            location: "analytics/service.ts:getDashboardStats",
-            message: "getDashboardStats start",
-            data: {},
-            timestamp: Date.now(),
-        }),
-    }).catch(() => {});
-    // #endregion
-
     const dateFilters = getDateFilter(dateRange?.startDate, dateRange?.endDate);
 
     // ----- NET SALES -----
@@ -667,22 +650,6 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
         .where(salesFilters);
 
     const orderIds = orderIdsResult.map(o => o.id);
-
-    // #region agent log
-    fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
-        body: JSON.stringify({
-            sessionId: "9701ce",
-            runId: "pre-fix",
-            hypothesisId: "H2",
-            location: "analytics/service.ts:getDashboardStats",
-            message: "orderIds loaded for salesFilters",
-            data: { orderIdCount: orderIds.length, elapsedMs: Date.now() - __dashT0 },
-            timestamp: Date.now(),
-        }),
-    }).catch(() => {});
-    // #endregion
 
     let totalReturns = 0;
     let totalAdjustmentDiscounts = 0;
@@ -788,27 +755,6 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
             .from(orderItemReturns)
             .where(sql`${orderItemReturns.orderId} IN (${sql.join(orderIds.map(id => sql`${id}`), sql`, `)})`);
 
-        // #region agent log
-        const __cogsLoopStart = Date.now();
-        fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
-            body: JSON.stringify({
-                sessionId: "9701ce",
-                runId: "pre-fix",
-                hypothesisId: "H1",
-                location: "analytics/service.ts:getDashboardStats",
-                message: "before COGS returnQuantityMap loop",
-                data: {
-                    returnRowCount: returnsResult.length,
-                    orderItemRows: orderItemsResult.length,
-                    elapsedMs: Date.now() - __dashT0,
-                },
-                timestamp: Date.now(),
-            }),
-        }).catch(() => {});
-        // #endregion
-
         // Create a map of order item ID to return quantity in base pieces
         const multiplierByUnit = await getUnitMultipliersMap(returnsResult.map((ret) => ret.returnUnit));
 
@@ -820,22 +766,6 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
             const returnInBasePieces = (Number(ret.returnQuantity || 0) * unitMultiplier) + Number(ret.returnExtraPieces || 0);
             returnQuantityMap.set(ret.orderItemId, returnInBasePieces);
         }
-
-        // #region agent log
-        fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
-            body: JSON.stringify({
-                sessionId: "9701ce",
-                runId: "pre-fix",
-                hypothesisId: "H1",
-                location: "analytics/service.ts:getDashboardStats",
-                message: "after COGS returnQuantityMap loop",
-                data: { loopMs: Date.now() - __cogsLoopStart, elapsedMs: Date.now() - __dashT0 },
-                timestamp: Date.now(),
-            }),
-        }).catch(() => {});
-        // #endregion
 
         costOfGoodsSold = orderItemsResult.reduce((sum, row) => {
             const supplierPrice = Number(row.batch.supplierPrice || 0);
@@ -1132,22 +1062,6 @@ export async function getDashboardStats(dateRange?: DateRange): Promise<Dashboar
     //   - The margin gap is inherently reflected in the difference
     // All values include opening balances
     const netAssets = currentStock + adjustedCashBalance + adjustedCustomerDues + adjustedDsrDue + adjustedSrDue + adjustedSupplierDue + damageReturnsValue + pendingOrdersValue + plAdjustmentNetAssets;
-
-    // #region agent log
-    fetch("http://127.0.0.1:7773/ingest/24fd52a1-bb53-4dc2-b4be-9051b53401c4", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9701ce" },
-        body: JSON.stringify({
-            sessionId: "9701ce",
-            runId: "pre-fix",
-            hypothesisId: "H3",
-            location: "analytics/service.ts:getDashboardStats",
-            message: "getDashboardStats complete",
-            data: { totalMs: Date.now() - __dashT0 },
-            timestamp: Date.now(),
-        }),
-    }).catch(() => {});
-    // #endregion
 
     return {
         netSales: Math.round(netSales * 100) / 100,
