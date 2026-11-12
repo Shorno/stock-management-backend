@@ -35,6 +35,7 @@ import { srCommissionRoutes } from "./modules/sr-commission";
 import { openingBalanceRoutes } from "./modules/opening-balance";
 import { netAssetLedgerRoutes } from "./modules/net-asset-ledger";
 import { smsRoutes } from "./modules/sms";
+import { accountRoutes, passwordResetRoutes } from "./modules/account";
 
 const app = new Hono<{
     Variables: {
@@ -131,6 +132,8 @@ app.route("/sr-commissions", srCommissionRoutes);
 app.route("/opening-balances", openingBalanceRoutes);
 app.route("/net-asset-ledger", netAssetLedgerRoutes);
 app.route("/sms", smsRoutes);
+app.route("/account", accountRoutes);
+app.route("/password-reset", passwordResetRoutes);
 
 
 const port = Number(process.env.PORT) || 3000;
