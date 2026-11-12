@@ -430,3 +430,17 @@ export async function resetPasswordWithOtp(input: ResetPasswordInput, deps?: Acc
     passwordFailures.delete(target.id);
     return { userId: target.id, userName: target.name, sessionsSignedOut: signedOut };
 }
+
+// ==================== SIGN IN WITH PHONE ====================
+
+/** Email of the account whose verified mobile number matches, or null. */
+export async function findEmailByVerifiedPhone(rawPhone: string, deps?: AccountDeps): Promise<string | null> {
+    const { database } = resolve(deps);
+    const phone = normalizeBdPhone(rawPhone);
+    if (!phone) return null;
+    const [row] = await database.select({ email: userTable.email }).from(userPhone)
+        .innerJoin(userTable, eq(userTable.id, userPhone.userId))
+        .where(eq(userPhone.phone, phone))
+        .limit(1);
+    return row?.email ?? null;
+}
