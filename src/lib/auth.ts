@@ -37,6 +37,9 @@ export const auth = betterAuth({
         }
     },
     basePath: "/api/auth",
+    // Password change and reset go through /api/account/password/* and /api/password-reset/*
+    // (verified phone + SMS code). Block Better Auth's built-in routes so that cannot be skipped.
+    disabledPaths: ["/change-password", "/request-password-reset", "/reset-password"],
     databaseHooks: {
         user: {
             create: {

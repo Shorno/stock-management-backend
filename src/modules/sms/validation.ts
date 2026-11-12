@@ -49,7 +49,7 @@ export const testSmsSchema = z.object({
 export const getSmsLogsQuerySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(200).default(50),
-    type: z.enum(["settlement", "collection", "reminder", "custom", "test"]).optional(),
+    type: z.enum(["settlement", "collection", "reminder", "custom", "test", "otp"]).optional(),
     status: z.enum(["sent", "failed"]).optional(),
     customerId: z.coerce.number().int().positive().optional(),
     search: z.string().trim().optional(),
