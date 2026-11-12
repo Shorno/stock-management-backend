@@ -7,6 +7,7 @@ import type { db as applicationDb } from "../src/db/config";
 import {
     AccountError,
     changePassword,
+    findEmailByVerifiedPhone,
     getSecurityStatus,
     requestPasswordOtp,
     requestPasswordReset,
@@ -314,4 +315,25 @@ test("reset creates a password login if the account had none", async () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.provider_id).toBe("credential");
     expect(await verifyPassword({ hash: rows[0]!.password, password: "brand-new-pass" })).toBe(true);
+});
+
+// ==================== SIGN IN WITH PHONE ====================
+
+test("sign-in lookup finds the email only for a verified number", async () => {
+    expect(await findEmailByVerifiedPhone("01712345678", deps)).toBeNull();
+    await requestPhoneOtp(alice, "01712345678", deps);
+    expect(await findEmailByVerifiedPhone("01712345678", deps)).toBeNull(); // code sent, not yet verified
+    await verifyPhoneOtp(alice, lastCode(), deps);
+
+    for (const format of ["01712345678", "+8801712345678", "880 1712-345678", "1712345678"]) {
+        expect(await findEmailByVerifiedPhone(format, deps)).toBe("alice@example.com");
+    }
+    expect(await findEmailByVerifiedPhone("01812345678", deps)).toBeNull();
+    expect(await findEmailByVerifiedPhone("garbage", deps)).toBeNull();
+
+    // After switching numbers only the new one signs in.
+    await skipCooldown();
+    await verifyAlicePhone("01812345678");
+    expect(await findEmailByVerifiedPhone("01712345678", deps)).toBeNull();
+    expect(await findEmailByVerifiedPhone("01812345678", deps)).toBe("alice@example.com");
 });
