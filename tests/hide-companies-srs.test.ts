@@ -41,8 +41,11 @@ beforeAll(async () => {
         INSERT INTO brand (name) VALUES ('ACI Barisal'), ('BD Food');
         INSERT INTO sr (name, brand_id) VALUES ('Shawon', 1), ('Naeem', 2), ('Godown', NULL);
     `);
-    const migration = await Bun.file(new URL("../drizzle/0018_hide_companies_srs.sql", import.meta.url)).text();
-    for (const statement of migration.split("--> statement-breakpoint")) await client.exec(statement);
+    // 0019 (SR profile) comes after; the SR service reads its columns too.
+    for (const file of ["0018_hide_companies_srs.sql", "0019_sr_profile.sql"]) {
+        const migration = await Bun.file(new URL(`../drizzle/${file}`, import.meta.url)).text();
+        for (const statement of migration.split("--> statement-breakpoint")) await client.exec(statement);
+    }
 }, 20000);
 
 beforeEach(async () => {

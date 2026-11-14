@@ -51,7 +51,7 @@ export const handleGetSrs = async (c: AppContext): Promise<Response> => {
 
     return c.json<SrResponse>({
       success: true,
-      data: srs,
+      data: canSeePrivateProfile(c) ? srs : srs.map(srService.withoutPrivateProfile),
       total,
     });
   } catch (error) {
@@ -94,7 +94,7 @@ export const handleGetSrById = async (c: AppContext): Promise<Response> => {
 
     return c.json<SrResponse>({
       success: true,
-      data: sr,
+      data: canSeePrivateProfile(c) ? sr : srService.withoutPrivateProfile(sr),
     });
   } catch (error) {
     logError("Error fetching SR:", error);
@@ -203,7 +203,7 @@ export const handleGetSrStats = async (c: AppContext): Promise<Response> => {
     return c.json({
       success: true,
       data: {
-        sr,
+        sr: canSeePrivateProfile(c) ? sr : srService.withoutPrivateProfile(sr),
         stats,
       },
     });
@@ -247,3 +247,9 @@ export const handleGetSrOrderItems = async (c: Context) => {
     return c.json({ success: false, message: "Failed to fetch SR order items" }, 500);
   }
 };
+
+/** Address, NID, emergency contact and notes are shown to admins and super admins only. */
+function canSeePrivateProfile(c: Context): boolean {
+  const role = (c.get("user" as never) as { role?: string } | null)?.role;
+  return role === "admin" || role === "super_admin";
+}

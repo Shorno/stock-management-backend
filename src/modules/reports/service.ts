@@ -1,3 +1,4 @@
+import { srPublicColumns } from "../sr/public-columns";
 import { db } from "../../db/config";
 import { wholesaleOrders, dsr, route, orderItemReturns, stockBatch, productVariant, sr, unit } from "../../db/schema";
 import { eq, and, gte, lte, sql, ne, countDistinct, desc, inArray } from "drizzle-orm";
@@ -1800,7 +1801,7 @@ export const getDailySettlement = async (
 
     const allSrDues = orderIds.length > 0 ? await db.query.orderSrDues.findMany({
         where: (d, { inArray }) => inArray(d.orderId, orderIds),
-        with: { sr: true, customer: true },
+        with: { sr: { columns: srPublicColumns }, customer: true },
     }) : [];
 
     const allDamageItems = orderIds.length > 0 ? await db.query.orderDamageItems.findMany({

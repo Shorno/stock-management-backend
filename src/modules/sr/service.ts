@@ -1,8 +1,8 @@
 import { db } from "../../db/config";
-import { sr, wholesaleOrderItems, orderItemReturns } from "../../db/schema";
+import { sr, srDocuments, wholesaleOrderItems, orderItemReturns } from "../../db/schema";
 import { eq, ilike, count, and, sql } from "drizzle-orm";
-import type { CreateSrInput, UpdateSrInput, GetSrsQuery } from "./validation";
-import type { SrWithBrand, NewSr } from "./types";
+import type { CreateSrInput, UpdateSrInput, GetSrsQuery, UpdateSrProfileInput, CreateSrDocumentInput } from "./validation";
+import type { SrWithBrand, NewSr, SrDocument } from "./types";
 import { activeSrCondition } from "../../lib/visibility";
 
 export const createSr = async (data: CreateSrInput): Promise<SrWithBrand> => {
@@ -218,4 +218,65 @@ export const getSrOrderItems = async (id: number, limit = 10, offset = 0) => {
     items: itemsWithReturns,
     total: Number(countResult[0]?.count || 0),
   };
+};
+
+// ==================== Profile ====================
+
+const PROFILE_FIELDS = ["phone", "address", "nidNumber", "emergencyContact", "notes", "profilePhoto"] as const;
+
+/** Updates only the profile fields that were sent; null clears a field. */
+export const updateSrProfile = async (
+  id: number,
+  data: UpdateSrProfileInput
+): Promise<SrWithBrand | undefined> => {
+  const updateFields: Partial<NewSr> = {};
+  for (const field of PROFILE_FIELDS) {
+    if (data[field] !== undefined) updateFields[field] = data[field];
+  }
+  if (Object.keys(updateFields).length === 0) return getSrById(id);
+
+  const [updated] = await db.update(sr).set(updateFields).where(eq(sr.id, id)).returning({ id: sr.id });
+  return updated ? getSrById(updated.id) : undefined;
+};
+
+/** Private profile details only admins may see. Phone and photo stay visible to everyone signed in. */
+const PRIVATE_FIELDS = ["address", "nidNumber", "emergencyContact", "notes"] as const;
+
+export function withoutPrivateProfile<T extends Partial<Record<(typeof PRIVATE_FIELDS)[number], unknown>>>(row: T): T {
+  const copy = { ...row };
+  for (const field of PRIVATE_FIELDS) delete copy[field];
+  return copy;
+}
+
+// ==================== Documents ====================
+
+export const getSrDocuments = async (srId: number): Promise<SrDocument[]> => {
+  return await db.query.srDocuments.findMany({
+    where: (doc, { eq }) => eq(doc.srId, srId),
+    orderBy: (doc, { desc }) => [desc(doc.createdAt), desc(doc.id)],
+  });
+};
+
+export const addSrDocument = async (srId: number, data: CreateSrDocumentInput): Promise<SrDocument> => {
+  const [doc] = await db
+    .insert(srDocuments)
+    .values({
+      srId,
+      documentType: data.documentType,
+      documentName: data.documentName,
+      documentUrl: data.documentUrl,
+      publicId: data.publicId || null,
+    })
+    .returning();
+  if (!doc) throw new Error("Failed to add document");
+  return doc;
+};
+
+/** Deletes a document only when it belongs to this SR. */
+export const deleteSrDocument = async (srId: number, docId: number): Promise<SrDocument | undefined> => {
+  const [deleted] = await db
+    .delete(srDocuments)
+    .where(and(eq(srDocuments.id, docId), eq(srDocuments.srId, srId)))
+    .returning();
+  return deleted;
 };

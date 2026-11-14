@@ -1,4 +1,4 @@
-import { sr } from "../../db/schema";
+import { sr, srDocuments } from "../../db/schema";
 
 export type Sr = typeof sr.$inferSelect;
 export type NewSr = typeof sr.$inferInsert;
@@ -38,3 +38,5 @@ export type SrStatsResponse =
       success: false;
       message: string;
     };
+
+export type SrDocument = typeof srDocuments.$inferSelect;

@@ -1,3 +1,4 @@
+import { srPublicColumns } from "../sr/public-columns";
 import { db } from "../../db/config";
 import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderDamageItems, srCommissions, dueCollections, dsrDueCollections, srDueCollections } from "../../db/schema";
 import { eq, and, count, gte, lte, sql, ne } from "drizzle-orm";
@@ -252,7 +253,7 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
                         product: true,
                         brand: true,
                         batch: true,
-                        sr: true,
+                        sr: { columns: srPublicColumns },
                     },
                 },
                 dsr: true,
@@ -292,7 +293,7 @@ export const getOrders = async (
                     with: {
                         batch: true,  // Include batch to access supplierPrice for profit calculation
                         brand: true,
-                        sr: true,
+                        sr: { columns: srPublicColumns },
                     },
                 },
                 itemReturns: true,  // Include item returns for calculating net sale
@@ -436,7 +437,7 @@ export const getOrderById = async (id: number): Promise<OrderWithItems | undefin
                             variant: true,
                         },
                     },
-                    sr: true,
+                    sr: { columns: srPublicColumns },
                 },
             },
             dsr: true,
@@ -585,7 +586,7 @@ export const updateOrder = async (
                         product: true,
                         brand: true,
                         batch: true,
-                        sr: true,
+                        sr: { columns: srPublicColumns },
                     },
                 },
                 dsr: true,
@@ -1155,7 +1156,7 @@ export const getOrderAdjustment = async (orderId: number) => {
                     product: true,
                     brand: true,
                     batch: true,
-                    sr: true,
+                    sr: { columns: srPublicColumns },
                 },
             },
             dsr: true,
@@ -1175,7 +1176,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Get expenses
     const expenses = await db.query.orderExpenses.findMany({
         where: (e, { eq }) => eq(e.orderId, orderId),
-        with: { sr: true },
+        with: { sr: { columns: srPublicColumns } },
     });
 
     // Get item returns
@@ -1191,7 +1192,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Get damage items
     const damageItemsData = await db.query.orderDamageItems.findMany({
         where: (d, { eq }) => eq(d.orderId, orderId),
-        with: { sr: true },
+        with: { sr: { columns: srPublicColumns } },
     });
 
     // Get DSR dues (with customer name)
@@ -1203,7 +1204,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Get SR dues (with SR name, brand/company name, and customer name)
     const srDuesData = await db.query.orderSrDues.findMany({
         where: (d, { eq }) => eq(d.orderId, orderId),
-        with: { sr: { with: { brand: true } }, customer: true },
+        with: { sr: { columns: srPublicColumns, with: { brand: true } }, customer: true },
     });
 
     // Calculate totals

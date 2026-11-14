@@ -22,9 +22,28 @@ export const sr = pgTable("sr", {
         .references(() => brand.id, { onDelete: "set null" }),
     // false = hidden from SR pickers for new entries; history, dues and reports keep it.
     isActive: boolean("is_active").notNull().default(true),
+    // Profile (same fields as DSR). phone is stored as 01XXXXXXXXX so SMS can reach the SR.
+    phone: varchar("phone", { length: 20 }),
+    address: text("address"),
+    nidNumber: varchar("nid_number", { length: 30 }),
+    emergencyContact: varchar("emergency_contact", { length: 100 }),
+    notes: text("notes"),
+    profilePhoto: text("profile_photo"),
     ...timestamps
 }, (table) => ({
     brandIdx: index("idx_sr_brand").on(table.brandId),
+}));
+
+export const srDocuments = pgTable("sr_documents", {
+    id: serial("id").primaryKey(),
+    srId: integer("sr_id").notNull().references(() => sr.id, { onDelete: "cascade" }),
+    documentType: varchar("document_type", { length: 50 }).notNull(),
+    documentName: varchar("document_name", { length: 200 }).notNull(),
+    documentUrl: text("document_url").notNull(),
+    publicId: varchar("public_id", { length: 300 }),
+    ...timestamps
+}, (table) => ({
+    srIdx: index("idx_sr_documents_sr").on(table.srId),
 }));
 
 export const route = pgTable("route", {
@@ -172,10 +191,18 @@ export const dsrTargetRelations = relations(dsrTarget, ({ one }) => ({
     }),
 }));
 
-export const srRelations = relations(sr, ({ one }) => ({
+export const srRelations = relations(sr, ({ one, many }) => ({
     brand: one(brand, {
         fields: [sr.brandId],
         references: [brand.id],
+    }),
+    documents: many(srDocuments),
+}));
+
+export const srDocumentsRelations = relations(srDocuments, ({ one }) => ({
+    sr: one(sr, {
+        fields: [srDocuments.srId],
+        references: [sr.id],
     }),
 }));
 
