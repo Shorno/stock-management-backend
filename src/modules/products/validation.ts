@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { activeOnlyQuery } from "../../lib/visibility";
 
 const baseProductSchema = z.object({
     code: z.string().min(1, "Product code is required").max(50, "Product code is too long"),
@@ -26,6 +27,8 @@ export const getProductsQuerySchema = z.object({
     categoryId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
     brandId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
     search: z.string().optional(),
+    // true = leave out products of hidden companies (pickers for new entries)
+    activeOnly: activeOnlyQuery,
     limit: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
     offset: z.string().optional().transform((val) => (val ? Number(val) : 0)),
 });

@@ -3,6 +3,7 @@ import { sr, wholesaleOrderItems, orderItemReturns } from "../../db/schema";
 import { eq, ilike, count, and, sql } from "drizzle-orm";
 import type { CreateSrInput, UpdateSrInput, GetSrsQuery } from "./validation";
 import type { SrWithBrand, NewSr } from "./types";
+import { activeSrCondition } from "../../lib/visibility";
 
 export const createSr = async (data: CreateSrInput): Promise<SrWithBrand> => {
   const newSr: NewSr = {
@@ -30,6 +31,9 @@ export const getSrs = async (
   }
   if (query.brandId) {
     conditions.push(eq(sr.brandId, query.brandId));
+  }
+  if (query.activeOnly) {
+    conditions.push(activeSrCondition());
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -85,6 +89,12 @@ export const updateSr = async (
 
   // Re-fetch with brand relation
   return await getSrById(updatedSr.id);
+};
+
+/** Hides (false) or shows again (true) an SR in pickers for new entries. */
+export const setSrActive = async (id: number, isActive: boolean): Promise<SrWithBrand | undefined> => {
+  const [updated] = await db.update(sr).set({ isActive }).where(eq(sr.id, id)).returning({ id: sr.id });
+  return updated ? getSrById(updated.id) : undefined;
 };
 
 export const deleteSr = async (id: number): Promise<boolean> => {

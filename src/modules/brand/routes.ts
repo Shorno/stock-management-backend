@@ -6,12 +6,17 @@ import {
   getBrandsQuerySchema,
 } from "./validation";
 import * as brandController from "./controller";
+import * as brandService from "./service";
 import { requireRole } from "../../lib/auth-middleware";
+import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { logError } from "../../lib/error-handler";
+import { setActiveSchema } from "../../lib/visibility";
 
 const app = new Hono();
 
 app.post(
   "/",
+  requireRole(["admin", "manager"]),
   zValidator("json", createBrandSchema, (result, ctx) => {
     if (!result.success) {
       return ctx.json(
@@ -72,6 +77,36 @@ app.put(
     }
   }),
   brandController.handleUpdateBrand
+);
+
+// Hide or show a company again (Admin only). Hidden companies, their products and
+// their SRs are left out of pickers for new entries; history and reports keep them.
+app.patch(
+  "/:id/active",
+  requireRole(["admin"]),
+  zValidator("json", setActiveSchema, (result, ctx) => {
+    if (!result.success) {
+      return ctx.json({ success: false, message: result.error.issues[0]?.message ?? "Validation failed" }, 400);
+    }
+  }),
+  async (c) => {
+    try {
+      const id = Number(c.req.param("id"));
+      if (!Number.isInteger(id) || id <= 0) return c.json({ success: false, message: "Invalid company ID" }, 400);
+      const { isActive } = c.req.valid("json");
+      const updated = await brandService.setBrandActive(id, isActive);
+      if (!updated) return c.json({ success: false, message: "Company not found" }, 404);
+      await auditLog({
+        context: c, ...getUserInfoFromContext(c), action: "STATUS_CHANGE", entityType: "brand",
+        entityId: id, entityName: updated.name, newValue: { isActive },
+        metadata: { event: isActive ? "company_shown" : "company_hidden" },
+      });
+      return c.json({ success: true, data: updated, message: isActive ? "Company shown" : "Company hidden" });
+    } catch (error) {
+      logError("Error changing company visibility:", error);
+      return c.json({ success: false, message: "Failed to update company" }, 500);
+    }
+  },
 );
 
 // Delete a brand (Admin only)

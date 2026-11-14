@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { activeOnlyQuery } from "../../lib/visibility";
 
 const baseSrSchema = z.object({
   name: z.string().min(1, "SR name is required").max(100, "SR name is too long"),
@@ -12,6 +13,7 @@ export const updateSrSchema = baseSrSchema;
 export const getSrsQuerySchema = z.object({
   search: z.string().optional(),
   brandId: z.string().optional().transform((val) => (val ? Number(val) : undefined)),
+  activeOnly: activeOnlyQuery,
   limit: z.string().optional().transform((val) => (val ? Number(val) : 50)),
   offset: z.string().optional().transform((val) => (val ? Number(val) : 0)),
 });

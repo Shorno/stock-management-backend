@@ -20,6 +20,8 @@ export const sr = pgTable("sr", {
     name: varchar("name", { length: 100 }).notNull(),
     brandId: integer("brand_id")
         .references(() => brand.id, { onDelete: "set null" }),
+    // false = hidden from SR pickers for new entries; history, dues and reports keep it.
+    isActive: boolean("is_active").notNull().default(true),
     ...timestamps
 }, (table) => ({
     brandIdx: index("idx_sr_brand").on(table.brandId),

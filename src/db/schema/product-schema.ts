@@ -12,6 +12,9 @@ export const category = pgTable("category", {
 export const brand = pgTable("brand", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
+  // false = hidden: the company, its products and its SRs are left out of pickers for new
+  // entries, but stay in history, reports and settlements. Reversible (see migration 0018).
+  isActive: boolean("is_active").notNull().default(true),
   ...timestamps
 });
 

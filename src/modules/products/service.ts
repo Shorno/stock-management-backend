@@ -3,6 +3,7 @@ import { product } from "../../db/schema";
 import { eq, and, or, ilike, count, asc } from "drizzle-orm";
 import type { CreateProductInput, UpdateProductInput, GetProductsQuery } from "./validation";
 import type { Product, NewProduct } from "./types";
+import { activeProductCondition } from "../../lib/visibility";
 
 
 export const createProduct = async (
@@ -35,6 +36,10 @@ export const getProducts = async (
 
   if (query.brandId) {
     conditions.push(eq(product.brandId, query.brandId));
+  }
+
+  if (query.activeOnly) {
+    conditions.push(activeProductCondition());
   }
 
   if (query.search) {

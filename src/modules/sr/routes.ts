@@ -7,12 +7,17 @@ import {
   srOrderItemsQuerySchema,
 } from "./validation";
 import * as srController from "./controller";
+import * as srService from "./service";
 import { requireRole } from "../../lib/auth-middleware";
+import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
+import { logError } from "../../lib/error-handler";
+import { setActiveSchema } from "../../lib/visibility";
 
 const app = new Hono();
 
 app.post(
   "/",
+  requireRole(["admin", "manager"]),
   zValidator("json", createSrSchema, (result, ctx) => {
     if (!result.success) {
       return ctx.json(
@@ -87,6 +92,36 @@ app.put(
     }
   }),
   srController.handleUpdateSr
+);
+
+// Hide or show an SR again (Admin only). Hidden SRs are left out of pickers for new
+// entries; their orders, dues, commissions and reports are unchanged.
+app.patch(
+  "/:id/active",
+  requireRole(["admin"]),
+  zValidator("json", setActiveSchema, (result, ctx) => {
+    if (!result.success) {
+      return ctx.json({ success: false, message: result.error.issues[0]?.message ?? "Validation failed" }, 400);
+    }
+  }),
+  async (c) => {
+    try {
+      const id = Number(c.req.param("id"));
+      if (!Number.isInteger(id) || id <= 0) return c.json({ success: false, message: "Invalid SR ID" }, 400);
+      const { isActive } = c.req.valid("json");
+      const updated = await srService.setSrActive(id, isActive);
+      if (!updated) return c.json({ success: false, message: "SR not found" }, 404);
+      await auditLog({
+        context: c, ...getUserInfoFromContext(c), action: "STATUS_CHANGE", entityType: "sr",
+        entityId: id, entityName: updated.name, newValue: { isActive },
+        metadata: { event: isActive ? "sr_shown" : "sr_hidden" },
+      });
+      return c.json({ success: true, data: updated, message: isActive ? "SR shown" : "SR hidden" });
+    } catch (error) {
+      logError("Error changing SR visibility:", error);
+      return c.json({ success: false, message: "Failed to update SR" }, 500);
+    }
+  },
 );
 
 // Delete an SR (Admin only)
