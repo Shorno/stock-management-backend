@@ -5,6 +5,7 @@ import type { CreateOrderInput, UpdateOrderInput, GetOrdersQuery, OrderItemInput
 import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from "./types";
 import { buildOrderFilters } from "./order-filters";
 import { reconcileOrderDues } from "./order-dues";
+import { calculateSettlement } from "./settlement-math";
 
 // Fallback unit multipliers (used if unit not found in database)
 const FALLBACK_UNIT_MULTIPLIERS: Record<string, number> = {
@@ -1289,19 +1290,26 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Calculate summary totals
     const subtotal = (order.items as any[]).reduce((sum, item) => sum + parseFloat(item.net), 0);
     const orderTotal = parseFloat(order.total);
-    const netTotalAfterReturns = itemsWithCalculations.reduce((sum, item) => sum + item.netTotal, 0);
 
     // Calculate settlement damage using selling price (consistent with settlement page)
     const settlementDamage = damageItemsData
         .filter(d => !d.isOther)
         .reduce((sum, d) => sum + (parseFloat(d.sellingPrice) * d.quantity), 0);
 
-    // Net Total = After Returns - Settlement Damages - Expenses
-    const netTotalAfterDamage = netTotalAfterReturns - settlementDamage - totalExpenses;
-
-    // Adjustment = Payments + Customer Dues + DSR Dues + SR Dues (expenses already in Net Total)
-    const totalAdjustment = totalPayments + totalCustomerDues + totalDsrDues + totalSrDues;
-    const due = Math.max(0, netTotalAfterDamage - totalAdjustment);
+    // Net Total = order total (after product discounts) - returns - adj. discount - damage - expenses,
+    // the same rule as the settlement page and saveOrderAdjustment. Summing the per-item
+    // netTotal instead dropped product-entry discounts and showed them as DUE.
+    const { netTotal: netTotalAfterDamage, totalAdjustment, due } = calculateSettlement({
+        orderTotal,
+        totalReturns,
+        totalAdjustmentDiscount,
+        settlementDamage,
+        totalExpenses,
+        totalPayments,
+        totalCustomerDues,
+        totalDsrDues,
+        totalSrDues,
+    });
 
     return {
         order,

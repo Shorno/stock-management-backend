@@ -920,9 +920,11 @@ export async function generateMainInvoicePdf(order: OrderWithItems, adjustment?:
             // =================== RIGHT COLUMN ===================
             let rightY = summaryStartY;
 
-            const subtotal = summaryData.subtotal;
             const discount = summaryData.discount;
             const total = summaryData.total;
+            // summary.subtotal is the sum of line amounts already after discount, so showing it
+            // above "Discount" made Subtotal - Discount ≠ Total. Show the amount before discount.
+            const subtotal = total + discount;
             const returns = summaryData.totalReturns;
             const adjDiscount = summaryData.totalAdjustmentDiscount || 0;
             const damageSettlement = adjustment?.damageReturns
