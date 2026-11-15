@@ -86,13 +86,18 @@ async function getVerifiedPhone(database: Database, userId: string) {
     return row ?? null;
 }
 
+/**
+ * Password hashes of every credential row the user has. Normally there is one, but
+ * nothing in the schema stops duplicates, and Better Auth's sign-in accepts whichever
+ * row the database returns first, so all of them have to be checked and updated together.
+ */
 async function getCredentialAccount(database: Database, userId: string) {
-    const [row] = await database
-        .select({ id: account.id, password: account.password })
+    const rows = await database
+        .select({ password: account.password })
         .from(account)
-        .where(and(eq(account.userId, userId), eq(account.providerId, "credential")))
-        .limit(1);
-    return row?.password ? { id: row.id, password: row.password } : null;
+        .where(and(eq(account.userId, userId), eq(account.providerId, "credential")));
+    const passwords = rows.map((row) => row.password).filter((hash): hash is string => Boolean(hash));
+    return passwords.length > 0 ? { passwords } : null;
 }
 
 export async function getSecurityStatus(userId: string, deps?: AccountDeps) {
@@ -296,9 +301,16 @@ async function requirePasswordChangeSetup(database: Database, userId: string) {
     return { phone, credential };
 }
 
-async function checkCurrentPassword(userId: string, hash: string, password: string) {
+/** True when the password matches any of the user's credential rows (see getCredentialAccount). */
+async function checkCurrentPassword(userId: string, hashes: string[], password: string) {
     assertPasswordTriesLeft(userId);
-    const ok = await verifyPassword({ hash, password });
+    let ok = false;
+    for (const hash of hashes) {
+        if (await verifyPassword({ hash, password })) {
+            ok = true;
+            break;
+        }
+    }
     if (!ok) recordPasswordFailure(userId);
     return ok;
 }
@@ -306,7 +318,7 @@ async function checkCurrentPassword(userId: string, hash: string, password: stri
 export async function requestPasswordOtp(user: AccountUser, currentPassword: string, deps?: AccountDeps) {
     const { database } = resolve(deps);
     const { phone, credential } = await requirePasswordChangeSetup(database, user.id);
-    if (!(await checkCurrentPassword(user.id, credential.password, currentPassword))) {
+    if (!(await checkCurrentPassword(user.id, credential.passwords, currentPassword))) {
         throw new AccountError("Current password is incorrect.");
     }
     return issueOtp(user, "change_password", phone.phone, deps);
@@ -328,14 +340,19 @@ export async function changePassword(user: AccountUser, currentSessionId: string
         await spendOtp(database, otp.id).catch(() => undefined);
         throw new AccountError("Your mobile number changed after the code was sent. Request a new code.");
     }
-    if (!(await checkCurrentPassword(user.id, credential.password, input.currentPassword))) {
+    if (!(await checkCurrentPassword(user.id, credential.passwords, input.currentPassword))) {
         await rejectAttempt(database, otp, "Current password is incorrect.");
     }
 
     const newHash = await hashPassword(input.newPassword);
     const signedOut = await database.transaction(async (tx) => {
         await spendOtp(tx as unknown as Database, otp.id);
-        await tx.update(account).set({ password: newHash }).where(eq(account.id, credential.id));
+        // Update every credential row, not just the one we read. Better Auth's sign-in picks
+        // whichever credential row the database returns first, so a user with duplicate rows
+        // would otherwise keep the old password working on the rows left untouched.
+        await tx.update(account)
+            .set({ password: newHash })
+            .where(and(eq(account.userId, user.id), eq(account.providerId, "credential")));
         const removed = await tx.delete(session)
             .where(currentSessionId
                 ? and(eq(session.userId, user.id), ne(session.id, currentSessionId))
