@@ -19,7 +19,7 @@ export const collectDueInputSchema = z.object({
     note: z.string().optional(),
     dueId: z.number().optional(), // Optional: specify a specific due to collect
     openingDueOnly: z.boolean().optional(), // Optional: only apply to opening due balance
-    sendSms: z.boolean().optional(), // Optional: SMS the customer; omitted = follow SMS settings
+    sendSms: z.boolean().optional(), // Admins only: SMS the customer or not; omitted, or sent by another role = follow SMS settings
 });
 
 export type CollectDueInput = z.infer<typeof collectDueInputSchema>;

@@ -15,9 +15,13 @@ import {
 } from "./validation";
 import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../lib/audit-logger";
 import { recordEntry } from "../net-asset-ledger/service";
-import { notifyCollection } from "../sms/service";
+import { notifyCollection, smsChoiceFor } from "../sms/service";
+import { requireAuth, requireRole } from "../../lib/auth-middleware";
 
 const dueCollectionRoutes = new Hono();
+
+// Every route needs a signed-in user; recording a collection needs admin or manager (see the POSTs).
+dueCollectionRoutes.use("*", requireAuth());
 
 // Get customers with outstanding dues
 dueCollectionRoutes.get(
@@ -85,6 +89,7 @@ dueCollectionRoutes.get("/customers/:customerId/categorized", async (c) => {
 // Collect due
 dueCollectionRoutes.post(
     "/collect",
+    requireRole(["admin", "manager"]),
     zValidator("json", collectDueInputSchema),
     async (c) => {
         try {
@@ -136,7 +141,7 @@ dueCollectionRoutes.post(
                 collectionDate: input.collectionDate,
                 dueCollectionId: typeof result.collectionId === "number" ? result.collectionId : undefined,
                 sender: { id: userInfo.userId, name: userInfo.userName },
-                force: input.sendSms,
+                force: smsChoiceFor(userInfo.userRole, input.sendSms),
             }).catch((error) => logError("Failed to send due collection SMS:", error));
 
             return c.json({
@@ -252,6 +257,7 @@ dueCollectionRoutes.get(
 // Collect DSR's own due (from order adjustments)
 dueCollectionRoutes.post(
     "/dsr/collect",
+    requireRole(["admin", "manager"]),
     zValidator("json", collectDsrDueInputSchema),
     async (c) => {
         try {
@@ -368,6 +374,7 @@ dueCollectionRoutes.get(
 // Collect SR's own due (from order adjustments)
 dueCollectionRoutes.post(
     "/sr/collect",
+    requireRole(["admin", "manager"]),
     zValidator("json", collectSrDueInputSchema),
     async (c) => {
         try {

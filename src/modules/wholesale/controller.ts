@@ -13,7 +13,7 @@ import { auditLog, getUserInfoFromContext, type FinancialImpact } from "../../li
 import { logError } from "../../lib/error-handler";
 import { recordEntry } from "../net-asset-ledger/service";
 import { buildAdjustmentLedgerEntries, summarizeAdjustment, EMPTY_ADJUSTMENT } from "./adjustment-ledger";
-import { getOrderCustomerDueAmounts, notifySettlement } from "../sms/service";
+import { getOrderCustomerDueAmounts, notifySettlement, smsChoiceFor } from "../sms/service";
 
 type AppContext = Context<
     {
@@ -709,7 +709,7 @@ export const handleSaveOrderAdjustment = async (c: AppContext): Promise<Response
                 orderId: id,
                 before: duesBeforeSave,
                 sender: { id: userInfo.userId, name: userInfo.userName },
-                force: validatedData.notifyCustomers,
+                force: smsChoiceFor(userInfo.userRole, validatedData.notifyCustomers),
             }).catch((error) => logError("Failed to send settlement SMS:", error));
         }
 

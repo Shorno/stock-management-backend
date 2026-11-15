@@ -299,6 +299,15 @@ export class SmsNotReadyError extends Error { }
 // ==================== AUTOMATIC NOTIFICATIONS ====================
 
 /**
+ * Only admins (and super admins) may decide per action whether an SMS goes out.
+ * For any other role the per-action choice is dropped, so the admin's auto-send
+ * setting decides. The master "Send SMS" switch applies to everyone either way.
+ */
+export function smsChoiceFor(role: string | null | undefined, choice: boolean | undefined): boolean | undefined {
+    return role === "admin" || role === "super_admin" ? choice : undefined;
+}
+
+/**
  * After an order settlement is saved: SMS every customer whose due on this order is
  * new or changed. `force` overrides the auto-send setting (the user ticked/unticked
  * the checkbox on the settlement page); the master switch still applies.

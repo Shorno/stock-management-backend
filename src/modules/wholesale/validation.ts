@@ -167,7 +167,8 @@ export const saveAdjustmentSchema = z.object({
     damageReturns: z.array(adjustmentDamageReturnSchema).default([]),
     itemReturns: z.array(adjustmentItemReturnSchema).default([]),
     paymentDate: z.string().min(1, "Payment date is required"),
-    // SMS customers whose due on this order is new/changed. Omitted = follow SMS settings.
+    // Admins only: SMS customers whose due on this order is new/changed, or not.
+    // Omitted, or sent by another role = follow SMS settings.
     notifyCustomers: z.boolean().optional(),
 });
 
