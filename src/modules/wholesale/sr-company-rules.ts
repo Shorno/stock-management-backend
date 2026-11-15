@@ -36,7 +36,7 @@ export async function assertSrsWorkForCompanies(tx: Tx, lines: Line[], keep: Lin
         tx.select({ name: sr.name }).from(sr).where(eq(sr.id, missing.srId)),
         tx.select({ name: brand.name }).from(brand).where(eq(brand.id, missing.brandId)),
     ]);
-    if (!srRow) throw new Error(`SR #${missing.srId} was not found.`);
+    if (!srRow) throw new Error(`SR #${missing.srId} was not found. It may have been merged into another SR; choose the SR again.`);
     throw new Error(
         `SR "${srRow.name}" does not work for ${brandRow ? `"${brandRow.name}"` : `company #${missing.brandId}`}. ` +
         `Add the company to the SR, or choose another SR.`,

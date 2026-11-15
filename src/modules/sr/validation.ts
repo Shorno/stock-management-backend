@@ -81,3 +81,11 @@ export const createSrDocumentSchema = z.object({
 
 export type UpdateSrProfileInput = z.infer<typeof updateSrProfileSchema>;
 export type CreateSrDocumentInput = z.infer<typeof createSrDocumentSchema>;
+
+// Merge duplicate SRs into the SR in the URL. preview = report what would move, change nothing.
+export const mergeSrsSchema = z.object({
+  sourceIds: z.array(z.number().int().positive()).min(1, "Choose at least one SR to merge").max(20),
+  preview: z.boolean().optional(),
+});
+
+export type MergeSrsInput = z.infer<typeof mergeSrsSchema>;

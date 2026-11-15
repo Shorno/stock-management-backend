@@ -12,7 +12,8 @@ import { requireRole } from "../../lib/auth-middleware";
 import { auditLog, getUserInfoFromContext } from "../../lib/audit-logger";
 import { logError } from "../../lib/error-handler";
 import { setActiveSchema } from "../../lib/visibility";
-import { updateSrProfileSchema, createSrDocumentSchema } from "./validation";
+import { updateSrProfileSchema, createSrDocumentSchema, mergeSrsSchema } from "./validation";
+import { mergeSrs } from "./merge";
 
 const app = new Hono();
 
@@ -225,6 +226,49 @@ app.delete("/:id/documents/:docId", requireRole(["admin"]), async (c) => {
     return c.json({ success: false, message: "Failed to delete document" }, 500);
   }
 });
+
+// ==================== Merge duplicates (Admin only) ====================
+
+// Moves everything recorded under the duplicate SRs to this SR, gives it all of their
+// companies, and deletes the duplicates. { preview: true } reports what would happen.
+app.post(
+  "/:id/merge",
+  requireRole(["admin"]),
+  zValidator("json", mergeSrsSchema, firstIssue),
+  async (c) => {
+    try {
+      const id = parseId(c.req.param("id"));
+      if (!id) return c.json({ success: false, message: "Invalid SR ID" }, 400);
+      const { sourceIds, preview } = c.req.valid("json");
+      const result = await mergeSrs(id, sourceIds, { preview: !!preview });
+      if (!preview) {
+        const userInfo = getUserInfoFromContext(c);
+        await auditLog({
+          context: c, ...userInfo, action: "UPDATE", entityType: "sr",
+          entityId: id, entityName: result.kept.name,
+          newValue: { companyIds: result.companyIds, filledProfileFields: result.filledProfileFields, openingDue: result.openingDue },
+          metadata: { event: "sr_merged", merged: result.merged, moved: result.moved },
+        });
+        for (const dupe of result.merged) {
+          await auditLog({
+            context: c, ...userInfo, action: "DELETE", entityType: "sr",
+            entityId: dupe.id, entityName: dupe.name,
+            metadata: { event: "sr_merged_into", keptSrId: id, keptSrName: result.kept.name },
+          });
+        }
+      }
+      return c.json({
+        success: true,
+        data: result,
+        message: preview ? "Merge preview" : `Merged ${result.merged.length} SR${result.merged.length === 1 ? "" : "s"} into ${result.kept.name}`,
+      });
+    } catch (error) {
+      if (error instanceof srService.SrInputError) return c.json({ success: false, message: error.message }, 400);
+      logError("Error merging SRs:", error);
+      return c.json({ success: false, message: "Failed to merge SRs" }, 500);
+    }
+  },
+);
 
 // Delete an SR (Admin only)
 app.delete("/:id", requireRole(["admin"]), srController.handleDeleteSr);
