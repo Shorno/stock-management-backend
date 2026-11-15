@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { activeOnlyQuery } from "../../lib/visibility";
 
 const baseBrandSchema = z.object({
   name: z.string({error : "Brand name is required"}).min(1, "Brand name is required").max(100, "Brand name is too long"),
@@ -10,6 +11,7 @@ export const updateBrandSchema = baseBrandSchema;
 
 export const getBrandsQuerySchema = z.object({
   search: z.string().optional(),
+  activeOnly: activeOnlyQuery,
   limit: z.string().optional().transform((val) => (val ? Number(val) : 50)),
   offset: z.string().optional().transform((val) => (val ? Number(val) : 0)),
 });

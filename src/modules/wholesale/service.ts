@@ -1,3 +1,4 @@
+import { srPublicColumns } from "../sr/public-columns";
 import { db } from "../../db/config";
 import { wholesaleOrders, wholesaleOrderItems, stockBatch, orderPayments, orderExpenses, orderItemReturns, orderDamageItems, srCommissions, dueCollections, dsrDueCollections, srDueCollections } from "../../db/schema";
 import { eq, and, count, gte, lte, sql, ne } from "drizzle-orm";
@@ -6,6 +7,7 @@ import type { NewWholesaleOrder, NewWholesaleOrderItem, OrderWithItems } from ".
 import { buildOrderFilters } from "./order-filters";
 import { reconcileOrderDues } from "./order-dues";
 import { calculateSettlement } from "./settlement-math";
+import { assertSrsWorkForCompanies, resolveCommissionCompany } from "./sr-company-rules";
 
 // Fallback unit multipliers (used if unit not found in database)
 const FALLBACK_UNIT_MULTIPLIERS: Record<string, number> = {
@@ -146,6 +148,9 @@ const calculateOrderTotals = async (items: Array<{ quantity: number; unit: strin
 export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItems> => {
     return await db.transaction(async (tx) => {
         // Generate order number
+        // Each line's SR must work for that line's company.
+        await assertSrsWorkForCompanies(tx, data.items);
+
         const orderNumber = await generateOrderNumber();
 
         // Aggregate requested quantities per batch to prevent over-committing the same batch
@@ -253,7 +258,7 @@ export const createOrder = async (data: CreateOrderInput): Promise<OrderWithItem
                         product: true,
                         brand: true,
                         batch: true,
-                        sr: true,
+                        sr: { columns: srPublicColumns },
                     },
                 },
                 dsr: true,
@@ -293,7 +298,7 @@ export const getOrders = async (
                     with: {
                         batch: true,  // Include batch to access supplierPrice for profit calculation
                         brand: true,
-                        sr: true,
+                        sr: { columns: srPublicColumns },
                     },
                 },
                 itemReturns: true,  // Include item returns for calculating net sale
@@ -437,7 +442,7 @@ export const getOrderById = async (id: number): Promise<OrderWithItems | undefin
                             variant: true,
                         },
                     },
-                    sr: true,
+                    sr: { columns: srPublicColumns },
                 },
             },
             dsr: true,
@@ -466,6 +471,10 @@ export const updateOrder = async (
         if (!existingOrder) {
             return undefined;
         }
+
+        // New or changed lines must use an SR who works for the line's company; SR/company
+        // pairs already on this order stay allowed.
+        await assertSrsWorkForCompanies(tx, data.items, (existingOrder as any).items ?? []);
 
         // Step 1: Restore stock consumed by the old order items
         // This "returns" the quantities back to the batches so validation works correctly
@@ -586,7 +595,7 @@ export const updateOrder = async (
                         product: true,
                         brand: true,
                         batch: true,
-                        sr: true,
+                        sr: { columns: srPublicColumns },
                     },
                 },
                 dsr: true,
@@ -868,7 +877,7 @@ export const saveOrderAdjustment = async (
         // Get the order with items (need batchId for stock updates)
         const order = await tx.query.wholesaleOrders.findFirst({
             where: (orders, { eq }) => eq(orders.id, orderId),
-            with: { items: { with: { product: true } } },
+            with: { items: { with: { product: true, brand: { columns: { name: true } }, sr: { columns: { name: true } } } } },
         }) as any;
 
         if (!order) {
@@ -897,8 +906,13 @@ export const saveOrderAdjustment = async (
             }
         }
 
-        for (const expense of data.expenses || []) {
-            if (!expense.srId) continue;
+        // Company of each SR commission, by position in data.expenses.
+        const commissionCompany = new Map<number, number>();
+        for (const [index, expense] of (data.expenses || []).entries()) {
+            if (!expense.srId) {
+                if (expense.brandId) throw new Error("A company can only be chosen for an SR commission.");
+                continue;
+            }
 
             if (expense.type !== "commission") {
                 throw new Error("SR can only be selected for commission expenses.");
@@ -909,6 +923,9 @@ export const saveOrderAdjustment = async (
                     `Invalid SR ID ${expense.srId} - only SRs assigned to this order can receive order adjustment commission.`
                 );
             }
+
+            const srName = order.items.find((i: any) => i.srId === expense.srId)?.sr?.name ?? `#${expense.srId}`;
+            commissionCompany.set(index, resolveCommissionCompany(expense.srId, expense.brandId, srName, order.items));
         }
 
         for (const damageItem of data.damageReturns || []) {
@@ -1030,12 +1047,14 @@ export const saveOrderAdjustment = async (
         }
 
         // Insert new expenses
-        for (const expense of data.expenses) {
+        for (const [index, expense] of data.expenses.entries()) {
             if (expense.amount > 0) {
                 const shouldCreateSrCommission = expense.type === "commission" && !!expense.srId;
+                const commissionBrandId = shouldCreateSrCommission ? commissionCompany.get(index) ?? null : null;
                 const [createdExpense] = await tx.insert(orderExpenses).values({
                     orderId,
                     srId: shouldCreateSrCommission ? expense.srId! : null,
+                    brandId: commissionBrandId,
                     amount: expense.amount.toFixed(2),
                     expenseType: expense.type,
                     note: expense.note || null,
@@ -1044,6 +1063,7 @@ export const saveOrderAdjustment = async (
                 if (shouldCreateSrCommission && createdExpense) {
                     await tx.insert(srCommissions).values({
                         srId: expense.srId!,
+                        brandId: commissionBrandId,
                         amount: expense.amount.toFixed(2),
                         commissionDate: order.orderDate,
                         sourceType: "order_adjustment",
@@ -1156,7 +1176,7 @@ export const getOrderAdjustment = async (orderId: number) => {
                     product: true,
                     brand: true,
                     batch: true,
-                    sr: true,
+                    sr: { columns: srPublicColumns },
                 },
             },
             dsr: true,
@@ -1176,7 +1196,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Get expenses
     const expenses = await db.query.orderExpenses.findMany({
         where: (e, { eq }) => eq(e.orderId, orderId),
-        with: { sr: true },
+        with: { sr: { columns: srPublicColumns }, brand: { columns: { id: true, name: true } } },
     });
 
     // Get item returns
@@ -1192,7 +1212,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Get damage items
     const damageItemsData = await db.query.orderDamageItems.findMany({
         where: (d, { eq }) => eq(d.orderId, orderId),
-        with: { sr: true },
+        with: { sr: { columns: srPublicColumns } },
     });
 
     // Get DSR dues (with customer name)
@@ -1204,7 +1224,7 @@ export const getOrderAdjustment = async (orderId: number) => {
     // Get SR dues (with SR name, brand/company name, and customer name)
     const srDuesData = await db.query.orderSrDues.findMany({
         where: (d, { eq }) => eq(d.orderId, orderId),
-        with: { sr: { with: { brand: true } }, customer: true },
+        with: { sr: { columns: srPublicColumns, with: { brandLinks: { with: { brand: { columns: { name: true } } } } } }, customer: true },
     });
 
     // Calculate totals
@@ -1325,6 +1345,8 @@ export const getOrderAdjustment = async (orderId: number) => {
             type: e.expenseType,
             srId: e.srId || undefined,
             srName: (e as any).sr?.name || undefined,
+            brandId: e.brandId || undefined,
+            brandName: (e as any).brand?.name || undefined,
             note: e.note || undefined,
         })),
         customerDues: directCustomerDuesData.map(d => ({
@@ -1364,7 +1386,8 @@ export const getOrderAdjustment = async (orderId: number) => {
             dueId: d.id,
             srId: d.srId,
             srName: (d as any).sr?.name || undefined,
-            brandName: (d as any).sr?.brand?.name || undefined,
+            // All companies the SR works for, e.g. "ACI, BD Food".
+            brandName: ((d as any).sr?.brandLinks ?? []).map((l: any) => l.brand?.name).filter(Boolean).sort().join(", ") || undefined,
             customerId: d.customerId || undefined,
             customerName: (d as any).customer?.name || undefined,
             amount: parseFloat(d.amount),

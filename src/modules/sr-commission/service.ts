@@ -1,5 +1,5 @@
 import { db } from "../../db/config";
-import { brand, orderExpenses, sr, srCommissions, wholesaleOrders } from "../../db/schema";
+import { brand, orderExpenses, sr, srBrands, srCommissions, wholesaleOrders } from "../../db/schema";
 import { eq, desc, sql } from "drizzle-orm";
 import { logError } from "../../lib/error-handler";
 import type { CreateCommissionInput, GetCommissionsQuery } from "./validation";
@@ -25,10 +25,26 @@ export async function createCommission(input: CreateCommissionInput) {
             return { success: false, message: "SR not found" };
         }
 
+        // The commission is for one of the SR's companies.
+        const companyIds = (await db.select({ brandId: srBrands.brandId }).from(srBrands).where(eq(srBrands.srId, input.srId)))
+            .map((row) => row.brandId);
+        let brandId: number | null = null;
+        if (input.brandId !== undefined) {
+            if (!companyIds.includes(input.brandId)) {
+                return { success: false, message: "This SR does not work for the selected company" };
+            }
+            brandId = input.brandId;
+        } else if (companyIds.length === 1) {
+            brandId = companyIds[0]!;
+        } else if (companyIds.length > 1) {
+            return { success: false, message: "Choose which company this commission is for" };
+        }
+
         const result = await db
             .insert(srCommissions)
             .values({
                 srId: input.srId,
+                brandId,
                 amount: input.amount.toString(),
                 commissionDate: input.commissionDate,
                 sourceType: "manual",
@@ -99,6 +115,8 @@ export async function getCommissions(srId: number, query: GetCommissionsQuery) {
             sourceType: srCommissions.sourceType,
             orderId: srCommissions.orderId,
             orderExpenseId: srCommissions.orderExpenseId,
+            brandId: srCommissions.brandId,
+            brandName: brand.name,
             orderNumber: wholesaleOrders.orderNumber,
             expenseType: orderExpenses.expenseType,
             note: srCommissions.note,
@@ -107,6 +125,7 @@ export async function getCommissions(srId: number, query: GetCommissionsQuery) {
         .from(srCommissions)
         .leftJoin(wholesaleOrders, eq(srCommissions.orderId, wholesaleOrders.id))
         .leftJoin(orderExpenses, eq(srCommissions.orderExpenseId, orderExpenses.id))
+        .leftJoin(brand, eq(srCommissions.brandId, brand.id))
         .where(buildSrCommissionFilter(srId, query))
         .orderBy(desc(effectiveSrCommissionDate), desc(srCommissions.createdAt));
 
@@ -141,16 +160,17 @@ export async function getCommissionTotals(
             .select({
                 srId: srCommissions.srId,
                 srName: sr.name,
-                brandId: sr.brandId,
+                // The company recorded on the commission (NULL for old ones), not the SR's current company.
+                brandId: srCommissions.brandId,
                 brandName: brand.name,
                 total: sql<string>`COALESCE(SUM(CAST(${srCommissions.amount} AS DECIMAL)), 0)`,
             })
             .from(srCommissions)
             .innerJoin(sr, eq(srCommissions.srId, sr.id))
-            .leftJoin(brand, eq(sr.brandId, brand.id))
+            .leftJoin(brand, eq(srCommissions.brandId, brand.id))
             .leftJoin(wholesaleOrders, eq(srCommissions.orderId, wholesaleOrders.id))
             .where(buildSrCommissionFilter(srId, query))
-            .groupBy(srCommissions.srId, sr.name, sr.brandId, brand.name);
+            .groupBy(srCommissions.srId, sr.name, srCommissions.brandId, brand.name);
 
     const totals: CommissionIdentityTotal[] = assignedTotals.map((row) => ({
         srId: row.srId,

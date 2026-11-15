@@ -1,11 +1,12 @@
-import { sr } from "../../db/schema";
+import { sr, srDocuments } from "../../db/schema";
 
 export type Sr = typeof sr.$inferSelect;
 export type NewSr = typeof sr.$inferInsert;
 
-// SR with brand relation included
+// SR with its companies. `brand` is the first company (kept for older clients); `brands` is the full list.
 export type SrWithBrand = Sr & {
-  brand?: { id: number; name: string } | null;
+  brand?: { id: number; name: string; isActive?: boolean } | null;
+  brands: { id: number; name: string; isActive: boolean }[];
 };
 
 export type SrResponse =
@@ -38,3 +39,5 @@ export type SrStatsResponse =
       success: false;
       message: string;
     };
+
+export type SrDocument = typeof srDocuments.$inferSelect;

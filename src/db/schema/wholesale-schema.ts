@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, integer, decimal, text, date, index, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, integer, decimal, text, date, index, boolean, timestamp, primaryKey } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { timestamps } from "../column.helpers";
 import { category, brand, product, stockBatch, productVariant } from "./product-schema";
@@ -20,9 +20,41 @@ export const sr = pgTable("sr", {
     name: varchar("name", { length: 100 }).notNull(),
     brandId: integer("brand_id")
         .references(() => brand.id, { onDelete: "set null" }),
+    // false = hidden from SR pickers for new entries; history, dues and reports keep it.
+    isActive: boolean("is_active").notNull().default(true),
+    // Profile (same fields as DSR). phone is stored as 01XXXXXXXXX so SMS can reach the SR.
+    phone: varchar("phone", { length: 20 }),
+    address: text("address"),
+    nidNumber: varchar("nid_number", { length: 30 }),
+    emergencyContact: varchar("emergency_contact", { length: 100 }),
+    notes: text("notes"),
+    profilePhoto: text("profile_photo"),
     ...timestamps
 }, (table) => ({
     brandIdx: index("idx_sr_brand").on(table.brandId),
+}));
+
+// Companies an SR works for (many-to-many). sr.brand_id is kept in sync with the first
+// company for older readers; this table is the source of truth.
+export const srBrands = pgTable("sr_brands", {
+    srId: integer("sr_id").notNull().references(() => sr.id, { onDelete: "cascade" }),
+    brandId: integer("brand_id").notNull().references(() => brand.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+    pk: primaryKey({ columns: [table.srId, table.brandId], name: "sr_brands_pkey" }),
+    brandIdx: index("idx_sr_brands_brand").on(table.brandId),
+}));
+
+export const srDocuments = pgTable("sr_documents", {
+    id: serial("id").primaryKey(),
+    srId: integer("sr_id").notNull().references(() => sr.id, { onDelete: "cascade" }),
+    documentType: varchar("document_type", { length: 50 }).notNull(),
+    documentName: varchar("document_name", { length: 200 }).notNull(),
+    documentUrl: text("document_url").notNull(),
+    publicId: varchar("public_id", { length: 300 }),
+    ...timestamps
+}, (table) => ({
+    srIdx: index("idx_sr_documents_sr").on(table.srId),
 }));
 
 export const route = pgTable("route", {
@@ -170,10 +202,30 @@ export const dsrTargetRelations = relations(dsrTarget, ({ one }) => ({
     }),
 }));
 
-export const srRelations = relations(sr, ({ one }) => ({
+export const srRelations = relations(sr, ({ one, many }) => ({
     brand: one(brand, {
         fields: [sr.brandId],
         references: [brand.id],
+    }),
+    documents: many(srDocuments),
+    brandLinks: many(srBrands),
+}));
+
+export const srBrandsRelations = relations(srBrands, ({ one }) => ({
+    sr: one(sr, {
+        fields: [srBrands.srId],
+        references: [sr.id],
+    }),
+    brand: one(brand, {
+        fields: [srBrands.brandId],
+        references: [brand.id],
+    }),
+}));
+
+export const srDocumentsRelations = relations(srDocuments, ({ one }) => ({
+    sr: one(sr, {
+        fields: [srDocuments.srId],
+        references: [sr.id],
     }),
 }));
 
@@ -270,6 +322,10 @@ export const orderExpenses = pgTable("order_expenses", {
         .references(() => wholesaleOrders.id, { onDelete: "cascade" }),
     srId: integer("sr_id")
         .references(() => sr.id, { onDelete: "set null" }),
+    // Company the SR commission is for (an SR can work for several). NULL for other expenses
+    // and for commissions saved before this was recorded.
+    brandId: integer("brand_id")
+        .references(() => brand.id, { onDelete: "set null" }),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     expenseType: varchar("expense_type", { length: 50 }).notNull(), // transport, food, commission, other
     note: text("note"),
@@ -288,6 +344,10 @@ export const orderExpensesRelations = relations(orderExpenses, ({ one }) => ({
     sr: one(sr, {
         fields: [orderExpenses.srId],
         references: [sr.id],
+    }),
+    brand: one(brand, {
+        fields: [orderExpenses.brandId],
+        references: [brand.id],
     }),
 }));
 
@@ -734,6 +794,9 @@ export const srCommissions = pgTable("sr_commissions", {
     srId: integer("sr_id")
         .notNull()
         .references(() => sr.id, { onDelete: "cascade" }),
+    // Company this commission is for. NULL = not recorded (saved before SRs had several companies).
+    brandId: integer("brand_id")
+        .references(() => brand.id, { onDelete: "set null" }),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     commissionDate: date("commission_date").notNull(),
     sourceType: varchar("source_type", { length: 30 }).notNull().default("manual"),
@@ -756,6 +819,10 @@ export const srCommissionsRelations = relations(srCommissions, ({ one }) => ({
     sr: one(sr, {
         fields: [srCommissions.srId],
         references: [sr.id],
+    }),
+    brand: one(brand, {
+        fields: [srCommissions.brandId],
+        references: [brand.id],
     }),
     order: one(wholesaleOrders, {
         fields: [srCommissions.orderId],

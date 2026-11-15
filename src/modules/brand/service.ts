@@ -1,5 +1,6 @@
 
-import { eq, ilike, count } from "drizzle-orm";
+import { and, eq, ilike, count } from "drizzle-orm";
+import { activeBrandCondition } from "../../lib/visibility";
 import type { CreateBrandInput, UpdateBrandInput, GetBrandsQuery } from "./validation";
 import type { Brand, NewBrand } from "./types";
 import { db } from "../../db/config";
@@ -20,9 +21,10 @@ export const createBrand = async (data: CreateBrandInput): Promise<Brand> => {
 export const getBrands = async (
   query: GetBrandsQuery
 ): Promise<{ brands: Brand[]; total: number }> => {
-  const whereClause = query.search
-    ? ilike(brand.name, `%${query.search}%`)
-    : undefined;
+  const whereClause = and(
+    query.search ? ilike(brand.name, `%${query.search}%`) : undefined,
+    query.activeOnly ? activeBrandCondition() : undefined,
+  );
 
   const [brands, totalResult] = await Promise.all([
     db.query.brand.findMany({
@@ -64,6 +66,12 @@ export const updateBrand = async (
     .returning();
 
   return updatedBrand;
+};
+
+/** Hides (false) or shows again (true) a company. Its products and SRs follow it in pickers. */
+export const setBrandActive = async (id: number, isActive: boolean): Promise<Brand | undefined> => {
+  const [updated] = await db.update(brand).set({ isActive }).where(eq(brand.id, id)).returning();
+  return updated;
 };
 
 export const deleteBrand = async (id: number): Promise<boolean> => {

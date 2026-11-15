@@ -33,6 +33,7 @@ export const handleCreateSr = async (c: AppContext): Promise<Response> => {
     await auditLog({ context: c, ...userInfo, action: "CREATE", entityType: "sr", entityId: newSr.id, entityName: newSr.name, newValue: newSr });
     return c.json<SrResponse>({ success: true, data: newSr, message: "SR created successfully" }, 201);
   } catch (error) {
+    if (error instanceof srService.SrInputError) return c.json<SrResponse>({ success: false, message: error.message }, 400);
     logError("Error creating SR:", error);
     return c.json<SrResponse>(
       {
@@ -51,10 +52,11 @@ export const handleGetSrs = async (c: AppContext): Promise<Response> => {
 
     return c.json<SrResponse>({
       success: true,
-      data: srs,
+      data: canSeePrivateProfile(c) ? srs : srs.map(srService.withoutPrivateProfile),
       total,
     });
   } catch (error) {
+    if (error instanceof srService.SrInputError) return c.json<SrResponse>({ success: false, message: error.message }, 400);
     logError("Error fetching SRs:", error);
     return c.json<SrResponse>(
       {
@@ -94,9 +96,10 @@ export const handleGetSrById = async (c: AppContext): Promise<Response> => {
 
     return c.json<SrResponse>({
       success: true,
-      data: sr,
+      data: canSeePrivateProfile(c) ? sr : srService.withoutPrivateProfile(sr),
     });
   } catch (error) {
+    if (error instanceof srService.SrInputError) return c.json<SrResponse>({ success: false, message: error.message }, 400);
     logError("Error fetching SR:", error);
     return c.json<SrResponse>(
       {
@@ -130,6 +133,7 @@ export const handleUpdateSr = async (c: AppContext): Promise<Response> => {
     await auditLog({ context: c, ...userInfo, action: "UPDATE", entityType: "sr", entityId: id, entityName: updatedSr.name, oldValue: oldSr, newValue: updatedSr });
     return c.json<SrResponse>({ success: true, data: updatedSr, message: "SR updated successfully" });
   } catch (error) {
+    if (error instanceof srService.SrInputError) return c.json<SrResponse>({ success: false, message: error.message }, 400);
     logError("Error updating SR:", error);
     return c.json<SrResponse>(
       {
@@ -162,6 +166,7 @@ export const handleDeleteSr = async (c: AppContext): Promise<Response> => {
     await auditLog({ context: c, ...userInfo, action: "DELETE", entityType: "sr", entityId: id, entityName: sr?.name, oldValue: sr });
     return c.json<SrResponse>({ success: true, message: "SR deleted successfully" });
   } catch (error) {
+    if (error instanceof srService.SrInputError) return c.json<SrResponse>({ success: false, message: error.message }, 400);
     logError("Error deleting SR:", error);
     return c.json<SrResponse>(
       {
@@ -203,11 +208,12 @@ export const handleGetSrStats = async (c: AppContext): Promise<Response> => {
     return c.json({
       success: true,
       data: {
-        sr,
+        sr: canSeePrivateProfile(c) ? sr : srService.withoutPrivateProfile(sr),
         stats,
       },
     });
   } catch (error) {
+    if (error instanceof srService.SrInputError) return c.json<SrResponse>({ success: false, message: error.message }, 400);
     logError("Error fetching SR stats:", error);
     return c.json<SrStatsResponse>(
       {
@@ -243,7 +249,14 @@ export const handleGetSrOrderItems = async (c: Context) => {
       totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
+    if (error instanceof srService.SrInputError) return c.json<SrResponse>({ success: false, message: error.message }, 400);
     logError("Error fetching SR order items:", error);
     return c.json({ success: false, message: "Failed to fetch SR order items" }, 500);
   }
 };
+
+/** Address, NID, emergency contact and notes are shown to admins and super admins only. */
+function canSeePrivateProfile(c: Context): boolean {
+  const role = (c.get("user" as never) as { role?: string } | null)?.role;
+  return role === "admin" || role === "super_admin";
+}
