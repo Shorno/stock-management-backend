@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const createCommissionSchema = z.object({
     srId: z.number().int().positive(),
+    // Company the commission is for; must be one the SR works for. Filled in when the SR has one company.
+    brandId: z.number().int().positive().optional(),
     amount: z.number().positive("Amount must be positive"),
     commissionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
     note: z.string().optional(),

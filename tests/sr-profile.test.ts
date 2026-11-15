@@ -12,7 +12,7 @@ mock.module("../src/db/config", () => ({ db: database }));
 const { updateSrProfileSchema } = await import("../src/modules/sr/validation");
 const srRoutes = (await import("../src/modules/sr/routes")).default;
 
-const migrations = ["0018_hide_companies_srs.sql", "0019_sr_profile.sql"];
+const migrations = ["0018_hide_companies_srs.sql", "0019_sr_profile.sql", "0020_sr_many_companies.sql"];
 async function runMigrations() {
     for (const file of migrations) {
         const sql = await Bun.file(new URL(`../drizzle/${file}`, import.meta.url)).text();
@@ -26,6 +26,9 @@ beforeAll(async () => {
         CREATE TABLE brand (id serial PRIMARY KEY, name varchar(100) NOT NULL, created_at timestamp DEFAULT now() NOT NULL, updated_at timestamp DEFAULT now() NOT NULL);
         CREATE TABLE sr (id serial PRIMARY KEY, name varchar(100) NOT NULL, brand_id integer REFERENCES brand(id) ON DELETE SET NULL,
             created_at timestamp DEFAULT now() NOT NULL, updated_at timestamp DEFAULT now() NOT NULL);
+        -- Stubs: migration 0020 adds brand_id to these.
+        CREATE TABLE order_expenses (id serial PRIMARY KEY);
+        CREATE TABLE sr_commissions (id serial PRIMARY KEY);
         CREATE TABLE audit_logs (id serial PRIMARY KEY, timestamp timestamp DEFAULT now() NOT NULL, user_id text, user_name text, user_role text,
             action text NOT NULL, entity_type text NOT NULL, entity_id text NOT NULL, entity_name text, old_value jsonb, new_value jsonb,
             ip_address text, user_agent text, metadata jsonb);

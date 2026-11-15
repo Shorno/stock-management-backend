@@ -2516,7 +2516,8 @@ export const getSrWiseSales = async (
             itemId: wholesaleOrderItems.id,
             srId: wholesaleOrderItems.srId,
             srName: sr.name,
-            srBrandId: sr.brandId,
+            // The line's company (what was sold), not the SR's current company.
+            srBrandId: wholesaleOrderItems.brandId,
             srBrandName: brand.name,
             orderId: wholesaleOrderItems.orderId,
             productId: wholesaleOrderItems.productId,
@@ -2532,7 +2533,7 @@ export const getSrWiseSales = async (
         .innerJoin(wholesaleOrders, eq(wholesaleOrderItems.orderId, wholesaleOrders.id))
         .innerJoin(stockBatch, eq(wholesaleOrderItems.batchId, stockBatch.id))
         .leftJoin(sr, eq(wholesaleOrderItems.srId, sr.id))
-        .leftJoin(brand, eq(sr.brandId, brand.id))
+        .leftJoin(brand, eq(wholesaleOrderItems.brandId, brand.id))
         .leftJoin(unit, eq(wholesaleOrderItems.unit, unit.abbreviation))
         .where(and(...orderConditions, ...(itemConditions.length > 0 ? itemConditions : [])));
 
@@ -2566,7 +2567,7 @@ export const getSrWiseSales = async (
         return {
             items: commissionItems,
             summary: {
-                totalSRs: commissionItems.length,
+                totalSRs: new Set(commissionItems.map((item) => item.srId)).size,
                 totalQuantitySold: 0,
                 totalFreeQuantity: 0,
                 grandCommissionTotal: grandCommissionTotal.toFixed(2),
@@ -2605,8 +2606,11 @@ export const getSrWiseSales = async (
 
     const directDamageEntries = await getDirectSrDamageEntries(items.map((item) => item.orderId));
 
-    // Step 3: Aggregate by SR
-    const srMap = new Map<number | null, {
+    // Step 3: Aggregate by SR and the company of the lines they sold (an SR can work for
+    // several companies, so one SR can have one row per company).
+    const rowKey = (srId: number | null, brandId: number | null) => `${srId ?? "db"}|${brandId ?? ""}`;
+    const srMap = new Map<string, {
+        srId: number | null;
         srName: string;
         srBrandId: number | null;
         srBrandName: string | null;
@@ -2621,7 +2625,7 @@ export const getSrWiseSales = async (
     }>();
 
     for (const item of items) {
-        const key = item.srId;
+        const key = rowKey(item.srId, item.srBrandId);
         const ret = returnsMap.get(item.itemId) || { returnQty: 0, returnExtraPcs: 0, returnFreeQty: 0, returnAmount: 0, adjDiscount: 0 };
 
         // Match order adjustment logic: paidQty = totalQuantity - freeQuantity
@@ -2646,6 +2650,7 @@ export const getSrWiseSales = async (
             existing.productIds.add(item.productId);
         } else {
             srMap.set(key, {
+                srId: item.srId,
                 srName: item.srId ? (item.srName ?? "Unknown SR") : "DB Point",
                 srBrandId: item.srBrandId,
                 srBrandName: item.srBrandName,
@@ -2661,34 +2666,37 @@ export const getSrWiseSales = async (
         }
     }
 
+    // Rows of one SR (or DB Point), for entries recorded without a company.
+    const rowsOf = (srId: number | null) => [...srMap.values()].filter((row) => row.srId === srId);
+    const emptyRow = (srId: number | null, srName: string, brandId: number | null, brandName: string | null) => ({
+        srId, srName, srBrandId: brandId, srBrandName: brandName,
+        totalQty: 0, totalFreeQty: 0, totalReturnQty: 0, damageTotal: 0, dbPriceTotal: 0, salesPriceTotal: 0,
+        orderIds: new Set<number>(), productIds: new Set<number>(),
+    });
+
+    // Damage goes to the row of the damaged product's company, or the SR's only row.
     for (const damage of directDamageEntries) {
-        const existing = srMap.get(damage.srId);
+        const sameSr = rowsOf(damage.srId);
+        const existing = srMap.get(rowKey(damage.srId, damage.brandId)) ?? (sameSr.length === 1 ? sameSr[0] : undefined);
         if (!existing) continue;
         existing.damageTotal += damage.amount;
         existing.salesPriceTotal -= damage.amount;
     }
 
+    // Commission goes to the row of its company. One saved without a company goes to the
+    // SR's only row, or to a separate row when the SR sold for several companies.
+    const commissionByRow = new Map<string, number>();
     for (const commission of commissionTotals) {
-        if (!srMap.has(commission.srId)) {
-            srMap.set(commission.srId, {
-                srName: commission.srName,
-                srBrandId: commission.brandId,
-                srBrandName: commission.brandName,
-                totalQty: 0,
-                totalFreeQty: 0,
-                totalReturnQty: 0,
-                damageTotal: 0,
-                dbPriceTotal: 0,
-                salesPriceTotal: 0,
-                orderIds: new Set(),
-                productIds: new Set(),
-            });
+        let key = rowKey(commission.srId, commission.brandId);
+        if (commission.brandId === null) {
+            const sameSr = rowsOf(commission.srId);
+            if (sameSr.length === 1) key = rowKey(sameSr[0]!.srId, sameSr[0]!.srBrandId);
         }
+        if (!srMap.has(key)) {
+            srMap.set(key, emptyRow(commission.srId, commission.srName, commission.brandId, commission.brandName));
+        }
+        commissionByRow.set(key, (commissionByRow.get(key) ?? 0) + (parseFloat(commission.total) || 0));
     }
-
-    const commissionBySr = new Map(
-        commissionTotals.map((commission) => [commission.srId, commission.total])
-    );
 
     // Step 4: Build response
     let totalQuantitySold = 0;
@@ -2697,14 +2705,14 @@ export const getSrWiseSales = async (
     let grandSalesPriceTotal = 0;
 
     const srItems: SrSalesItem[] = [];
-    for (const [srId, data] of srMap) {
+    for (const [key, data] of srMap) {
         totalQuantitySold += data.totalQty;
         totalFreeQuantity += data.totalFreeQty;
         grandDbPriceTotal += data.dbPriceTotal;
         grandSalesPriceTotal += data.salesPriceTotal;
 
         srItems.push({
-            srId,
+            srId: data.srId,
             srName: data.srName,
             brandId: data.srBrandId,
             brandName: data.srBrandName,
@@ -2712,7 +2720,7 @@ export const getSrWiseSales = async (
             freeQuantity: data.totalFreeQty,
             returnQuantity: data.totalReturnQty,
             damageTotal: data.damageTotal.toFixed(2),
-            commissionTotal: commissionBySr.get(srId) ?? "0.00",
+            commissionTotal: (commissionByRow.get(key) ?? 0).toFixed(2),
             dbPriceTotal: data.dbPriceTotal.toFixed(2),
             salesPriceTotal: data.salesPriceTotal.toFixed(2),
             orderCount: data.orderIds.size,
@@ -2726,7 +2734,7 @@ export const getSrWiseSales = async (
     return {
         items: srItems,
         summary: {
-            totalSRs: srItems.length,
+            totalSRs: new Set(srItems.map((item) => item.srId)).size,
             totalQuantitySold,
             totalFreeQuantity,
             grandCommissionTotal: grandCommissionTotal.toFixed(2),

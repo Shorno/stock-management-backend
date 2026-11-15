@@ -99,6 +99,8 @@ export const adjustmentExpenseSchema = z.object({
     amount: z.coerce.number().nonnegative("Amount must be non-negative"),
     type: z.string().min(1, "Expense type is required"),
     srId: z.coerce.number().int().positive("SR ID must be positive").optional(),
+    // Company the SR commission is for; filled in when the SR's lines are all one company.
+    brandId: z.coerce.number().int().positive("Company ID must be positive").optional(),
     note: z.string().optional(),
 });
 

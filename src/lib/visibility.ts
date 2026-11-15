@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
+import { and, eq, exists, inArray, notExists, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/config";
-import { brand, product, sr } from "../db/schema";
+import { brand, product, sr, srBrands } from "../db/schema";
 
 /**
  * Hidden companies and SRs (is_active = false) are left out of pickers used for new
@@ -21,6 +21,19 @@ export const activeBrandCondition = (): SQL => eq(brand.isActive, true);
 /** Products of a hidden company are hidden with it. */
 export const activeProductCondition = (): SQL => inArray(product.brandId, activeBrandIds());
 
-/** A hidden SR, or an SR whose company is hidden, is left out. SRs with no company stay. */
+/**
+ * A hidden SR is left out, and so is an SR whose companies are all hidden.
+ * SRs with no company stay.
+ */
 export const activeSrCondition = (): SQL =>
-    and(eq(sr.isActive, true), or(isNull(sr.brandId), inArray(sr.brandId, activeBrandIds())))!;
+    and(
+        eq(sr.isActive, true),
+        or(
+            notExists(db.select({ one: sql`1` }).from(srBrands).where(eq(srBrands.srId, sr.id))),
+            exists(
+                db.select({ one: sql`1` }).from(srBrands)
+                    .innerJoin(brand, eq(srBrands.brandId, brand.id))
+                    .where(and(eq(srBrands.srId, sr.id), eq(brand.isActive, true))),
+            ),
+        ),
+    )!;

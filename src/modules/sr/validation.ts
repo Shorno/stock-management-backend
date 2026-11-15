@@ -2,10 +2,18 @@ import { z } from "zod";
 import { activeOnlyQuery } from "../../lib/visibility";
 import { normalizeBdPhone } from "../sms/template";
 
+const companyId = z.coerce.number().int("Company ID must be an integer").positive("Company ID must be positive");
+
 const baseSrSchema = z.object({
   name: z.string().min(1, "SR name is required").max(100, "SR name is too long"),
-  brandId: z.coerce.number().int("Brand ID must be an integer").positive("Brand ID must be positive").optional(),
+  // Companies the SR works for. brandId (one company) is still accepted from older clients.
+  brandIds: z.array(companyId).max(100, "Too many companies").optional(),
+  brandId: companyId.optional(),
 });
+
+/** The SR's companies from either field, without duplicates, in the order given. */
+export const companyIdsFrom = (data: { brandIds?: number[]; brandId?: number }): number[] =>
+  [...new Set(data.brandIds ?? (data.brandId ? [data.brandId] : []))];
 
 export const createSrSchema = baseSrSchema;
 
