@@ -20,8 +20,17 @@ export const statement = {
 export const ac = createAccessControl(statement);
 
 /**
+ * User-management permissions for Admin: everything Better Auth's adminAc grants
+ * except deleting users, which only the Super Admin may do.
+ */
+export const adminUserStatements = {
+    ...adminAc.statements,
+    user: adminAc.statements.user.filter((action) => action !== "delete"),
+};
+
+/**
  * Admin Role
- * Full access to all features including user management
+ * Full access to all features including user management (but cannot delete users)
  */
 export const admin = ac.newRole({
     product: ["create", "read", "update", "delete"],
@@ -30,7 +39,7 @@ export const admin = ac.newRole({
     dsr: ["create", "read", "update", "delete"],
     route: ["create", "read", "update", "delete"],
     wholesale: ["create", "read", "update", "delete"],
-    ...adminAc.statements, // Inherit user management permissions
+    ...adminUserStatements, // User management, minus deleting users
 });
 
 /**
